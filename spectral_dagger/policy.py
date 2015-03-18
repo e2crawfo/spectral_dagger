@@ -5,7 +5,7 @@ class Policy(object):
     def __init__(self, actions, observations):
          pass
 
-    def reset(self):
+    def reset(self, init_dist=None):
         pass
 
     def action_played(self, action):
