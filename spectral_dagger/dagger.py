@@ -5,6 +5,8 @@ def dagger(
         pomdp, initial_policy, policy_class, expert, beta,
         num_iterations, num_samples, horizon):
 
+    print "Running DAgger..."
+
     policy = initial_policy
 
     policies = [initial_policy]
@@ -12,6 +14,8 @@ def dagger(
     data = []
 
     for i in range(num_iterations):
+        print "Starting DAgger iteration ", i
+
         b = beta.next()
 
         for j in range(num_samples):
@@ -49,6 +53,8 @@ def dagger(
 
         policies.append(policy)
 
+    print "Done DAgger."
+
     return policies
 
 if __name__ == "__main__":
@@ -70,6 +76,7 @@ if __name__ == "__main__":
 
     num_colors = 1
 
+    print "Computing expert policy..."
     pomdp = grid_world.ColoredGridWorld(num_colors, world)
 
     # Expert
@@ -78,13 +85,13 @@ if __name__ == "__main__":
     print "Training model..."
     pbvi = PBVI()
     expert = pbvi.fit(pomdp, discount, m=4, n=20)
-    trajectory, reward = pomdp.sample_trajectory(
-        expert, 20, True, display=1)
+    # trajectory, reward = pomdp.sample_trajectory(
+    #     expert, 20, True, display=1)
 
     # Dagger
-    horizon = 5
+    dagger_horizon = 3
     num_dagger_iterations = 2
-    num_samples_per_iter = 2000
+    num_samples_per_iter = 10000
 
     policy_class = SpectralPlusClassifier
     beta = itertools.chain([1], iter(lambda: 0, 1))
@@ -94,10 +101,12 @@ if __name__ == "__main__":
 
     policies = dagger(
         pomdp, initial_policy, policy_class, expert, beta,
-        num_dagger_iterations, num_samples_per_iter, horizon)
+        num_dagger_iterations, num_samples_per_iter,
+        dagger_horizon)
 
     num_test_trajectories = 10
+    test_horizon = 10
 
     for i in range(num_test_trajectories):
         trajectory, reward = pomdp.sample_trajectory(
-            policies[-1], horizon, True, display=1)
+            policies[-1], test_horizon, True, display=1)
