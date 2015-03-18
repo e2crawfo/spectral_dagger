@@ -1,3 +1,10 @@
+# trying to implement the more correct estimator of hankel matrix
+# entries, used by grinberg and precup condpsr
+
+# basically, we have to through before hand, and get counts for all prefixes.
+# only then can we go through and get the estimator for a trajectory,
+# using all the nodes 
+
 class TrajectoryTree(object):
     def __init__(self, val=None):
         self.count = 0
@@ -14,10 +21,10 @@ class TrajectoryTree(object):
 
         self.count += 1
 
-        if not children and not trajectory:
+        if not self.children and not trajectory:
             self.trajectory = trajectory
 
-        elif not children:
+        elif not self.children:
             if self.trajectory[0] != trajectory[0]:
 
                 first_item = trajectory[0]
