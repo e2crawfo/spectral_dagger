@@ -23,7 +23,7 @@ class SpectralPSRWithActions(object):
         self.B_ao = {}
         self.max_dim = max_dim
 
-    def fit(self, data, max_basis_size, num_components):
+    def fit(self, data, max_basis_size, num_components, use_naive=False):
         """
         data should be a list of lists. Each sublist correspodnds to a
         trajectory.  Each entry of the trajectory should be a 2-tuple,
@@ -36,9 +36,15 @@ class SpectralPSRWithActions(object):
         # data, int(float(max_basis_size)/len(data[0])), len(data[0]))
 
         print "Estimating hankels..."
-        hp, hs, hankel_matrix, symbol_hankels = construct_hankels_with_actions(
-            data, prefix_dict, suffix_dict, self.num_actions,
-            self.num_observations)
+
+        if use_naive:
+            print "...using naive estimator..."
+            hp, hs, hankel_matrix, symbol_hankels = construct_hankels_with_actions(
+                data, prefix_dict, suffix_dict, self.actions, self.observations)
+        else:
+            print "...using robust estimator..."
+            hp, hs, hankel_matrix, symbol_hankels = construct_hankels_with_actions_robust(
+                data, prefix_dict, suffix_dict, self.actions, self.observations)
 
         self.hankel = hankel_matrix
         self.symbol_hankels = symbol_hankels
@@ -55,10 +61,6 @@ class SpectralPSRWithActions(object):
         v = v[:, :num_components].T
         s = np.diag(s[:num_components])
 
-
-        print u.shape
-        print v.shape
-        print s.shape
         # (US)^-1 = (HV)^-1
         left_op_mat = sppy.csarray((np.linalg.inv(s)).dot(u.T))
 
@@ -117,7 +119,7 @@ class SpectralPSRWithActions(object):
         """
         prob = self.b.dot(self.B_ao[(a, o)]).dot(self.b_inf)
 
-        return np.clip(prob, np.finfo(float).eps, 1)[0, 0]
+        return np.clip(prob, np.finfo(float).eps, 1)
 
     def get_obs_rank(self, a, o):
         """
@@ -234,10 +236,10 @@ class SpectralPlusClassifier(Policy):
             self, actions, observations, data):
         """
         data: list
-            a list of pairs. pair[0] is a trajectory (sequence of
-            action-observation) pairs and pair[1] is a sequence of expert_actions
-            actions. pair[1] can also be None, in which case it is an unlabelled
-            data point.
+          a list of pairs. pair[0] is a trajectory (sequence of
+          action-observation) pairs and pair[1] is a sequence of expert_actions
+          actions. pair[1] can also be None, in which case it is an unlabelled
+          data point.
         """
         self.psr = SpectralPSRWithActions(actions, observations)
 
@@ -265,8 +267,6 @@ class SpectralPlusClassifier(Policy):
         states = np.array(states)
         expert_actions = np.array(expert_actions)
 
-        print states
-
         from sklearn import svm
 
         self.classifier = svm.SVC()
@@ -277,7 +277,7 @@ class SpectralPlusClassifier(Policy):
     def reset(self, init_dist=None):
         # TODO: fix this. Can't really take init_dist as an argument,
         # the policy only works if we re-initialize from the same
-        # state the data was generated on.
+        # state the data was generated with.
         self.psr.reset()
 
     def action_played(self, action):
@@ -292,8 +292,8 @@ class SpectralPlusClassifier(Policy):
 
 
 def construct_hankels_with_actions(
-        data, prefix_dict, suffix_dict, num_actions,
-        num_observations, basis_length=100):
+        data, prefix_dict, suffix_dict, actions,
+        observations, basis_length=100):
 
     EXPECTED_SPARSENESS = 0.1
 
@@ -304,20 +304,12 @@ def construct_hankels_with_actions(
 
     symbol_hankels = {}
 
-    ao_pairs = itertools.product(range(num_actions), range(num_observations))
-
-    for pair in ao_pairs:
+    for pair in itertools.product(actions, observations):
         symbol_hankels[pair] = sppy.csarray(
             (len(prefix_dict), len(suffix_dict)))
 
         symbol_hankels[pair].reserve(
             (len(prefix_dict)*len(suffix_dict))*EXPECTED_SPARSENESS)
-
-    # trajectory_tree = TrajectoryTree()
-
-    # for trajectory in data:
-    #     flat_seq = reduce(lambda x, y: x + y, trajectory)
-    #     trajectory_tree.add_trajectory(flat_seq)
 
     for seq in data:
         action_seq = tuple([pair[0] for pair in seq])
@@ -348,8 +340,7 @@ def construct_hankels_with_actions(
                     suffix_dict[suffix]] += 1.0 / action_seq_count
 
             if i < len(seq):
-                action = seq[i][0].get_id()
-                observation = seq[i][1].get_id()
+                a, o = seq[i]
 
                 if i + 1 == len(seq):
                     suffix = ()
@@ -357,10 +348,83 @@ def construct_hankels_with_actions(
                     suffix = tuple(seq[i+1:len(seq)])
 
                 if prefix in prefix_dict and suffix in suffix_dict:
-                    symbol_hankel = symbol_hankels[(action, observation)]
+                    symbol_hankel = symbol_hankels[(a, o)]
                     symbol_hankel[
                         prefix_dict[prefix],
                         suffix_dict[suffix]] += 1.0 / action_seq_count
+
+    return (
+        hankel[0, :], hankel[:, 0], hankel, symbol_hankels)
+
+
+def construct_hankels_with_actions_robust(
+        data, prefix_dict, suffix_dict, actions,
+        observations, basis_length=100):
+
+    EXPECTED_SPARSENESS = 0.1
+
+    hankel = sppy.csarray((len(prefix_dict), len(suffix_dict)))
+    hankel.reserve(int(len(prefix_dict)*len(suffix_dict)*EXPECTED_SPARSENESS))
+
+    symbol_hankels = {}
+
+    for pair in itertools.product(actions, observations):
+        symbol_hankels[pair] = sppy.csarray(
+            (len(prefix_dict), len(suffix_dict)))
+        symbol_hankels[pair].reserve(
+            (len(prefix_dict)*len(suffix_dict))*EXPECTED_SPARSENESS)
+
+    prefix_count = defaultdict(int)
+
+    for seq in data:
+        seq = tuple(seq)
+        for i in range(len(seq)):
+            prefix = seq[:i] + (seq[i][0],)
+            prefix_count[prefix] += 1
+
+            prefix = seq[:i+1]
+            prefix_count[prefix] += 1
+
+    for seq in data:
+        seq = tuple(seq)
+
+        estimate = 1.0
+        for i in range(len(seq)):
+            numer = prefix_count[seq[:i+1]]
+            denom = prefix_count[seq[:i] + (seq[i][0],)]
+            estimate *= float(numer) / denom
+
+        # iterating over prefix start positions
+        for i in range(len(seq)+1):
+            if i > basis_length:
+                break
+
+            if len(seq) - i > basis_length:
+                break
+
+            prefix = tuple(seq[:i])
+
+            if i == len(seq):
+                suffix = ()
+            else:
+                suffix = tuple(seq[i:len(seq)])
+
+            if prefix in prefix_dict and suffix in suffix_dict:
+                hankel[
+                    prefix_dict[prefix],
+                    suffix_dict[suffix]] = estimate
+
+            if i < len(seq):
+                if i + 1 == len(seq):
+                    suffix = ()
+                else:
+                    suffix = tuple(seq[i+1:len(seq)])
+
+                if prefix in prefix_dict and suffix in suffix_dict:
+                    symbol_hankel = symbol_hankels[seq[i]]
+                    symbol_hankel[
+                        prefix_dict[prefix],
+                        suffix_dict[suffix]] = estimate
 
     return (
         hankel[0, :], hankel[:, 0], hankel, symbol_hankels)
@@ -461,7 +525,7 @@ if __name__ == "__main__":
     from policy import RandomPolicy
 
     # Sample a bunch of trajectories, run the learning algorithm on them
-    num_trajectories = 50000
+    num_trajectories = 20000
     horizon = 3
     num_components = 40
     max_basis_size = 1000
@@ -480,7 +544,17 @@ if __name__ == "__main__":
         ['1', '2', '2', '2', '3']]
     )
 
-    num_colors = 4
+    world = np.array([
+        ['x', 'x', 'x', 'x', 'x'],
+        ['x', ' ', ' ', 'G', 'x'],
+        ['x', ' ', ' ', ' ', 'x'],
+        ['x', ' ', 'x', ' ', 'x'],
+        ['x', ' ', ' ', ' ', 'x'],
+        ['x', 'A', ' ', ' ', 'x'],
+        ['x', 'x', 'x', 'x', 'x']]
+    )
+
+    num_colors = 2
 
     pomdp = grid_world.ColoredGridWorld(num_colors, world)
     print pomdp.world
@@ -489,84 +563,86 @@ if __name__ == "__main__":
 
     print "Sampling trajectories..."
     for i in xrange(num_trajectories):
-        trajectory = pomdp.sample_trajectory(
-            exploration_policy, horizon, True, False)
+        trajectory, reward = pomdp.sample_trajectory(
+            exploration_policy, horizon, True, display=False)
         trajectories.append(trajectory)
 
-    actions = pomdp.actions
-    observations = pomdp.observations
+    for use_naive in [True, False]:
+        print "Training model..."
 
-    print "Training model..."
-    psr = SpectralPSRWithActions(actions, observations, max_dim)
-    b_0, B_ao, b_inf = psr.fit(trajectories, max_basis_size, num_components)
+        psr = SpectralPSRWithActions(
+            pomdp.actions, pomdp.observations, max_dim)
 
-    if 0:
-        import sys
-        sys.exit()
+        b_0, B_ao, b_inf = psr.fit(
+            trajectories, max_basis_size, num_components, use_naive)
 
-    test_length = 10
-    num_tests = 10
+        if 0:
+            import sys
+            sys.exit()
 
-    num_below = []
-    top_three_count = 0
+        test_length = 10
+        num_tests = 2000
 
-    print "Running tests..."
+        num_below = []
+        top_three_count = 0
 
-    display = False
+        print "Running tests..."
 
-    for t in range(num_tests):
+        display = False
 
-        if display:
-            print "\nStart test"
-            print "*" * 20
-
-        exploration_policy.reset()
-        psr.reset()
-        pomdp.reset()
-
-        for i in range(test_length):
-            action = exploration_policy.get_action()
-            predicted_obs = psr.get_prediction(action)
-
-            pomdp_string = str(pomdp)
-
-            pomdp.execute_action(action)
-            actual_obs = pomdp.get_current_observation()
-
-            rank = psr.get_obs_rank(action, actual_obs)
-
-            num_below.append(rank[1])
-            if rank[0] < 3:
-                top_three_count += 1
-
-            psr.update(action, actual_obs)
-
-            exploration_policy.action_played(action)
-            exploration_policy.observation_emitted(actual_obs)
+        for t in range(num_tests):
 
             if display:
-                print "\nStep %d" % i
+                print "\nStart test"
                 print "*" * 20
-                print pomdp_string
-                print "Chosen action: ", action
-                print "Predicted observation: ", predicted_obs
-                print "Actual observation: ", actual_obs
-                print "PSR Rank of Actual Observation: ", rank
 
-    print "Average num below: ", np.mean(num_below), "of", len(observations)
-    print "Probability in top 3: %f" % (
-        float(top_three_count) / (test_length * num_tests))
+            exploration_policy.reset()
+            psr.reset()
+            pomdp.reset()
 
-    num_test_trajectories = 40
-    test_trajectories = []
-    print "Sampling test trajectories for WER..."
-    for i in xrange(num_test_trajectories):
-        trajectory = pomdp.sample_trajectory(
-            exploration_policy, horizon, True, False)
-        test_trajectories.append(trajectory)
+            for i in range(test_length):
+                action = exploration_policy.get_action()
+                predicted_obs = psr.get_prediction(action)
 
-    print "Word error rate: ", psr.get_WER(test_trajectories)
+                pomdp_string = str(pomdp)
 
-    llh = psr.get_log_likelihood(test_trajectories, base=2)
-    print "Average log likelihood: ", llh
-    print "Perplexity: ", 2**(-llh)
+                pomdp.execute_action(action)
+                actual_obs = pomdp.get_current_observation()
+
+                rank = psr.get_obs_rank(action, actual_obs)
+
+                num_below.append(rank[1])
+                if rank[0] < 3:
+                    top_three_count += 1
+
+                psr.update(action, actual_obs)
+
+                exploration_policy.action_played(action)
+                exploration_policy.observation_emitted(actual_obs)
+
+                if display:
+                    print "\nStep %d" % i
+                    print "*" * 20
+                    print pomdp_string
+                    print "Chosen action: ", action
+                    print "Predicted observation: ", predicted_obs
+                    print "Actual observation: ", actual_obs
+                    print "PSR Rank of Actual Observation: ", rank
+
+        print "Average num below: ", np.mean(num_below), "of", len(pomdp.observations)
+        print "Probability in top 3: %f" % (
+            float(top_three_count) / (test_length * num_tests))
+
+        num_test_trajectories = 40
+        test_trajectories = []
+        print "Sampling test trajectories for WER..."
+        for i in xrange(num_test_trajectories):
+            trajectory, reward = pomdp.sample_trajectory(
+                exploration_policy, horizon, True, display=False)
+            test_trajectories.append(trajectory)
+
+        print "Word error rate: ", psr.get_WER(test_trajectories)
+
+        llh = psr.get_log_likelihood(test_trajectories, base=2)
+        print "Average log likelihood: ", llh
+        print "Perplexity: ", 2**(-llh)
