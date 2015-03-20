@@ -17,8 +17,8 @@ class PBVI(object):
 
         V = []
 
-        self.T = pomdp.get_transition_ops()
-        self.O = pomdp.get_observation_ops()
+        self.T = pomdp.get_transition_op()
+        self.O = pomdp.get_observation_op()
 
         belief_points = [pomdp.init_dist.copy()]
 
@@ -137,12 +137,11 @@ class BeliefStatePolicy(Policy):
 
         self.b = b
 
-    def action_played(self, action):
+    def update(self, action, observation):
         self.last_action = action
 
-    def observation_emitted(self, o):
         self.b = self.update_belief_state(
-            self.b, self.last_action, o)
+            self.b, action, observation)
 
     def get_value(self, b):
         return max(b.dot(self.V))

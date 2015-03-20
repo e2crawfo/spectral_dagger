@@ -101,24 +101,6 @@ class GridObservation(Observation):
 
         return observations
 
-"""
-        obs_length = np.ceil(np.log2(self.num_colors + 1))
-
-        color_index = self.colors[y_pos-1][x_pos]
-        obs += format(color_index)[2:].zfill(obs_length)
-
-        color_index = self.colors[y_pos][x_pos+1]
-        obs += bin(color_index)[2:].zfill(obs_length)
-
-        color_index = self.colors[y_pos+1][x_pos]
-        obs += bin(color_index)[2:].zfill(obs_length)
-
-        color_index = self.colors[y_pos][x_pos-1]
-        obs += bin(color_index)[2:].zfill(obs_length)
-
-        return np.array(map(lambda x: int(x), obs))
-"""
-
 
 class GridWorld(POMDP):
 
@@ -197,6 +179,10 @@ class GridWorld(POMDP):
 
         return init_dist
 
+    @property
+    def state(self):
+        return self.pos2state(self.current_position)
+
     def pos2state(self, position):
         return GridState(position, self.positions.index(position))
 
@@ -230,12 +216,17 @@ class GridWorld(POMDP):
         """
         if(np.random.random() < 0.2):
             perp_dirs = action.get_perpendicular_directions()
-            action = np.random.choice(perp_dirs)
+            action = perp_dirs[np.random.randint(len(perp_dirs))]
 
         next_position = action.get_next_position(self.current_position)
 
         if self.world[next_position] == ' ':
             self.current_position = next_position
+
+        self.observation = self.generate_observation()
+        self.reward = self.get_reward(self.current_position, None)
+
+        return self.observation, self.reward
 
     def get_reward(self, state, action):
         if isinstance(state, GridState):
@@ -245,10 +236,7 @@ class GridWorld(POMDP):
 
         return 1.0 if in_goal_state else 0.0
 
-    def get_current_reward(self):
-        return self.get_reward(self.current_position, None)
-
-    def get_current_observation(self):
+    def generate_observation(self):
         y_pos, x_pos = self.current_position
 
         north = self.get_obs(y_pos-1, x_pos)
@@ -264,7 +252,19 @@ class GridWorld(POMDP):
         else:
             return 0
 
-    def get_transition_ops(self):
+    def get_reward_op(self):
+        """
+        Returns a |actions| x |states| reward matrix.
+        """
+        R = np.zeros((self.num_actions, self.num_states))
+
+        for a in self.actions:
+            for s in self.states:
+                R[a, s] = self.get_reward(s, a)
+
+        return R
+
+    def get_transition_op(self):
         """
         Returns a set of transition matrices, one for each action.
         For each a, each row of T[a] sums to 1.
@@ -317,7 +317,7 @@ class GridWorld(POMDP):
 
         return T
 
-    def get_observation_ops(self):
+    def get_observation_op(self):
         temp = self.current_position
         valid_states = zip(*np.where(self.world == ' '))
         num_valid_states = len(valid_states)
@@ -402,17 +402,14 @@ if __name__ == "__main__":
     num_steps = 10
 
     for i in range(num_steps):
-        world.execute_action(GridAction(np.random.randint(4)))
+        o, r = world.execute_action(GridAction(np.random.randint(4)))
         time.sleep(0.2)
 
         # Clear screen
         print(chr(27) + "[2J")
 
         print str(world)
-        print world.get_current_observation()
+        print o
 
-    T = world.get_transition_ops()
+    T = world.get_transition_op()
     O = world.get_observation_op()
-
-    print T
-    print O

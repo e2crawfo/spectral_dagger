@@ -35,14 +35,10 @@ def dagger(
                 else:
                     action = policy.get_action()
 
-                pomdp.execute_action(action)
-                obs = pomdp.get_current_observation()
+                obs, _ = pomdp.execute_action(action)
 
-                policy.action_played(action)
-                policy.observation_emitted(obs)
-
-                expert.action_played(action)
-                expert.observation_emitted(obs)
+                policy.update(action, obs)
+                expert.update(action, obs)
 
                 trajectory.append((action, obs))
 

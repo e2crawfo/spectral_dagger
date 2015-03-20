@@ -4,10 +4,30 @@ from collections import defaultdict
 
 from policy import Policy
 
+one_norm_distance = lambda x, y: np.linalg.norm(x - y, ord='1')
 
 class AStarPolicy(Policy):
+    def __init__(self, start_location, goal_location, world):
+        Astar(start_location, goal_location, heuristic, dist, neighbours)
 
-    def __init__(self, goal_location):
+    def reset(self, init_dist=None):
+        pass
+
+    def action_played(self, action):
+        pass
+
+    def observation_emitted(self, obs):
+        pass
+
+    def get_action(self):
+        """
+        Returns the action chosen by the policy, given the history of
+        actions and observations it has encountered. Note that it should Note
+        assume that the action that it returns actually gets played.
+        """
+
+        pass
+
 
 
 
@@ -141,7 +161,8 @@ class PriorityDict(dict):
 
 
 
-
+if __name__ == "__main__":
+    pass
 
 
 

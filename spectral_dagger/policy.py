@@ -8,10 +8,7 @@ class Policy(object):
     def reset(self, init_dist=None):
         pass
 
-    def action_played(self, action):
-        pass
-
-    def observation_emitted(self, obs):
+    def update(self, action, observation):
         pass
 
     def get_action(self):

@@ -203,10 +203,7 @@ class SpectralPolicy(Policy):
     def reset(self):
         pass
 
-    def action_played(self):
-        pass
-
-    def observation(self):
+    def update(self, action, observation):
         pass
 
     def get_action(self):
@@ -280,11 +277,9 @@ class SpectralPlusClassifier(Policy):
         # state the data was generated with.
         self.psr.reset()
 
-    def action_played(self, action):
+    def update(self, action, observation):
         self.last_action = action
-
-    def observation_emitted(self, obs):
-        self.psr.update(self.last_action, obs)
+        self.psr.update(action, observation)
 
     def get_action(self):
         action_string = self.classifier.predict(self.psr.b)
@@ -606,8 +601,7 @@ if __name__ == "__main__":
 
                 pomdp_string = str(pomdp)
 
-                pomdp.execute_action(action)
-                actual_obs = pomdp.get_current_observation()
+                actual_obs, _ = pomdp.execute_action(action)
 
                 rank = psr.get_obs_rank(action, actual_obs)
 
@@ -617,8 +611,7 @@ if __name__ == "__main__":
 
                 psr.update(action, actual_obs)
 
-                exploration_policy.action_played(action)
-                exploration_policy.observation_emitted(actual_obs)
+                exploration_policy.update(action, actual_obs)
 
                 if display:
                     print "\nStep %d" % i

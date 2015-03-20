@@ -163,6 +163,10 @@ class POMDP(object):
     def name(self):
         return "DefaultPOMDP"
 
+    def __str__(self):
+        return "%s. Current state: %s" % (
+            self.get_name(), str(self.current_state))
+
     def reset(self, init_dist=None):
         """Reset the state using a sample from the init distribution."""
         if init_dist is None:
@@ -183,9 +187,18 @@ class POMDP(object):
     def num_states(self):
         return len(self.states)
 
+    def get_reward_op(self):
+        return self.reward.copy()
+
+    def get_transition_op(self):
+        return self.T.copy()
+
+    def get_observation_op(self):
+        return self.O.copy()
+
     def execute_action(self, action):
         """
-        Update the POMDP given that action action has been played.
+        Play the given action. Returns the resulting observation and reward.
         """
 
         if isinstance(action, Action):
@@ -199,23 +212,20 @@ class POMDP(object):
         self.current_state = np.where(sample > 0)[0][0]
 
         self.last_action = action
+        self.observation = self.generate_observation()
+        self.reward = self.get_reward(action, self.current_state)
 
-    def get_reward(self, state, action):
-        return self.reward[action, state]
+        return self.observation, self.reward
 
-    def get_current_reward(self):
-        return self.reward[self.last_action, self.current_state]
-
-    def get_current_observation(self):
+    def generate_observation(self):
         sample = np.random.multinomial(
             1, self.O[self.last_action, self.current_state])
         observation = np.where(sample > 0)[0][0]
 
         return Observation(observation)
 
-    def __str__(self):
-        return "%s. Current state: %s" % (
-            self.get_name(), str(self.current_state))
+    def get_reward(self, state, action):
+        return self.reward[action, state]
 
     def sample_trajectory(
             self, policy, horizon, reset=True, init_dist=None, display=False):
@@ -227,7 +237,7 @@ class POMDP(object):
             policy.reset(init_dist)
 
         trajectory = []
-        reward = []
+        rewards = []
 
         if display:
             print "*" * 80
@@ -237,27 +247,63 @@ class POMDP(object):
                 print str(self)
 
             action = policy.get_action()
-            self.execute_action(action)
-            policy.action_played(action)
 
-            obs = self.get_current_observation()
-            policy.observation_emitted(obs)
-            reward.append(self.get_current_reward())
+            observation, reward = self.execute_action(action)
+
+            policy.update(action, observation)
+            rewards.append(reward)
 
             if display:
                 print action
-                print obs
+                print observation
                 time.sleep(0.3)
 
-            trajectory.append((action, obs))
+            trajectory.append((action, observation))
 
         if display:
             print str(self)
 
-        return trajectory, reward
+        return trajectory, rewards
 
-    def get_transition_ops(self):
-        return self.T
+    @property
+    def state(self):
+        return self.current_state
 
-    def get_observation_ops(self):
-        return self.O
+    def sample_trajectory_as_mdp(
+            self, mdp_policy, horizon, reset=True, init_dist=None, display=False):
+
+        import time
+
+        if reset:
+            self.reset(init_dist)
+            mdp_policy.reset(self.state)
+
+        trajectory = []
+        rewards = []
+
+        if display:
+            print "*" * 80
+
+        for i in range(horizon):
+            if display:
+                print str(self)
+
+            action = mdp_policy.get_action()
+
+            _, reward = self.execute_action(action)
+            state = self.state
+
+            mdp_policy.update(action, state)
+            rewards.append(reward)
+
+            if display:
+                print action
+                print self.state
+                time.sleep(0.3)
+
+            trajectory.append((action, state))
+
+        if display:
+            print str(self)
+
+        return trajectory, rewards
