@@ -1,4 +1,5 @@
 import numpy as np
+
 import time
 import itertools
 
@@ -13,10 +14,7 @@ WEST = 3
 class GridState(State):
     def __init__(self, position, id):
         self.position = position
-        self.id = id
-
-    def get_id(self):
-        return self.id
+        super(GridState, self).__init__(id)
 
     @property
     def y(self):
@@ -37,21 +35,20 @@ class GridAction(Action):
 
     def __init__(self, dir):
         if isinstance(dir, int):
-            self.dir = dir
+            id = dir
         else:
-            self.dir = GridAction.ids[dir.upper()]
+            id = GridAction.ids[dir.upper()]
 
-    def get_id(self):
-        return self.dir
+        super(GridAction, self).__init__(id)
 
     def __str__(self):
-        return "<GridAction dir: %s>" % GridAction.strings[self.dir]
+        return "<GridAction dir: %s>" % GridAction.strings[self.get_id()]
 
     def left(self):
-        return GridAction((self.dir - 1) % 4)
+        return GridAction((self.get_id() - 1) % 4)
 
     def right(self):
-        return GridAction((self.dir + 1) % 4)
+        return GridAction((self.get_id() + 1) % 4)
 
     def get_perpendicular_directions(self):
         if self == NORTH or self == SOUTH:
@@ -64,13 +61,13 @@ class GridAction(Action):
         Returns a pair of ints (y, x).
         """
 
-        if self.dir == NORTH:
+        if self.get_id() == NORTH:
             return (position[0]-1, position[1])
-        elif self.dir == EAST:
+        elif self.get_id() == EAST:
             return (position[0], position[1]+1)
-        elif self.dir == SOUTH:
+        elif self.get_id() == SOUTH:
             return (position[0]+1, position[1])
-        elif self.dir == WEST:
+        elif self.get_id() == WEST:
             return (position[0], position[1]-1)
 
     @staticmethod
@@ -83,6 +80,8 @@ class GridObservation(Observation):
         """max_value is the maximum value of each field"""
         self.values = [north, east, south, west]
         self.num_values = num_values
+
+        super(GridObservation, self).__init__(id)
 
     def get_id(self):
         return sum(

@@ -4,6 +4,7 @@ import numpy as np
 class State(object):
     def __init__(self, id):
         self.id = id
+        self.ndim = 0
 
     def get_id(self):
         return self.id
@@ -43,6 +44,7 @@ class State(object):
 class Action(object):
     def __init__(self, id):
         self.id = id
+        self.ndim = 0
 
     def get_id(self):
         return self.id
@@ -82,6 +84,7 @@ class Action(object):
 class Observation(object):
     def __init__(self, id):
         self.id = id
+        self.ndim = 0
 
     def get_id(self):
         return self.id
