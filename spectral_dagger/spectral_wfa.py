@@ -1,6 +1,7 @@
 import numpy as np
-import sppy
-import sppy.linalg
+from scipy.sparse import csr_matrix, lil_matrix
+
+from sklearn.utils.extmath import randomized_svd
 import heapq
 from policy import Policy
 from collections import defaultdict
@@ -32,11 +33,10 @@ class SpectralPSRWithActions(object):
 
         print "Generating basis..."
         prefix_dict, suffix_dict = top_k_basis(data, max_basis_size)
-        # prefix_dict, suffix_dict = fair_basis(
-        # data, int(float(max_basis_size)/len(data[0])), len(data[0]))
 
         print "Estimating hankels..."
 
+        # Note: all matrices returned by construct_hankels are csr_matrices
         if use_naive:
             print "...using naive estimator..."
             hp, hs, hankel_matrix, symbol_hankels = construct_hankels_with_actions(
@@ -52,50 +52,55 @@ class SpectralPSRWithActions(object):
         num_components = min(num_components, hankel_matrix.shape[0])
 
         print "Performing SVD..."
-        u, s, v = sppy.linalg.rsvd(hankel_matrix, self.max_dim)
-        self.u = u.copy()
-        self.v = v.copy()
-        self.s = s.copy()
+        n_oversamples = 10
+        n_iter = 5
 
-        u = u[:, :num_components]
-        v = v[:, :num_components].T
-        s = np.diag(s[:num_components])
+        # H = U S V^T
+        U, S, VT = randomized_svd(
+            hankel_matrix, self.max_dim, n_oversamples, n_iter)
 
-        # (US)^-1 = (HV)^-1
-        left_op_mat = sppy.csarray((np.linalg.inv(s)).dot(u.T))
+        V = VT.T
 
-        # V^T
-        right_op_mat = sppy.csarray(v.T)
+        U = U[:, :num_components]
+        V = V[:, :num_components]
+        S = np.diag(S[:num_components])
+
+        # P^+ = (HV)^+ = (US)^+ = S^+ U+ = S^-1 U.T
+        P_plus = csr_matrix((np.linalg.inv(S)).dot(U.T))
+
+        # S^+ = (V.T)^+ = V
+        S_plus = csr_matrix(V)
 
         print "Computing operators..."
 
         for pair in symbol_hankels:
-            symbol_hankel = left_op_mat.dot(symbol_hankels[pair])
-            symbol_hankel = symbol_hankel.dot(right_op_mat)
+            symbol_hankel = P_plus.dot(symbol_hankels[pair])
+            symbol_hankel = symbol_hankel.dot(S_plus)
             self.B_ao[pair] = symbol_hankel.toarray()
 
         # computing stopping and starting vectors
-        spU = sppy.csarray(u)
-        spV = sppy.csarray(v)
 
-        self.b_inf = sppy.csarray(np.linalg.inv(s)).dot(spU.T).dot(hp)
+        # P b_inf = hp => b_inf = P^+ hp
+        self.b_inf = P_plus.dot(hp)
         self.b_inf = self.b_inf.toarray()[:, 0]
 
+        # See Lemma 6.1.1 in Borja's thesis
         B = sum(self.B_ao.values())
         self.b_inf = np.linalg.inv(np.eye(num_components)-B).dot(self.b_inf)
 
-        self.b_0 = spV.dot(hs)
-        self.b_0 = self.b_0.toarray()[:, 0]
+        # b_0 S = hs => b_0 = hs S^+
+        self.b_0 = hs.dot(S_plus)
+        self.b_0 = self.b_0.toarray()[0, :]
 
         return self.b_0, self.B_ao, self.b_inf
 
     def update(self, action, obs):
         """Update state upon seeing an action observation pair"""
-        B_ao = self.B_ao[(action, obs)]
-        numerator = self.b.dot(B_ao)
-        denom = numerator.dot(self.b_inf)
+        B_ao = self.B_ao[action, obs]
+        numer = self.b.dot(B_ao)
+        denom = numer.dot(self.b_inf)
 
-        self.b = numerator / denom
+        self.b = numer / denom
 
     def reset(self, state=None):
         """Reset state vector"""
@@ -115,7 +120,7 @@ class SpectralPSRWithActions(object):
     def get_obs_prob(self, a, o):
         """
         Returns the probablilty of observing o given
-        we take action a in the current state
+        we take action a in the current state.
         """
         prob = self.b.dot(self.B_ao[(a, o)]).dot(self.b_inf)
 
@@ -124,7 +129,7 @@ class SpectralPSRWithActions(object):
     def get_obs_rank(self, a, o):
         """
         Get the rank of the given observation, in terms of probability,
-        given we take action a in the current state
+        given we take action a in the current state.
         """
         probs = np.array(
             [self.get_obs_prob(a, obs) for obs in self.observations])
@@ -234,9 +239,9 @@ class SpectralPlusClassifier(Policy):
         """
         data: list
           a list of pairs. pair[0] is a trajectory (sequence of
-          action-observation) pairs and pair[1] is a sequence of expert_actions
-          actions. pair[1] can also be None, in which case it is an unlabelled
-          data point.
+          action-observation pairs) and pair[1] is a sequence of expert
+          actions. pair[1] can also be None, in which case it is an
+          unlabelled data point.
         """
         self.psr = SpectralPSRWithActions(actions, observations)
 
@@ -290,21 +295,17 @@ def construct_hankels_with_actions(
         data, prefix_dict, suffix_dict, actions,
         observations, basis_length=100):
 
-    EXPECTED_SPARSENESS = 0.1
+    size_P = len(prefix_dict)
+    size_S = len(suffix_dict)
 
-    hankel = sppy.csarray((len(prefix_dict), len(suffix_dict)))
-    hankel.reserve(int(len(prefix_dict)*len(suffix_dict)*EXPECTED_SPARSENESS))
-
-    action_sequence_counts = defaultdict(int)
+    hankel = lil_matrix((size_P, size_S))
 
     symbol_hankels = {}
 
     for pair in itertools.product(actions, observations):
-        symbol_hankels[pair] = sppy.csarray(
-            (len(prefix_dict), len(suffix_dict)))
+        symbol_hankels[pair] = lil_matrix((size_P, size_S))
 
-        symbol_hankels[pair].reserve(
-            (len(prefix_dict)*len(suffix_dict))*EXPECTED_SPARSENESS)
+    action_sequence_counts = defaultdict(int)
 
     for seq in data:
         action_seq = tuple([pair[0] for pair in seq])
@@ -348,26 +349,28 @@ def construct_hankels_with_actions(
                         prefix_dict[prefix],
                         suffix_dict[suffix]] += 1.0 / action_seq_count
 
+    hankel = csr_matrix(hankel)
+
+    for pair in itertools.product(actions, observations):
+        symbol_hankels[pair] = csr_matrix(symbol_hankels[pair])
+
     return (
-        hankel[0, :], hankel[:, 0], hankel, symbol_hankels)
+        hankel[:, 0], hankel[0, :], hankel, symbol_hankels)
 
 
 def construct_hankels_with_actions_robust(
         data, prefix_dict, suffix_dict, actions,
         observations, basis_length=100):
 
-    EXPECTED_SPARSENESS = 0.1
+    size_P = len(prefix_dict)
+    size_S = len(suffix_dict)
 
-    hankel = sppy.csarray((len(prefix_dict), len(suffix_dict)))
-    hankel.reserve(int(len(prefix_dict)*len(suffix_dict)*EXPECTED_SPARSENESS))
+    hankel = lil_matrix((size_P, size_S))
 
     symbol_hankels = {}
 
     for pair in itertools.product(actions, observations):
-        symbol_hankels[pair] = sppy.csarray(
-            (len(prefix_dict), len(suffix_dict)))
-        symbol_hankels[pair].reserve(
-            (len(prefix_dict)*len(suffix_dict))*EXPECTED_SPARSENESS)
+        symbol_hankels[pair] = lil_matrix((size_P, size_S))
 
     prefix_count = defaultdict(int)
 
@@ -421,8 +424,13 @@ def construct_hankels_with_actions_robust(
                         prefix_dict[prefix],
                         suffix_dict[suffix]] = estimate
 
+    hankel = csr_matrix(hankel)
+
+    for pair in itertools.product(actions, observations):
+        symbol_hankels[pair] = csr_matrix(symbol_hankels[pair])
+
     return (
-        hankel[0, :], hankel[:, 0], hankel, symbol_hankels)
+        hankel[:, 0], hankel[0, :], hankel, symbol_hankels)
 
 
 def top_k_basis(data, k):
@@ -526,19 +534,6 @@ if __name__ == "__main__":
     max_basis_size = 1000
     max_dim = 150
 
-    exploration_policy = RandomPolicy(
-        grid_world.GridAction.get_all_actions(), [])
-
-    world = np.array([
-        ['1', '4', '4', '4', '3'],
-        ['1', ' ', ' ', 'G', '3'],
-        ['1', ' ', ' ', ' ', '3'],
-        ['1', ' ', '1', ' ', '3'],
-        ['1', ' ', ' ', ' ', '3'],
-        ['1', ' ', ' ', ' ', '3'],
-        ['1', '2', '2', '2', '3']]
-    )
-
     world = np.array([
         ['x', 'x', 'x', 'x', 'x'],
         ['x', ' ', ' ', 'G', 'x'],
@@ -553,6 +548,8 @@ if __name__ == "__main__":
 
     pomdp = grid_world.ColoredGridWorld(num_colors, world)
     print pomdp.world
+
+    exploration_policy = RandomPolicy(pomdp.actions, [])
 
     trajectories = []
 
@@ -570,10 +567,6 @@ if __name__ == "__main__":
 
         b_0, B_ao, b_inf = psr.fit(
             trajectories, max_basis_size, num_components, use_naive)
-
-        if 0:
-            import sys
-            sys.exit()
 
         test_length = 10
         num_tests = 2000
