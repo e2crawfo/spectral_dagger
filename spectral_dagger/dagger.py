@@ -14,9 +14,10 @@ def dagger(
     data = []
 
     for i in range(num_iterations):
-        print "Starting DAgger iteration ", i
-
         b = beta.next()
+
+        print "Starting DAgger iteration ", i
+        print "Beta is ", b
 
         for j in range(num_samples):
             pomdp.reset()
@@ -64,7 +65,7 @@ if __name__ == "__main__":
     # POMDP
     world = np.array([
         ['x', 'x', 'x', 'x', 'x'],
-        ['x', ' ', ' ', 'A', 'x'],
+        ['x', ' ', ' ', ' ', 'x'],
         ['x', ' ', ' ', ' ', 'x'],
         ['x', 'G', ' ', ' ', 'x'],
         ['x', 'x', 'x', 'x', 'x']]
@@ -102,6 +103,16 @@ if __name__ == "__main__":
 
     num_test_trajectories = 10
     test_horizon = 10
+
+    world = np.array([
+        ['x', 'x', 'x', 'x', 'x'],
+        ['x', ' ', ' ', 'A', 'x'],
+        ['x', ' ', ' ', ' ', 'x'],
+        ['x', 'G', ' ', ' ', 'x'],
+        ['x', 'x', 'x', 'x', 'x']]
+    )
+
+    pomdp = grid_world.ColoredGridWorld(num_colors, world)
 
     for i in range(num_test_trajectories):
         trajectory, reward = pomdp.sample_trajectory(
