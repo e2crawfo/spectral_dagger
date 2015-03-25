@@ -2,15 +2,19 @@ import numpy as np
 
 
 class State(object):
-    def __init__(self, id):
+    def __init__(self, id, name=""):
         self.id = id
         self.ndim = 0
+        self.name = name
 
     def get_id(self):
         return self.id
 
     def __str__(self):
-        return "<State id: %d>" % self.get_id()
+        s = "<State id: %d" % self.get_id()
+        if self.name:
+            s += " name: " + self.name
+        return s + ">"
 
     def __repr__(self):
         return str(self)
@@ -42,15 +46,19 @@ class State(object):
 
 
 class Action(object):
-    def __init__(self, id):
+    def __init__(self, id, name=""):
         self.id = id
         self.ndim = 0
+        self.name = name
 
     def get_id(self):
         return self.id
 
     def __str__(self):
-        return "<Action id: %d>" % self.get_id()
+        s = "<Action id: %d" % self.get_id()
+        if self.name:
+            s += " name: " + self.name
+        return s + ">"
 
     def __repr__(self):
         return str(self)
@@ -82,15 +90,19 @@ class Action(object):
 
 
 class Observation(object):
-    def __init__(self, id):
+    def __init__(self, id, name=""):
         self.id = id
         self.ndim = 0
+        self.name = name
 
     def get_id(self):
         return self.id
 
     def __str__(self):
-        return "<Observation id: %d>" % self.get_id()
+        s = "<Observation id: %d" % self.get_id()
+        if self.name:
+            s += " name: " + self.name
+        return s + ">"
 
     def __repr__(self):
         return str(self)
