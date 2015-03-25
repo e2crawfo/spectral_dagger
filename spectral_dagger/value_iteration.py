@@ -3,8 +3,6 @@ import numpy as np
 
 
 def value_iteration(actions, states, T, R, discount, threshold, V_0=None):
-    error = np.inf
-
     if V_0 is None:
         V_0 = np.ones(len(states))
 

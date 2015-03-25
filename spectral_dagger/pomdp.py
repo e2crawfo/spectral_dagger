@@ -125,7 +125,7 @@ class POMDP(object):
 
     def __init__(
             self, actions, observations, states,
-            T, O, init_dist, reward, gamme):
+            T, O, init_dist, reward, gamma):
         """
         Parameters
         ----------
@@ -168,7 +168,7 @@ class POMDP(object):
 
     def __str__(self):
         return "%s. Current state: %s" % (
-            self.get_name(), str(self.current_state))
+            self.name, str(self.current_state))
 
     def reset(self, init_dist=None):
         """Reset the state using a sample from the init distribution."""
@@ -212,13 +212,16 @@ class POMDP(object):
                 "Action class. Got object of type %s instead." % type(action))
 
         sample = np.random.multinomial(1, self.T[action, self.current_state])
+
+        # TODO have this be a state instead of an int. May need to specify
+        # state class to use?
         self.current_state = np.where(sample > 0)[0][0]
 
         self.last_action = action
         self.observation = self.generate_observation()
-        self.reward = self.get_reward(action, self.current_state)
+        reward = self.get_reward(action, self.current_state)
 
-        return self.observation, self.reward
+        return self.observation, reward
 
     def generate_observation(self):
         sample = np.random.multinomial(
@@ -227,7 +230,7 @@ class POMDP(object):
 
         return Observation(observation)
 
-    def get_reward(self, state, action):
+    def get_reward(self, action, state):
         return self.reward[action, state]
 
     def sample_trajectory(

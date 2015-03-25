@@ -54,7 +54,7 @@ class PBVI(object):
         pomdp = self.pomdp
 
         gamma_ab = np.array(
-            [pomdp.get_reward(s, a) for s in pomdp.states])
+            [pomdp.get_reward(a, s) for s in pomdp.states])
 
         for obs in pomdp.observations:
             gamma = gamma_ao[(a, obs)]

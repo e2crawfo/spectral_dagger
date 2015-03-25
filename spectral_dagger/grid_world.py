@@ -223,11 +223,11 @@ class GridWorld(POMDP):
             self.current_position = next_position
 
         self.observation = self.generate_observation()
-        self.reward = self.get_reward(self.current_position, None)
+        self.reward = self.get_reward(None, self.current_position)
 
         return self.observation, self.reward
 
-    def get_reward(self, state, action):
+    def get_reward(self, action, state):
         if isinstance(state, GridState):
             in_goal_state = state.position == self.goal_position
         else:
@@ -259,7 +259,7 @@ class GridWorld(POMDP):
 
         for a in self.actions:
             for s in self.states:
-                R[a, s] = self.get_reward(s, a)
+                R[a, s] = self.get_reward(a, s)
 
         return R
 
