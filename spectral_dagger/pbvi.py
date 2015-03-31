@@ -1,26 +1,25 @@
 """An implementation of point-based value iteration."""
 
 import numpy as np
-from policy import Policy
+from policy import POMDPPolicy
 
 
-class PBVI(object):
+class PBVIPolicy(POMDPPolicy):
 
     def __init__(self):
         pass
 
-    # the m parameter, which essentially controls how ``deep''
-    # the search through belief space goes, is quite important
-    # when the reward is very delayed
-    def fit(self, pomdp, discount, m=6, n=20):
+    def fit(self, pomdp, m=6, n=20):
         self.pomdp = pomdp
+
+        discount = pomdp.gamma
 
         V = []
 
-        self.T = pomdp.get_transition_op()
-        self.O = pomdp.get_observation_op()
+        self.T = pomdp.T
+        self.O = pomdp.O
 
-        belief_points = [pomdp.init_dist.copy()]
+        belief_points = [pomdp.init_dist]
 
         self.ops = {}
 
@@ -34,7 +33,7 @@ class PBVI(object):
 
         for i in range(m):
             for j in range(n):
-                print "Backup : ", j
+                print "PBVI Backup Iteration", j
                 V = self.value_backup(V, belief_points)
 
             if i == m - 1:
@@ -47,8 +46,6 @@ class PBVI(object):
 
         self.belief_points = belief_points
         self.V = V
-
-        return BeliefStatePolicy(V, self.T, self.O, pomdp)
 
     def get_action_value_for_belief(self, gamma_ao, b, a):
         pomdp = self.pomdp
@@ -96,8 +93,7 @@ class PBVI(object):
 
             for a in pomdp.actions:
                 pomdp.reset(b)
-                pomdp.execute_action(a)
-                o = pomdp.get_current_observation()
+                o, r = pomdp.execute_action(a)
 
                 b_prime = b.dot(T[a]) * O[a, :, o]
                 b_prime /= sum(b_prime)
@@ -118,59 +114,30 @@ class PBVI(object):
 
         return new_belief_points
 
-
-class BeliefStatePolicy(Policy):
-    def __init__(self, V, T, O, pomdp):
-        self.V = V
-        self.num_states = pomdp.num_states
-
-        self.T = T
-        self.O = O
-        self.pomdp = pomdp
-
-        self.b = np.zeros(self.num_states)
-        self.b[0] = 1.0
-
     def reset(self, b=None):
         if b is None:
             b = self.pomdp.init_dist
 
         self.b = b
 
-    def update(self, action, observation):
-        self.last_action = action
-
-        self.b = self.update_belief_state(
-            self.b, action, observation)
-
-    def get_value(self, b):
-        return max(b.dot(self.V))
-
-    def update_belief_state(self, b, a, o):
-        b_prime = b.dot(self.T[a]) * self.O[a, :, o]
+    def update(self, a, o, r=None):
+        b_prime = self.b.dot(self.T[a]) * self.O[a, :, o]
         b_prime /= sum(b_prime)
+        self.b = b_prime
 
-        return b_prime
+    def get_belief_state_value(self, b):
+        return max(b.dot(self.V))
 
     def get_action(self):
         b = self.b
 
         return max(
             self.pomdp.actions,
-            key=lambda a: self.get_value(b.dot(self.T[a])))
+            key=lambda a: self.get_belief_state_value(b.dot(self.T[a])))
 
-if __name__ == "__main__":
+
+def test_pbvi(do_plot=False):
     import grid_world
-
-    world = np.array([
-        ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'],
-        ['x', ' ', ' ', ' ', ' ', ' ', 'x', ' ', ' ', 'x'],
-        ['x', ' ', ' ', 'x', 'G', 'x', 'x', ' ', ' ', 'x'],
-        ['x', ' ', ' ', 'x', ' ', ' ', ' ', ' ', ' ', 'x'],
-        ['x', ' ', ' ', 'x', ' ', 'x', 'x', 'x', ' ', 'x'],
-        ['x', 'A', 'x', ' ', ' ', ' ', 'x', ' ', ' ', 'x'],
-        ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x']]
-    )
 
     world = np.array([
         ['x', 'x', 'x', 'x', 'x'],
@@ -189,35 +156,38 @@ if __name__ == "__main__":
     num_trials = 3
 
     means = []
-    data = []
+    rewards = []
 
-    num_trajectories = 10
     colors = [1, 2]
 
     for num_colors in colors:
-        r = []
+        rewards.append([])
 
         for trial in range(num_trials):
-            pomdp = grid_world.ColoredGridWorld(num_colors, world)
+            pomdp = grid_world.EgoGridWorld(num_colors, world, discount)
 
             print "Training model..."
-            pbvi = PBVI()
-            policy = pbvi.fit(pomdp, discount)
+            pbvi = PBVIPolicy()
+            pbvi.fit(pomdp)
 
-            trajectory, reward = pomdp.sample_trajectory(
-                policy, horizon, True, display=1)
+            trajectory = pomdp.sample_trajectory(
+                pbvi, horizon, reset=True, display=True)
 
-            r.append(sum(reward))
+            rewards[-1].append(sum(t[2] for t in trajectory))
 
-            print "Reward using %d colors: %f" % (num_colors, r[-1])
+            print "Reward using %d colors: %f" % (num_colors, rewards[-1][-1])
 
-        data.append(r)
-        means.append(np.mean(r))
+    if do_plot:
+        import matplotlib.pyplot as plt
 
-    import matplotlib.pyplot as plt
+        means = [np.mean(r) for r in rewards]
 
-    plt.plot(range(len(colors)), means)
-    plt.errorbar(range(len(colors)), means, yerr=[np.std(d) for d in data])
-    plt.xlim(-1, len(colors))
+        plt.plot(range(len(colors)), means)
+        plt.errorbar(
+            range(len(colors)), means, yerr=[np.std(r) for r in rewards])
+        plt.xlim(-1, len(colors))
 
-    plt.show()
+        plt.show()
+
+if __name__ == "__main__":
+    test_pbvi()

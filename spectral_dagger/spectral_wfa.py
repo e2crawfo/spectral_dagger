@@ -3,9 +3,10 @@ from scipy.sparse import csr_matrix, lil_matrix
 
 from sklearn.utils.extmath import randomized_svd
 import heapq
-from policy import Policy
 from collections import defaultdict
 import itertools
+
+from policy import POMDPPolicy
 
 VERBOSE = True
 
@@ -39,12 +40,18 @@ class SpectralPSRWithActions(object):
         # Note: all matrices returned by construct_hankels are csr_matrices
         if use_naive:
             print "...using naive estimator..."
-            hp, hs, hankel_matrix, symbol_hankels = construct_hankels_with_actions(
-                data, prefix_dict, suffix_dict, self.actions, self.observations)
+            hankels = construct_hankels_with_actions(
+                data, prefix_dict, suffix_dict,
+                self.actions, self.observations)
+
+            hp, hs, hankel_matrix, symbol_hankels = hankels
         else:
             print "...using robust estimator..."
-            hp, hs, hankel_matrix, symbol_hankels = construct_hankels_with_actions_robust(
-                data, prefix_dict, suffix_dict, self.actions, self.observations)
+            hankels = construct_hankels_with_actions_robust(
+                data, prefix_dict, suffix_dict,
+                self.actions, self.observations)
+
+            hp, hs, hankel_matrix, symbol_hankels = hankels
 
         self.hankel = hankel_matrix
         self.symbol_hankels = symbol_hankels
@@ -102,12 +109,8 @@ class SpectralPSRWithActions(object):
 
         self.b = numer / denom
 
-    def reset(self, state=None):
-        """Reset state vector"""
-        if state:
-            self.b = state.copy()
-        else:
-            self.b = self.b_0.copy()
+    def reset(self):
+        self.b = self.b_0.copy()
 
     def get_prediction(self, action):
         """
@@ -201,26 +204,6 @@ class SpectralPSRWithActions(object):
         return llh / len(test_data)
 
 
-class SpectralPolicy(Policy):
-    def __init__(self):
-        pass
-
-    def reset(self):
-        pass
-
-    def update(self, action, observation):
-        pass
-
-    def get_action(self):
-        """
-        Returns the action chosen by the policy, given the history of
-        actions and observations it has encountered. Note that it should Note
-        assume that the action that it returns actually gets played.
-        """
-
-        pass
-
-
 class PureSpectralLearningAlgorithm(object):
     def __init__(self):
         pass
@@ -233,7 +216,7 @@ class PureSpectralLearningAlgorithm(object):
         return SpectralPolicy()
 
 
-class SpectralPlusClassifier(Policy):
+class SpectralPlusClassifier(POMDPPolicy):
     def __init__(
             self, actions, observations, data):
         """
@@ -277,9 +260,12 @@ class SpectralPlusClassifier(Policy):
         self.action_lookup = {str(a): a for a in actions}
 
     def reset(self, init_dist=None):
-        # TODO: fix this. Can't really take init_dist as an argument,
-        # the policy only works if we re-initialize from the same
-        # state the data was generated with.
+        if init_dist is not None:
+            raise Exception(
+                "Cannot supply initiazation distribution to PSR. "
+                "Only works with the initialization distribution "
+                "on which it was trained.")
+
         self.psr.reset()
 
     def update(self, action, observation):
@@ -525,7 +511,7 @@ def fair_basis(data, k, horizon):
 
 if __name__ == "__main__":
     import grid_world
-    from policy import RandomPolicy
+    from policy import POMDPPolicy
 
     # Sample a bunch of trajectories, run the learning algorithm on them
     num_trajectories = 20000
@@ -546,17 +532,19 @@ if __name__ == "__main__":
 
     num_colors = 2
 
-    pomdp = grid_world.ColoredGridWorld(num_colors, world)
-    print pomdp.world
+    pomdp = grid_world.EgoGridWorld(num_colors, world)
 
-    exploration_policy = RandomPolicy(pomdp.actions, [])
+    exploration_policy = POMDPPolicy()
+    exploration_policy.fit(pomdp)
 
     trajectories = []
 
     print "Sampling trajectories..."
     for i in xrange(num_trajectories):
-        trajectory, reward = pomdp.sample_trajectory(
-            exploration_policy, horizon, True, display=False)
+        trajectory = pomdp.sample_trajectory(
+            exploration_policy, horizon, reset=True,
+            return_reward=False, display=False)
+
         trajectories.append(trajectory)
 
     for use_naive in [True, False]:
@@ -615,16 +603,21 @@ if __name__ == "__main__":
                     print "Actual observation: ", actual_obs
                     print "PSR Rank of Actual Observation: ", rank
 
-        print "Average num below: ", np.mean(num_below), "of", len(pomdp.observations)
+        print (
+            "Average num below: ", np.mean(num_below),
+            "of", len(pomdp.observations))
         print "Probability in top 3: %f" % (
             float(top_three_count) / (test_length * num_tests))
 
         num_test_trajectories = 40
         test_trajectories = []
+
         print "Sampling test trajectories for WER..."
         for i in xrange(num_test_trajectories):
             trajectory, reward = pomdp.sample_trajectory(
-                exploration_policy, horizon, True, display=False)
+                exploration_policy, horizon, reset=True,
+                return_reward=False, display=False)
+
             test_trajectories.append(trajectory)
 
         print "Word error rate: ", psr.get_WER(test_trajectories)

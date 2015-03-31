@@ -1,92 +1,7 @@
 import numpy as np
+import time
 
-
-class State(object):
-    def __init__(self, id, name=""):
-        self.id = id
-        self.ndim = 0
-        self.name = name
-
-    def get_id(self):
-        return self.id
-
-    def __str__(self):
-        s = "<State id: %d" % self.get_id()
-        if self.name:
-            s += " name: " + self.name
-        return s + ">"
-
-    def __repr__(self):
-        return str(self)
-
-    def __eq__(self, other):
-        """Override the default == behavior"""
-        if isinstance(other, self.__class__):
-            return self.get_id() == other.get_id()
-        elif isinstance(other, int):
-            return self.get_id() == other
-
-        return NotImplemented
-
-    def __ne__(self, other):
-        if isinstance(other, self.__class__) or isinstance(other, int):
-            return not self.__eq__(other)
-
-        return NotImplemented
-
-    def __hash__(self):
-        """Override default behaviour when used as key in dict"""
-        return hash(self.get_id())
-
-    def __index__(self):
-        return self.get_id()
-
-    def __int__(self):
-        return self.get_id()
-
-
-class Action(object):
-    def __init__(self, id, name=""):
-        self.id = id
-        self.ndim = 0
-        self.name = name
-
-    def get_id(self):
-        return self.id
-
-    def __str__(self):
-        s = "<Action id: %d" % self.get_id()
-        if self.name:
-            s += " name: " + self.name
-        return s + ">"
-
-    def __repr__(self):
-        return str(self)
-
-    def __eq__(self, other):
-        """Override the default == behavior"""
-        if isinstance(other, self.__class__):
-            return self.get_id() == other.get_id()
-        elif isinstance(other, int):
-            return self.get_id() == other
-
-        return NotImplemented
-
-    def __ne__(self, other):
-        if isinstance(other, self.__class__) or isinstance(other, int):
-            return not self.__eq__(other)
-
-        return NotImplemented
-
-    def __hash__(self):
-        """Override default behaviour when used as key in dict"""
-        return hash(self.get_id())
-
-    def __index__(self):
-        return self.get_id()
-
-    def __int__(self):
-        return self.get_id()
+from mdp import MDP
 
 
 class Observation(object):
@@ -101,7 +16,7 @@ class Observation(object):
     def __str__(self):
         s = "<Observation id: %d" % self.get_id()
         if self.name:
-            s += " name: " + self.name
+            s += ", name: " + self.name
         return s + ">"
 
     def __repr__(self):
@@ -137,7 +52,7 @@ class POMDP(object):
 
     def __init__(
             self, actions, observations, states,
-            T, O, init_dist, reward, gamma):
+            T, O, R, init_dist=None, gamma=1.0):
         """
         Parameters
         ----------
@@ -155,24 +70,30 @@ class POMDP(object):
           An |actions| x |states| x |observations| matrix. Entry (a, i, j)
           gives the probability of emitting observation j given that the POMDP
           is in state i and the last action was a.
-        init_dist: ndarray
-          An |states| array. Entry i gives the probability of starting in
-          the ith states.
-        reward: ndarray
+        R: ndarray
           An |actions| x |states| matrix. Entry (a, i) gives the reward for
           ending up in state i given we took action a.
+        init_dist: ndarray
+          A |states| ndarray specifying the default state initiazation
+          distribution. If none is provided, a uniform distribution is used.
+        gamma: float
+          Discount factor.
         """
 
         self.actions = actions
-        self.states = states
         self.observations = observations
+        self.states = states
 
-        self.T = T
-        self.O = O
+        self._T = T
+        self._O = O
+        self._R = R
+
+        if init_dist is None:
+            init_dist = np.ones(self.states) / self.states
+
         self.init_dist = init_dist
-        self.reward = reward
 
-        self.current_state = init_dist.sample()
+        self.mdp = MDP(actions, states, T, R, gamma)
 
     @property
     def name(self):
@@ -182,13 +103,38 @@ class POMDP(object):
         return "%s. Current state: %s" % (
             self.name, str(self.current_state))
 
-    def reset(self, init_dist=None):
-        """Reset the state using a sample from the init distribution."""
+    def reset(self, init_dist):
+        """
+        Resets the state of the POMDP.
+
+        Parameters
+        ----------
+        state: State or int or ndarray or list
+          If state is a State or int, sets the current state accordingly.
+          Otherwise it must be all positive, sum to 1, and have length equal
+          to the number of states in the MDP. The state is sampled from the
+          induced distribution.
+        """
+
         if init_dist is None:
             init_dist = self.init_dist
 
         sample = np.random.multinomial(1, init_dist)
-        self.current_state = np.where(sample > 0)[0][0]
+        self.mdp.reset(np.where(sample > 0)[0][0])
+
+    def execute_action(self, action):
+        """
+        Play the given action.
+
+        Returns the resulting observation and reward.
+        """
+
+        state, reward = self.mdp.execute_action(action)
+
+        sample = np.random.multinomial(1, self.O[action, self.mdp.state])
+        obs = Observation(np.where(sample > 0)[0][0])
+
+        return obs, reward
 
     @property
     def num_actions(self):
@@ -202,102 +148,43 @@ class POMDP(object):
     def num_states(self):
         return len(self.states)
 
-    def get_reward_op(self):
-        return self.reward.copy()
-
-    def get_transition_op(self):
-        return self.T.copy()
-
-    def get_observation_op(self):
-        return self.O.copy()
-
-    def execute_action(self, action):
-        """
-        Play the given action. Returns the resulting observation and reward.
-        """
-
-        if isinstance(action, Action):
-            action = action.get_id()
-        elif not isinstance(action, int):
-            raise ValueError(
-                "Action must either be an integer or an instance of the "
-                "Action class. Got object of type %s instead." % type(action))
-
-        sample = np.random.multinomial(1, self.T[action, self.current_state])
-
-        # TODO have this be a state instead of an int. May need to specify
-        # state class to use?
-        self.current_state = np.where(sample > 0)[0][0]
-
-        self.last_action = action
-        self.observation = self.generate_observation()
-        reward = self.get_reward(action, self.current_state)
-
-        return self.observation, reward
-
-    def generate_observation(self):
-        sample = np.random.multinomial(
-            1, self.O[self.last_action, self.current_state])
-        observation = np.where(sample > 0)[0][0]
-
-        return Observation(observation)
-
-    def get_reward(self, action, state):
-        return self.reward[action, state]
-
-    def sample_trajectory(
-            self, policy, horizon, reset=True, init_dist=None, display=False):
-
-        import time
-
-        if reset:
-            self.reset(init_dist)
-            policy.reset(init_dist)
-
-        trajectory = []
-        rewards = []
-
-        if display:
-            print "*" * 80
-
-        for i in range(horizon):
-            if display:
-                print str(self)
-
-            action = policy.get_action()
-
-            observation, reward = self.execute_action(action)
-
-            policy.update(action, observation)
-            rewards.append(reward)
-
-            if display:
-                print action
-                print observation
-                time.sleep(0.3)
-
-            trajectory.append((action, observation))
-
-        if display:
-            print str(self)
-
-        return trajectory, rewards
-
     @property
     def state(self):
-        return self.current_state
+        return self.mdp.state
 
-    def sample_trajectory_as_mdp(
-            self, mdp_policy, horizon, reset=True, init_dist=None, display=False):
+    @property
+    def T(self):
+        return self._T.copy()
 
-        import time
+    @property
+    def O(self):
+        return self._O.copy()
+
+    @property
+    def R(self):
+        return self._R.copy()
+
+    def get_reward(self, action, state):
+        return self.mdp.get_reward(action, state)
+
+    def sample_trajectory(
+            self, pomdp_policy, horizon, reset=True,
+            init_dist=None, return_reward=True, display=False):
 
         if reset:
+            # init_dist = None means policy and environment have agreed on an
+            # initial distribution before-hand which they both, in some sense,
+            # have access to.
+            #
+            # TODO: all pomdp policies should take an initial distribution as a
+            # in their reset functions. If they only work for fixed initial
+            # distributions, then they should throw an exception if they get a
+            # non-None distribution.
+
             self.reset(init_dist)
-            mdp_policy.reset(self.state)
+            pomdp_policy.reset(init_dist)
 
         trajectory = []
-        rewards = []
 
         if display:
             print "*" * 80
@@ -306,22 +193,23 @@ class POMDP(object):
             if display:
                 print str(self)
 
-            action = mdp_policy.get_action()
+            a = pomdp_policy.get_action()
 
-            _, reward = self.execute_action(action)
-            state = self.state
+            o, r = self.execute_action(a)
 
-            mdp_policy.update(action, state)
-            rewards.append(reward)
+            if return_reward:
+                trajectory.append((a, o, r))
+            else:
+                trajectory.append((a, o))
+
+            pomdp_policy.update(a, o, r)
 
             if display:
-                print action
-                print self.state
+                print a
+                print o
                 time.sleep(0.3)
-
-            trajectory.append((action, state))
 
         if display:
             print str(self)
 
-        return trajectory, rewards
+        return trajectory

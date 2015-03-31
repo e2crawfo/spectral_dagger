@@ -1,4 +1,4 @@
-import pomdp
+from mdp import MDP, Action
 import policy
 import grid_world
 
@@ -7,16 +7,16 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 
 
-class BadExamplePOMDP(pomdp.POMDP):
+class BadExampleMDP(MDP):
     """
     Dagger will fail on this environment when learning a linear classfier.
     """
 
-    actions = [pomdp.Action(0, 'red'), pomdp.Action(1, 'blue')]
+    actions = [Action(0, 'red'), Action(1, 'blue')]
 
     def __init__(self):
-        A_0 = BadExamplePOMDP.actions[0]
-        A_1 = BadExamplePOMDP.actions[1]
+        A_0 = BadExampleMDP.actions[0]
+        A_1 = BadExampleMDP.actions[1]
 
         self.actions = [A_0, A_1]
 
@@ -37,28 +37,28 @@ class BadExamplePOMDP(pomdp.POMDP):
         self.observations = self.states
 
         num_states = len(self.states)
-        self.T = np.zeros((2, num_states, num_states))
+        self._T = np.zeros((2, num_states, num_states))
 
-        self.T[A_0][0][1] = 1.0
-        self.T[A_0][1][2] = 1.0
-        self.T[A_0][2][1] = 1.0
-        self.T[A_0][3][4] = 1.0
-        self.T[A_0][4][3] = 1.0
+        self._T[A_0][0][1] = 1.0
+        self._T[A_0][1][2] = 1.0
+        self._T[A_0][2][1] = 1.0
+        self._T[A_0][3][4] = 1.0
+        self._T[A_0][4][3] = 1.0
 
-        self.T[A_1][0][3] = 1.0
-        self.T[A_1][1][2] = 1.0
-        self.T[A_1][2][1] = 1.0
-        self.T[A_1][3][4] = 1.0
-        self.T[A_1][4][3] = 1.0
+        self._T[A_1][0][3] = 1.0
+        self._T[A_1][1][2] = 1.0
+        self._T[A_1][2][1] = 1.0
+        self._T[A_1][3][4] = 1.0
+        self._T[A_1][4][3] = 1.0
 
-        self.reward = np.zeros((2, num_states))
+        self._R = np.zeros((2, num_states))
 
     @property
     def name(self):
-        return "BadExamplePOMDP"
+        return "BadExampleMDP"
 
     def execute_action(self, action):
-        o, r = super(BadExamplePOMDP, self).execute_action(action)
+        o, r = super(BadExampleMDP, self).execute_action(action)
         self.current_state = self.states[self.current_state]
         return self.current_state, r
 
@@ -69,7 +69,7 @@ class BadExamplePOMDP(pomdp.POMDP):
         return self.current_state
 
 
-class BadExampleExpert(policy.Policy):
+class BadExampleExpert(policy.MDPPolicy):
     def __init__(self, initial_state):
         self.initial_state = initial_state
         self.current_state = self.initial_state
@@ -77,24 +77,24 @@ class BadExampleExpert(policy.Policy):
     def reset(self, init_dist=None):
         self.current_state = self.initial_state
 
-    def update(self, action, state):
+    def update(self, action, state, reward=None):
         self.current_state = state
 
     def get_action(self):
         mapping = {0: 1, 1: 0, 2: 1, 3: 0, 4: 1}
-        return BadExamplePOMDP.actions[mapping[self.current_state.get_id()]]
+        return BadExampleMDP.actions[mapping[self.current_state.get_id()]]
 
 
-class GoodExamplePOMDP(pomdp.POMDP):
+class GoodExampleMDP(MDP):
     """
     Dagger will succeed on this environment when learning a linear classfier.
     """
 
-    actions = [pomdp.Action(0, 'red'), pomdp.Action(1, 'blue')]
+    actions = [Action(0, 'red'), Action(1, 'blue')]
 
     def __init__(self):
-        A_0 = GoodExamplePOMDP.actions[0]
-        A_1 = GoodExamplePOMDP.actions[1]
+        A_0 = GoodExampleMDP.actions[0]
+        A_1 = GoodExampleMDP.actions[1]
 
         self.actions = [A_0, A_1]
 
@@ -144,10 +144,10 @@ class GoodExamplePOMDP(pomdp.POMDP):
 
     @property
     def name(self):
-        return "GoodExamplePOMDP"
+        return "GoodExampleMDP"
 
     def execute_action(self, action):
-        o, r = super(GoodExamplePOMDP, self).execute_action(action)
+        o, r = super(GoodExampleMDP, self).execute_action(action)
         self.current_state = self.states[self.current_state]
         return self.current_state, r
 
@@ -158,7 +158,7 @@ class GoodExamplePOMDP(pomdp.POMDP):
         return self.current_state
 
 
-class GoodExampleExpert(policy.Policy):
+class GoodExampleExpert(policy.MDPPolicy):
     def __init__(self, initial_state):
         self.initial_state = initial_state
         self.current_state = self.initial_state
@@ -166,15 +166,15 @@ class GoodExampleExpert(policy.Policy):
     def reset(self, init_dist=None):
         self.current_state = self.initial_state
 
-    def update(self, action, state):
+    def update(self, action, state, reward=None):
         self.current_state = state
 
     def get_action(self):
         mapping = {0: 1, 1: 0, 2: 1, 3: 1, 4: 0, 5: 1, 6: 0, 7: 1}
-        return GoodExamplePOMDP.actions[mapping[self.current_state.get_id()]]
+        return GoodExampleMDP.actions[mapping[self.current_state.get_id()]]
 
 
-class LinearLearner(policy.Policy):
+class LinearLearner(policy.MDPPolicy):
     def __init__(self, initial_state, actions, observations, data):
         self.initial_state = initial_state
         self.actions = actions
@@ -206,7 +206,7 @@ class LinearLearner(policy.Policy):
     def reset(self, init_dist=None):
         self.current_state = self.initial_state
 
-    def update(self, action, observation):
+    def update(self, action, observation, reward=None):
         self.last_action = action
         self.current_state = observation
 
@@ -220,15 +220,16 @@ if __name__ == "__main__":
     import dagger
 
     if False:
-        env = GoodExamplePOMDP()
+        env = GoodExampleMDP()
         initial_policy = GoodExampleExpert(env.initial_state)
         expert = GoodExampleExpert(env.initial_state)
     else:
-        env = BadExamplePOMDP()
+        env = BadExampleMDP()
         initial_policy = BadExampleExpert(env.initial_state)
         expert = BadExampleExpert(env.initial_state)
 
-    policy_class = lambda *args, **kwargs: LinearLearner(env.initial_state, *args, **kwargs)
+    policy_class = (
+        lambda *a, **kw: LinearLearner(env.initial_state, *a, **kw))
 
     def make_beta(alpha):
         i = 1
@@ -256,15 +257,15 @@ if __name__ == "__main__":
     test_horizon = 10
 
     for i in range(num_test_trajectories):
-        trajectory, reward = env.sample_trajectory(
+        trajectory = env.sample_trajectory(
             policies[-1], test_horizon, True, display=1)
 
-    #import matplotlib.pyplot as plt
-    #from matplotlib.lines import Line2D
+    # import matplotlib.pyplot as plt
+    # from matplotlib.lines import Line2D
 
-    #for i, p in enumerate(policies):
-    #    ax = plt.subplot(num_iterations, 1, i)
+    # for i, p in enumerate(policies):
+    #     ax = plt.subplot(num_iterations, 1, i)
 
-    #    ax.add_line(Line2D())
+    #     ax.add_line(Line2D())
 
-    #plt.show()
+    # plt.show()
