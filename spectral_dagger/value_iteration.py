@@ -45,35 +45,3 @@ class ValueIteration(LearningAlgorithm):
         self.gamma = gamma
 
         return GreedyPolicy(mdp, V)
-
-
-def test_value_iteration():
-    import grid_world
-
-    world = np.array([
-        ['x', 'x', 'x', 'x', 'x', 'x', 'x'],
-        ['x', ' ', 'x', ' ', ' ', ' ', 'x'],
-        ['x', 'G', 'x', ' ', ' ', ' ', 'x'],
-        ['x', ' ', 'x', ' ', ' ', ' ', 'x'],
-        ['x', ' ', ' ', ' ', ' ', ' ', 'x'],
-        ['x', ' ', ' ', 'x', ' ', 'A', 'x'],
-        ['x', 'x', 'x', 'x', 'x', 'x', 'x']]
-    )
-
-    gamma = 0.9
-
-    env = grid_world.GridWorld(world, gamma)
-
-    threshold = 0.0001
-
-    alg = ValueIteration(threshold)
-    policy = alg.fit(env)
-
-    horizon = 20
-    trajectory = env.sample_trajectory(
-        policy, horizon, reset=True, display=True)
-
-    print trajectory
-
-if __name__ == "__main__":
-    test_value_iteration()
