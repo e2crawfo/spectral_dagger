@@ -2,7 +2,7 @@ import numpy as np
 from heapq import heapify, heappush, heappop
 from collections import defaultdict
 
-from policy import Policy
+from mdp import MDPPolicy
 
 one_norm_distance = lambda x, y: np.linalg.norm(x - y, ord='1')
 
