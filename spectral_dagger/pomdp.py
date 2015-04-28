@@ -213,3 +213,59 @@ class POMDP(object):
             print str(self)
 
         return trajectory
+
+
+class POMDPPolicy(object):
+    """
+    A policy that operates on a POMDP.
+    Uses an arbitrary function of the history  to choose actions.
+    """
+
+    def __init__(self, f):
+        self.f = f
+        self.history = []
+
+    def reset(self, init_dist=None):
+        self.history = []
+
+    def update(self, action, observation, reward=None):
+        self.history.append((action, observation))
+
+    def get_action(self):
+        return self.f(self.history)
+
+
+class UniformRandomPolicy(POMDPPolicy):
+
+    def __init__(self, pomdp):
+        self.actions = pomdp.actions
+
+    def get_action(self):
+        return np.random.choice(self.actions)
+
+
+class BeliefStatePolicy(POMDPPolicy):
+    """
+    A policy that has a access to a model of the environment in the form
+    of a POMDP, and can thus maintain a belief state.
+    """
+
+    def __init__(self, pomdp):
+        raise NotImplemented("Cannot instantiate BeliefStatePolicy.")
+
+        self.pomdp = pomdp
+        self.b = None
+
+    def reset(self, b=None):
+        if b is None:
+            b = self.pomdp.init_dist
+
+        self.b = b
+
+    def update(self, a, o, r=None):
+        b_prime = self.b.dot(self.pomdp.T[a]) * self.pomdp.O[a, :, o]
+        b_prime /= sum(b_prime)
+        self.b = b_prime
+
+    def get_action(self):
+        raise NotImplemented("Cannot instantiate BeliefStatePolicy.")

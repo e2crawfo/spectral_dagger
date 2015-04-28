@@ -3,7 +3,10 @@ import numpy as np
 import itertools
 
 from mdp import MDP, State, Action
+from mdp import UniformRandomPolicy as MDPUniformRandomPolicy
+
 from pomdp import POMDP, Observation
+from pomdp import UniformRandomPolicy as POMDPUniformRandomPolicy
 
 
 class GridState(State):
@@ -493,12 +496,11 @@ class EgoGridWorld(POMDP):
 
 
 def test_grid_world():
-    from policy import MDPPolicy
+    from mdp import MDPPolicy
 
     env = GridWorld()
 
-    policy = MDPPolicy()
-    policy.fit(env)
+    policy = MDPUniformRandomPolicy(env)
 
     print str(env)
 
@@ -511,12 +513,10 @@ def test_grid_world():
 
 
 def test_ego_grid_world():
-    from policy import POMDPPolicy
 
     env = EgoGridWorld(2)
 
-    policy = POMDPPolicy()
-    policy.fit(env)
+    policy = POMDPUniformRandomPolicy(env)
 
     print str(env)
 

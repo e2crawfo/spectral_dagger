@@ -236,3 +236,65 @@ class MDP(object):
             print str(self)
 
         return trajectory
+
+
+class MDPPolicy(object):
+    """
+    The most general MDPPolicy class.
+
+    Parameters
+    ----------
+    pi: dict or callable
+        A mapping from states to actions.
+    """
+
+    def __init__(self, pi):
+        self.is_dict = hasattr(pi, '__getitem__')
+
+        if not self.is_dict and not callable(pi):
+            raise Exception(
+                "pi must be either a dict or a callable.")
+
+        self.pi = pi
+
+    def reset(self, state):
+        self.current_state = state
+
+    def update(self, action, state, reward=None):
+        self.current_state = state
+
+    def get_action(self):
+        if self.is_dict:
+            return self.pi[self.current_state]
+        else:
+            return self.pi(self.current_state)
+
+
+class UniformRandomPolicy(MDPPolicy):
+
+    def __init__(self, mdp):
+        self.actions = mdp.actions
+
+    def get_action(self):
+        return np.random.choice(self.actions)
+
+
+class GreedyPolicy(MDPPolicy):
+
+    def __init__(self, mdp, V):
+        self.T = mdp.T
+        self.R = mdp.R
+        self.gamma = mdp.gamma
+        self.actions = mdp.actions
+
+        self.V = V.copy()
+
+    def set_value(self, s, v):
+        self.V[s] = v
+
+    def get_action(self):
+        T_s = self.T[:, self.current_state, :]
+
+        return max(
+            self.actions,
+            key=lambda a: T_s[a, :].dot(self.R[a, :] + self.gamma * self.V))

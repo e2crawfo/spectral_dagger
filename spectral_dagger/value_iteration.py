@@ -1,8 +1,10 @@
 import numpy as np
-from policy import MDPPolicy
+
+from mdp import GreedyPolicy
+from learning_algorithm import LearningAlgorithm
 
 
-class ValueIterationPolicy(MDPPolicy):
+class ValueIteration(LearningAlgorithm):
 
     def __init__(self, threshold=0.0001):
         self.threshold = threshold
@@ -42,18 +44,7 @@ class ValueIterationPolicy(MDPPolicy):
         self.R = R
         self.gamma = gamma
 
-    def reset(self, state):
-        self.current_state = state
-
-    def update(self, action, next_state, reward):
-        self.current_state = next_state
-
-    def get_action(self):
-        T_s = self.T[:, self.current_state, :]
-
-        return max(
-            self.actions,
-            key=lambda a: T_s[a, :].dot(self.R[a, :] + self.gamma * self.V))
+        return GreedyPolicy(mdp, V)
 
 
 def test_value_iteration():
@@ -75,8 +66,8 @@ def test_value_iteration():
 
     threshold = 0.0001
 
-    policy = ValueIterationPolicy(threshold)
-    policy.fit(env)
+    alg = ValueIteration(threshold)
+    policy = alg.fit(env)
 
     horizon = 20
     trajectory = env.sample_trajectory(

@@ -1,15 +1,20 @@
 """An implementation of point-based value iteration."""
 
 import numpy as np
-from policy import POMDPPolicy
+from learning_algorithm import LearningAlgorithm
+from pomdp import BeliefStatePolicy
 
 
-class PBVIPolicy(POMDPPolicy):
+class PBVI(LearningAlgorithm):
 
-    def __init__(self):
-        pass
+    def __init__(self, m=6, n=20):
+        self.m = m
+        self.n = n
 
-    def fit(self, pomdp, m=6, n=20):
+    def fit(self, pomdp):
+        m = self.m
+        n = self.n
+
         self.pomdp = pomdp
 
         discount = pomdp.gamma
@@ -46,6 +51,8 @@ class PBVIPolicy(POMDPPolicy):
 
         self.belief_points = belief_points
         self.V = V
+
+        return PBVIPolicy(pomdp, V)
 
     def get_action_value_for_belief(self, gamma_ao, b, a):
         pomdp = self.pomdp
@@ -114,26 +121,29 @@ class PBVIPolicy(POMDPPolicy):
 
         return new_belief_points
 
-    def reset(self, b=None):
-        if b is None:
-            b = self.pomdp.init_dist
 
-        self.b = b
+class PBVIPolicy(BeliefStatePolicy):
 
-    def update(self, a, o, r=None):
-        b_prime = self.b.dot(self.T[a]) * self.O[a, :, o]
-        b_prime /= sum(b_prime)
-        self.b = b_prime
+    def __init__(self, pomdp, V):
+        self.pomdp = pomdp
+        self.V = V.copy()
+
+        self.b = None
 
     def get_belief_state_value(self, b):
         return max(b.dot(self.V))
 
     def get_action(self):
+        if self.b is None:
+            raise Exception(
+                "PBVIPolicy has not been given an initial "
+                "distribution. Use PBVIPolicy.reset")
+
         b = self.b
 
         return max(
             self.pomdp.actions,
-            key=lambda a: self.get_belief_state_value(b.dot(self.T[a])))
+            key=lambda a: self.get_belief_state_value(b.dot(self.pomdp.T[a])))
 
 
 def test_pbvi(do_plot=False):
@@ -167,11 +177,11 @@ def test_pbvi(do_plot=False):
             pomdp = grid_world.EgoGridWorld(num_colors, world, discount)
 
             print "Training model..."
-            pbvi = PBVIPolicy()
-            pbvi.fit(pomdp)
+            alg = PBVI()
+            policy = alg.fit(pomdp)
 
             trajectory = pomdp.sample_trajectory(
-                pbvi, horizon, reset=True, display=True)
+                policy, horizon, reset=True, display=True)
 
             rewards[-1].append(sum(t[2] for t in trajectory))
 

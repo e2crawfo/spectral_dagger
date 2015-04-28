@@ -1,5 +1,4 @@
-from mdp import MDP, Action
-import policy
+from mdp import MDP, Action, MDPPolicy
 import grid_world
 
 import numpy as np
@@ -69,7 +68,7 @@ class BadExampleMDP(MDP):
         return self.current_state
 
 
-class BadExampleExpert(policy.MDPPolicy):
+class BadExampleExpert(MDPPolicy):
     def __init__(self, initial_state):
         self.initial_state = initial_state
         self.current_state = self.initial_state
@@ -158,7 +157,7 @@ class GoodExampleMDP(MDP):
         return self.current_state
 
 
-class GoodExampleExpert(policy.MDPPolicy):
+class GoodExampleExpert(MDPPolicy):
     def __init__(self, initial_state):
         self.initial_state = initial_state
         self.current_state = self.initial_state
@@ -174,7 +173,7 @@ class GoodExampleExpert(policy.MDPPolicy):
         return GoodExampleMDP.actions[mapping[self.current_state.get_id()]]
 
 
-class LinearLearner(policy.MDPPolicy):
+class LinearLearner(MDPPolicy):
     def __init__(self, initial_state, actions, observations, data):
         self.initial_state = initial_state
         self.actions = actions

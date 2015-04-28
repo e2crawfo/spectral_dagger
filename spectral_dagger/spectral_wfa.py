@@ -6,7 +6,10 @@ import heapq
 from collections import defaultdict
 import itertools
 
-from policy import POMDPPolicy
+from learning_algorithm import LearningAlgorithm
+from pomdp import POMDPPolicy
+
+from sklearn import svm
 
 VERBOSE = True
 
@@ -29,7 +32,7 @@ class SpectralPSRWithActions(object):
         """
         data should be a list of lists. Each sublist correspodnds to a
         trajectory.  Each entry of the trajectory should be a 2-tuple,
-        giving the action and the observation.
+        giving the action followed by the observation.
         """
 
         print "Generating basis..."
@@ -202,79 +205,6 @@ class SpectralPSRWithActions(object):
             llh += seq_llh
 
         return llh / len(test_data)
-
-
-class PureSpectralLearningAlgorithm(object):
-    def __init__(self):
-        pass
-
-    def fit(self, data):
-        """
-        Return a policy, trained on the data in 'data'. 'data' is a dictionary
-        mapping from trajectories to lists of expert responses.
-        """
-        return SpectralPolicy()
-
-
-class SpectralPlusClassifier(POMDPPolicy):
-    def __init__(
-            self, actions, observations, data):
-        """
-        data: list
-          a list of pairs. pair[0] is a trajectory (sequence of
-          action-observation pairs) and pair[1] is a sequence of expert
-          actions. pair[1] can also be None, in which case it is an
-          unlabelled data point.
-        """
-        self.psr = SpectralPSRWithActions(actions, observations)
-
-        max_basis_size = 500
-        num_components = 50
-
-        trajectories = [d[0] for d in data]
-
-        self.b_0, self.B_ao, self.b_inf = self.psr.fit(
-            trajectories, max_basis_size, num_components)
-
-        states = []
-        expert_actions = []
-
-        labelled_data = [d for d in data if d[1] is not None]
-
-        for seq, ea_seq in labelled_data:
-            self.psr.reset()
-
-            for e, (a, o) in zip(ea_seq, seq):
-                states.append(self.psr.b)
-                expert_actions.append(str(e))
-                self.psr.update(a, o)
-
-        states = np.array(states)
-        expert_actions = np.array(expert_actions)
-
-        from sklearn import svm
-
-        self.classifier = svm.SVC()
-        self.classifier.fit(states, expert_actions)
-
-        self.action_lookup = {str(a): a for a in actions}
-
-    def reset(self, init_dist=None):
-        if init_dist is not None:
-            raise Exception(
-                "Cannot supply initiazation distribution to PSR. "
-                "Only works with the initialization distribution "
-                "on which it was trained.")
-
-        self.psr.reset()
-
-    def update(self, action, observation):
-        self.last_action = action
-        self.psr.update(action, observation)
-
-    def get_action(self):
-        action_string = self.classifier.predict(self.psr.b)
-        return self.action_lookup[action_string[0]]
 
 
 def construct_hankels_with_actions(
@@ -509,9 +439,99 @@ def fair_basis(data, k, horizon):
 
     return prefix_dict, suffix_dict
 
+
+class LearnSpectralPlusClassifier(LearningAlgorithm):
+    """
+    A learning algorithm which learns to select actions in a
+    POMDP setting based on observed trajectories and expert actions.
+    Uses the observed trajectories to learn a PSR for the POMDP that
+    gave rise to the trajectories, and then uses a classifier to learn
+    a mapping between states of the PSR to expert actions.
+
+    classifier: object
+        A classifier object. Needs to have a method fit which takes
+        arguments X giving samples (shape N x p, where p is # of features)
+        and Y giving labels (shape N) (basically the sklearn interface).
+    """
+    def __init__(
+            self, classifier=svm.SVC, max_basis_size=500, num_components=50):
+
+        if classifier is None:
+            classifier = svm.SVC()
+
+        self.classifier = classifier
+
+        self.max_basis_size = max_basis_size
+        self.num_components = num_components
+
+    def fit(self, actions, observations, data):
+        """
+        Parameters
+        ----------
+        actions: list
+            A list of the actions that the pomdp will accept.
+        observations: list
+            A list of the observations that the pomdp can generate.
+        data: list
+            A list of pairs. pair[0] is a trajectory (sequence of
+            action-observation pairs) and pair[1] is a sequence of expert
+            actions. pair[1] can also be None, in which case it is an
+            unlabelled data point.
+        """
+
+        self.psr = SpectralPSRWithActions(actions, observations)
+
+        trajectories = [d[0] for d in data]
+
+        self.b_0, self.B_ao, self.b_inf = self.psr.fit(
+            trajectories, max_basis_size, num_components)
+
+        states = []
+        expert_actions = []
+
+        labelled_data = [d for d in data if d[1] is not None]
+
+        for seq, ea_seq in labelled_data:
+            self.psr.reset()
+
+            for e, (a, o) in zip(ea_seq, seq):
+                states.append(self.psr.b)
+                expert_actions.append(str(e))
+                self.psr.update(a, o)
+
+        states = np.array(states)
+        expert_actions = np.array(expert_actions)
+        self.classifier.fit(actions, states, expert_actions)
+
+        return SpectralPlusClassifier(actions, psr, self.classifier)
+
+
+class SpectralPlusClassifier(POMDPPolicy):
+    def __init__(self, actions, psr, classifier):
+        self.psr = psr
+        self.classifier = classifier
+        self.action_lookup = {str(a): a for a in actions}
+
+    def reset(self, init_dist=None):
+        if init_dist is not None:
+            raise Exception(
+                "Cannot supply initiazation distribution to PSR. "
+                "Only works with the initialization distribution "
+                "on which it was trained.")
+
+        self.psr.reset()
+
+    def update(self, action, observation):
+        self.last_action = action
+        self.psr.update(action, observation)
+
+    def get_action(self):
+        action_string = self.classifier.predict(self.psr.b)
+        return self.action_lookup[action_string[0]]
+
+
 if __name__ == "__main__":
     import grid_world
-    from policy import POMDPPolicy
 
     # Sample a bunch of trajectories, run the learning algorithm on them
     num_trajectories = 20000
@@ -614,7 +634,7 @@ if __name__ == "__main__":
 
         print "Sampling test trajectories for WER..."
         for i in xrange(num_test_trajectories):
-            trajectory, reward = pomdp.sample_trajectory(
+            trajectory = pomdp.sample_trajectory(
                 exploration_policy, horizon, reset=True,
                 return_reward=False, display=False)
 

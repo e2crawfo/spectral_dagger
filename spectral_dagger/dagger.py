@@ -58,7 +58,7 @@ if __name__ == "__main__":
     import grid_world
     from pbvi import PBVI
     from spectral_wfa import SpectralPlusClassifier
-    from policy import RandomPolicy
+    from pomdp import UniformRandomPolicy
 
     import itertools
 
@@ -80,10 +80,10 @@ if __name__ == "__main__":
     discount = 0.99
 
     print "Training model..."
-    pbvi = PBVI()
-    expert = pbvi.fit(pomdp, discount, m=4, n=20)
-    # trajectory, reward = pomdp.sample_trajectory(
-    #     expert, 20, True, display=1)
+    alg = PBVI(m=4, n=20)
+    expert = alg.fit(pomdp)
+    trajectory, reward = pomdp.sample_trajectory(
+        expert, 20, True, display=1)
 
     # Dagger
     dagger_horizon = 3
@@ -93,8 +93,8 @@ if __name__ == "__main__":
     policy_class = SpectralPlusClassifier
     beta = itertools.chain([1], iter(lambda: 0, 1))
 
-    # Use random because beta[0] == 1
-    initial_policy = RandomPolicy(pomdp.actions, [])
+    # Use random because beta[0] == 1 (so this policy won't be used).
+    initial_policy = UniformRandomPolicy(pomdp.actions, [])
 
     policies = dagger(
         pomdp, initial_policy, policy_class, expert, beta,
