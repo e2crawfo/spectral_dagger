@@ -35,6 +35,7 @@ WEST = 3
 
 class GridAction(Action):
     strings = ['NORTH', 'EAST', 'SOUTH', 'WEST']
+    symbols = ['^', '>', 'v', '<']
     ids = {item: i for i, item in enumerate(strings)}
 
     def __init__(self, dir):
@@ -113,8 +114,9 @@ class GridWorld(MDP):
     PIT_MARKER = 'O'
     WALL_MARKER = 'x'
 
-    def __init__(self, world_map=None, gamma=0.99):
+    def __init__(self, world_map=None, gamma=0.9, noise=0.1):
         self.gamma = gamma
+        self.noise = noise
 
         if world_map is None:
             world_map = GridWorld.default_world_map
@@ -220,7 +222,7 @@ class GridWorld(MDP):
             sample = np.random.multinomial(1, self.init_dist)
             self.current_position = self.positions[np.where(sample > 0)[0]]
         else:
-            if(np.random.random() < 0.2):
+            if(np.random.random() < self.noise):
                 perp_dirs = action.get_perpendicular_directions()
                 action = perp_dirs[np.random.randint(len(perp_dirs))]
 
@@ -256,6 +258,12 @@ class GridWorld(MDP):
     def state(self):
         return self.pos2state(self.current_position)
 
+    def in_terminal_state(self):
+        return self.current_position == self.goal_position
+
+    def has_terminal_states(self):
+        return True
+
     @property
     def T(self):
         """
@@ -268,14 +276,17 @@ class GridWorld(MDP):
         # dict index is (S, R, L), whether the location is blocked by a wall.
         # probabilities are (C, S, R, L), probability of transitioning there.
         # C is current position
+        s = 1 - self.noise
+        n = self.noise / 2.0
+
         local_transitions = {
-            (0, 0, 0): [0.0, 0.8, 0.1, 0.1],
-            (0, 0, 1): [0.1, 0.8, 0.1, 0.0],
-            (0, 1, 0): [0.1, 0.8, 0.0, 0.1],
-            (0, 1, 1): [0.2, 0.8, 0.0, 0.0],
-            (1, 0, 0): [0.8, 0.0, 0.1, 0.1],
-            (1, 0, 1): [0.9, 0.0, 0.1, 0.0],
-            (1, 1, 0): [0.9, 0.0, 0.0, 0.1],
+            (0, 0, 0): [0.0, s, n, n],
+            (0, 0, 1): [n, s, n, 0.0],
+            (0, 1, 0): [n, s, 0.0, n],
+            (0, 1, 1): [n+n, s, 0.0, 0.0],
+            (1, 0, 0): [s, 0.0, n, n],
+            (1, 0, 1): [s+n, 0.0, n, 0.0],
+            (1, 1, 0): [s+n, 0.0, 0.0, n],
             (1, 1, 1): [1.0, 0.0, 0.0, 0.0]
             }
 
@@ -341,8 +352,8 @@ class GridWorld(MDP):
             init_dist[self.positions.index(self.init_position)] = 1.0
         else:
             init_dist = np.array(
-                [pos in self.pit_positions for pos in self.positions])
-            init_dist = init_dist / sum(init_dist)
+                [pos not in self.pit_positions for pos in self.positions])
+            init_dist = init_dist / float(sum(init_dist))
 
         return init_dist
 
@@ -350,6 +361,41 @@ class GridWorld(MDP):
         return GridState(
             position, id=self.positions.index(position),
             dimension=len(self.positions))
+
+    def print_value_function(self, V):
+        """
+        V is an ndarray indexed by state, mapping to
+        an a float giving the value of that state under
+        some policy.
+        """
+
+        max_length = max(len(str(v)) for v in V)
+
+        value_func = self.world_map.copy()
+        value_func = value_func.astype('|S%s' % max_length)
+
+        for i in xrange(self.world_map.shape[0]):
+            for j in xrange(self.world_map.shape[1]):
+                pos = (i, j)
+                if pos in self.positions:
+                    value_func[pos] = str(V[self.pos2state(pos)])
+        return value_func
+
+    def print_deterministic_policy(self, pi):
+        """
+        pi is an ndarray indexed by state, mapping to
+        an integer that corresponds to an action.
+        """
+
+        policy = self.world_map.copy()
+
+        for i in xrange(self.world_map.shape[0]):
+            for j in xrange(self.world_map.shape[1]):
+                pos = (i, j)
+                if pos in self.positions:
+                    policy[pos] = GridAction.symbols[pi[self.pos2state(pos)]]
+
+        return policy
 
 
 class GridObservation(Observation):
@@ -393,9 +439,7 @@ class EgoGridWorld(POMDP):
     walls.
     """
 
-    def __init__(self, num_colors, world_map=None, gamma=0.99):
-        self.gamma = gamma
-
+    def __init__(self, num_colors, world_map=None, gamma=0.9, noise=0.1):
         if world_map is None:
             world_map = GridWorld.default_world_map.copy()
 
@@ -405,7 +449,7 @@ class EgoGridWorld(POMDP):
         world_map[world_map == GridWorld.WALL_MARKER] = np.random.randint(
             1, num_colors+1, num_walls)
 
-        self.grid_world = GridWorld(world_map)
+        self.grid_world = GridWorld(world_map, gamma=gamma, noise=noise)
 
         self.world_map = self.grid_world.world_map
 
@@ -427,7 +471,6 @@ class EgoGridWorld(POMDP):
         Can specify an initial distribution, or supply None to have it use
         its internal intial distribution.
         """
-
         if init_dist is not None:
             if len(init_dist) != self.num_states:
                 raise ValueError(

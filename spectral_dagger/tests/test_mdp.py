@@ -1,7 +1,7 @@
 from spectral_dagger.policy_iteration import PolicyIteration
 from spectral_dagger.value_iteration import ValueIteration
 
-import grid_world
+import spectral_dagger.grid_world as grid_world
 
 
 def test_policy_iteration():

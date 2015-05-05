@@ -137,6 +137,10 @@ class POMDP(object):
         return obs, reward
 
     @property
+    def gamma(self):
+        return self.mdp.gamma
+
+    @property
     def num_actions(self):
         return len(self.actions)
 

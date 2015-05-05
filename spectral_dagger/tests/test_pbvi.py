@@ -26,4 +26,4 @@ def test_pbvi(do_plot=False):
         policy = alg.fit(pomdp)
 
         pomdp.sample_trajectory(
-            policy, horizon=20, reset=True, display=True)
+            policy, horizon=20, reset=True, display=False)

@@ -1,12 +1,12 @@
 from spectral_dagger.dagger import dagger, StateClassifier
 from spectral_dagger.dagger import po_dagger, BeliefStateClassifier
 from spectral_dagger.spectral_wfa import SpectralClassifier
+from spectral_dagger.value_iteration import ValueIteration
+import spectral_dagger.grid_world as grid_world
+from spectral_dagger.pbvi import PBVI
 
 import numpy as np
 
-import grid_world
-from spectral_dagger.value_iteration import ValueIteration
-from pbvi import PBVI
 
 import itertools
 from sklearn.svm import SVC

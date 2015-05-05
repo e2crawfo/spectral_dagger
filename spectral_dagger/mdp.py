@@ -98,7 +98,9 @@ class Action(object):
 
 class MDP(object):
 
-    def __init__(self, actions, states, T, R, gamma, initial_state=None):
+    def __init__(
+            self, actions, states, T, R, gamma,
+            initial_state=None, terminal_states=None):
         """
         Parameters
         ----------
@@ -115,11 +117,18 @@ class MDP(object):
           ending up in state i given we took action a.
         gamma: float
           Discount factor.
+        initial_state: State
+          A state in `states` which the MDP will be reset
+          to whenever the `reset` method is called.
+        terminal_states: list
+          A (possibly empty) subset of the states in states. Episodes are
+          terminated when the agent enters one of these states.
         """
 
         self.actions = actions
         self.states = states
         self.initial_state = initial_state
+        self.terminal_states = terminal_states
 
         self._T = T
         self._R = R
@@ -188,6 +197,16 @@ class MDP(object):
     def state(self):
         return self.current_state
 
+    def in_terminal_state(self):
+        return (
+            self.has_terminal_states()
+            and self.current_state in self.terminal_states)
+
+    def has_terminal_states(self):
+        return (
+            self.terminal_states is not []
+            and self.terminal_states is not None)
+
     @property
     def T(self):
         return self._T.copy()
@@ -200,8 +219,17 @@ class MDP(object):
         return self._R[action, state]
 
     def sample_trajectory(
-            self, mdp_policy, horizon, reset=None,
+            self, mdp_policy, horizon=None, reset=None,
             init=None, return_reward=True, display=False):
+        """
+        If horizon is None, then trajectory will continue until the episode
+        ends (i.e. a terminal state is reached).
+        """
+
+        if horizon is None and not self.has_terminal_states():
+            raise ValueError(
+                "Must supply a finite horizon to sample trajectory from an "
+                "MDP that lacks terminal states.")
 
         if reset:
             if isinstance(init, np.ndarray) or isinstance(init, list):
@@ -217,7 +245,10 @@ class MDP(object):
         if display:
             print "*" * 80
 
-        for i in range(horizon):
+        terminated = False
+        i = 0
+
+        while not terminated:
             if display:
                 print str(self)
 
@@ -234,10 +265,17 @@ class MDP(object):
 
             mdp_policy.update(a, s_prime, r)
 
+            i += 1
+
             if display:
                 print a
                 print s_prime
                 time.sleep(0.3)
+
+            if horizon is None:
+                terminated = self.in_terminal_state()
+            else:
+                terminated = i >= horizon
 
         if display:
             print str(self)
