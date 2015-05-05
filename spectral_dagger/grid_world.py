@@ -100,13 +100,20 @@ class GridWorld(MDP):
               time the environment is reset.
             * "G" specifies the goal location. For now there has to be exactly
               one of these.
+            * "O" (capital O) specifies a pit or a hole. Stepping on such a
+              space will cause the agent to go back to the initial state.
         2. All spaces are considered empty space which the agent can occupy.
         3. All other remaining characters are considered walls.
         4. The map must be surrounded by walls. Otherwise, agents will try to
            step off the edge of the map, causing errors.
     """
 
-    def __init__(self, world_map=None, gamma=1.0):
+    START_MARKER = 'A'
+    GOAL_MARKER = 'G'
+    PIT_MARKER = 'O'
+    WALL_MARKER = 'x'
+
+    def __init__(self, world_map=None, gamma=0.99):
         self.gamma = gamma
 
         if world_map is None:
@@ -114,21 +121,25 @@ class GridWorld(MDP):
 
         self.world_map = world_map.copy()
 
-        if 'A' not in self.world_map:
+        if GridWorld.START_MARKER not in self.world_map:
             self.init_position = None
         else:
-            init_position = np.where(world_map == 'A')
+            init_position = np.where(world_map == GridWorld.START_MARKER)
             self.init_position = init_position[0][0], init_position[1][0]
             self.world_map[self.init_position] = ' '
 
-        if 'G' not in self.world_map:
+        if GridWorld.GOAL_MARKER not in self.world_map:
             raise ValueError(
-                "World world_map must have a G indicating goal location.")
+                "World world_map must contain a `%s` "
+                "indicating goal location." % GridWorld.GOAL_MARKER)
 
-        goal_position = np.where(world_map == 'G')
+        goal_position = np.where(world_map == GridWorld.GOAL_MARKER)
         self.goal_position = goal_position[0][0], goal_position[1][0]
 
         self.world_map[self.goal_position] = ' '
+
+        self.pit_positions = zip(*np.where(world_map == GridWorld.PIT_MARKER))
+        self.world_map[zip(*self.pit_positions)] = ' '
 
         self.positions = zip(*np.where(self.world_map == ' '))
 
@@ -143,11 +154,13 @@ class GridWorld(MDP):
         for i in xrange(self.world_map.shape[0]):
             for j in xrange(self.world_map.shape[1]):
                 if (i, j) == self.current_position:
-                    w += 'A'
+                    w += GridWorld.START_MARKER
                 elif (i, j) == self.init_position:
                     w += 'I'
                 elif (i, j) == self.goal_position:
-                    w += 'G'
+                    w += GridWorld.GOAL_MARKER
+                elif (i, j) in self.pit_positions:
+                    w += GridWorld.PIT_MARKER
                 else:
                     w += str(self.world_map[i][j])
 
@@ -203,14 +216,18 @@ class GridWorld(MDP):
                     "Action for GridWorld must either be GridAction, or "
                     "something convertible to a GridAction. Got %s." % action)
 
-        if(np.random.random() < 0.2):
-            perp_dirs = action.get_perpendicular_directions()
-            action = perp_dirs[np.random.randint(len(perp_dirs))]
+        if self.current_position in self.pit_positions:
+            sample = np.random.multinomial(1, self.init_dist)
+            self.current_position = self.positions[np.where(sample > 0)[0]]
+        else:
+            if(np.random.random() < 0.2):
+                perp_dirs = action.get_perpendicular_directions()
+                action = perp_dirs[np.random.randint(len(perp_dirs))]
 
-        next_position = action.get_next_position(self.current_position)
+            next_position = action.get_next_position(self.current_position)
 
-        if self.world_map[next_position] == ' ':
-            self.current_position = next_position
+            if self.world_map[next_position] == ' ':
+                self.current_position = next_position
 
         reward = self.get_reward(action, self.state)
 
@@ -273,21 +290,24 @@ class GridWorld(MDP):
 
         for a in self.actions:
             for i, pos in enumerate(positions):
-                straight = a.get_next_position(pos)
-                right = a.right().get_next_position(pos)
-                left = a.left().get_next_position(pos)
+                if pos in self.pit_positions:
+                    T[a, i, :] = self.init_dist
+                else:
+                    straight = a.get_next_position(pos)
+                    right = a.right().get_next_position(pos)
+                    left = a.left().get_next_position(pos)
 
-                key = tuple([
-                    self.world_map[loc] != ' '
-                    for loc in (straight, right, left)])
+                    key = tuple([
+                        self.world_map[loc] != ' '
+                        for loc in (straight, right, left)])
 
-                probs = local_transitions[key]
-                T[a, i, i] = probs[0]
+                    probs = local_transitions[key]
+                    T[a, i, i] = probs[0]
 
-                iterator = zip(key, [straight, right, left], probs[1:])
-                for invalid, direction, prob in iterator:
-                    if not invalid:
-                        T[a, i, state_indices[direction]] = prob
+                    iterator = zip(key, [straight, right, left], probs[1:])
+                    for invalid, direction, prob in iterator:
+                        if not invalid:
+                            T[a, i, state_indices[direction]] = prob
 
                 assert sum(T[a, i, :]) == 1.0
 
@@ -320,7 +340,9 @@ class GridWorld(MDP):
             init_dist = np.zeros(len(self.states))
             init_dist[self.positions.index(self.init_position)] = 1.0
         else:
-            init_dist = np.ones(len(self.states)) / self.num_states
+            init_dist = np.array(
+                [pos in self.pit_positions for pos in self.positions])
+            init_dist = init_dist / sum(init_dist)
 
         return init_dist
 
@@ -371,7 +393,7 @@ class EgoGridWorld(POMDP):
     walls.
     """
 
-    def __init__(self, num_colors, world_map=None, gamma=1.0):
+    def __init__(self, num_colors, world_map=None, gamma=0.99):
         self.gamma = gamma
 
         if world_map is None:
@@ -379,8 +401,8 @@ class EgoGridWorld(POMDP):
 
         self.num_colors = num_colors
 
-        num_walls = np.count_nonzero(world_map == 'x')
-        world_map[world_map == 'x'] = np.random.randint(
+        num_walls = np.count_nonzero(world_map == GridWorld.WALL_MARKER)
+        world_map[world_map == GridWorld.WALL_MARKER] = np.random.randint(
             1, num_colors+1, num_walls)
 
         self.grid_world = GridWorld(world_map)
