@@ -98,14 +98,14 @@ class Action(object):
 
 class MDP(object):
 
-    def __init__(self, actions, states, T, R, gamma):
+    def __init__(self, actions, states, T, R, gamma, initial_state=None):
         """
         Parameters
         ----------
         actions: list
           The set of actions available.
         states: list
-          The state space of the POMDP.
+          The state space of the MDP.
         T: ndarray
           An |actions| x |states| x |states|  matrix. Entry (a, i, j) gives
           the probability of moving from state i to state j given that action
@@ -119,6 +119,7 @@ class MDP(object):
 
         self.actions = actions
         self.states = states
+        self.initial_state = initial_state
 
         self._T = T
         self._R = R
@@ -133,7 +134,7 @@ class MDP(object):
         return "%s. Current state: %s" % (
             self.name, str(self.current_state))
 
-    def reset(self, state):
+    def reset(self, state=None):
         """
         Resets the state of the MDP.
 
@@ -144,12 +145,12 @@ class MDP(object):
           If None, states are chosen uniformly at random.
         """
 
-        if isinstance(state, State):
+        if state is None and self.initial_state:
+            self.current_state = self.initial_state
+        elif isinstance(state, State):
             self.current_state = state
-
         elif isinstance(state, int):
             self.current_state = self.states[state]
-
         else:
             self.current_state = np.random.choice(self.states)
 
