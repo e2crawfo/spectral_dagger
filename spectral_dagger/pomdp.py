@@ -247,14 +247,25 @@ class UniformRandomPolicy(POMDPPolicy):
 class BeliefStatePolicy(POMDPPolicy):
     """
     A policy that has a access to a model of the environment in the form
-    of a POMDP, and can thus maintain a belief state.
+    of a POMDP, and can thus maintain a belief state. Accepts a function
+    pi which maps belief states to actions.
     """
 
-    def __init__(self, pomdp):
-        raise NotImplemented("Cannot instantiate BeliefStatePolicy.")
-
+    def __init__(self, pomdp, pi=None):
         self.pomdp = pomdp
         self.b = None
+
+        if pi is None:
+            def f():
+                return np.random.choice(pomdp.actions)
+            pi = f
+
+        assert callable(pi)
+        self.pi = pi
+
+    @property
+    def belief_state(self):
+        return self.b
 
     def reset(self, b=None):
         if b is None:
@@ -268,4 +279,4 @@ class BeliefStatePolicy(POMDPPolicy):
         self.b = b_prime
 
     def get_action(self):
-        raise NotImplemented("Cannot instantiate BeliefStatePolicy.")
+        return self.pi(self.b)

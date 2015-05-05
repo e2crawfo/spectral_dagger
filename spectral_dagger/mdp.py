@@ -3,16 +3,22 @@ import time
 
 
 class State(object):
-    def __init__(self, id, name=""):
+    def __init__(self, id, dimension, name=""):
         self.id = id
+        self.dimension = dimension
         self.ndim = 0
         self.name = name
+
+    def as_vector(self):
+        vec = np.array(np.zeros(self.dimension))
+        vec[self.id] = 1.0
+        return vec
 
     def get_id(self):
         return self.id
 
     def __str__(self):
-        s = "<State id: %d" % self.get_id()
+        s = "<State id: %d, dim: %d" % (self.get_id(), self.dimension)
         if self.name:
             s += ", name: " + self.name
         return s + ">"

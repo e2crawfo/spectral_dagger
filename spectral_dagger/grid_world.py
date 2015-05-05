@@ -7,9 +7,12 @@ from pomdp import POMDP, Observation
 
 
 class GridState(State):
-    def __init__(self, position, id):
+    def __init__(self, position, id, dimension):
         self.position = position
-        super(GridState, self).__init__(id)
+        super(GridState, self).__init__(id, dimension)
+
+    def as_vector(self):
+        return np.array([self.y, self.x])
 
     @property
     def y(self):
@@ -20,8 +23,8 @@ class GridState(State):
         return self.position[1]
 
     def __str__(self):
-        return "<GridState id: %s, position: (y: %d, x: %d)>" % (
-            self.get_id(), self.position[0], self.position[1])
+        return "<GridState id: %s, position: (y: %d, x: %d), dim: %d>" % (
+            self.get_id(), self.position[0], self.position[1], self.dimension)
 
 
 NORTH = 0
@@ -219,8 +222,10 @@ class GridWorld(MDP):
 
     @property
     def states(self):
+        dimension = len(self.positions)
         return [
-            GridState(pos, i) for i, pos in enumerate(self.positions)]
+            GridState(pos, i, dimension) for i, pos
+            in enumerate(self.positions)]
 
     @property
     def num_actions(self):
@@ -320,7 +325,9 @@ class GridWorld(MDP):
         return init_dist
 
     def pos2state(self, position):
-        return GridState(position, self.positions.index(position))
+        return GridState(
+            position, id=self.positions.index(position),
+            dimension=len(self.positions))
 
 
 class GridObservation(Observation):
