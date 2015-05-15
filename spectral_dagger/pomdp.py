@@ -71,8 +71,8 @@ class POMDP(object):
           gives the probability of emitting observation j given that the POMDP
           is in state i and the last action was a.
         R: ndarray
-          An |actions| x |states| matrix. Entry (a, i) gives the reward for
-          ending up in state i given we took action a.
+          An |actions| x |states| x |states| matrix. Entry (a, i, j) gives the
+          reward for transitioning from state i to state j using action a.
         init_dist: ndarray
           A |states| ndarray specifying the default state initiazation
           distribution. If none is provided, a uniform distribution is used.
@@ -84,9 +84,12 @@ class POMDP(object):
         self.observations = observations
         self.states = states
 
-        self._T = T
-        self._O = O
-        self._R = R
+        self._O = O.copy()
+        self._O.flags.writeable = False
+
+        assert all(np.sum(self._O, axis=2))
+        assert all(self._O > 0) and all(self._O < 1)
+        assert self._O.shape == (len(actions), len(states), len(observations))
 
         if init_dist is None:
             init_dist = np.ones(self.states) / self.states
@@ -94,6 +97,8 @@ class POMDP(object):
         self.init_dist = init_dist
 
         self.mdp = MDP(actions, states, T, R, gamma)
+
+        self.reset()
 
     @property
     def name(self):
@@ -158,18 +163,21 @@ class POMDP(object):
 
     @property
     def T(self):
-        return self._T.copy()
+        return self.mdp.T
 
     @property
     def O(self):
-        return self._O.copy()
+        return self._O
 
     @property
     def R(self):
-        return self._R.copy()
+        return self.mdp.R
 
-    def get_reward(self, action, state):
-        return self.mdp.get_reward(action, state)
+    def get_expected_reward(self, a, s):
+        return self.mdp.get_expected_reward(a, s)
+
+    def get_reward(self, a, s, s_prime=None):
+        return self.mdp.get_reward(a, s, s_prime)
 
     def sample_trajectory(
             self, pomdp_policy, horizon, reset=True,

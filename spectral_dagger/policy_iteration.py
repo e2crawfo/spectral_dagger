@@ -39,7 +39,7 @@ class PolicyIteration(LearningAlgorithm):
                 for s in mdp.states:
                     policy.reset(s)
                     a = policy.get_action()
-                    V[s] = np.dot(T[a, s, :], R[a, :] + gamma * V)
+                    V[s] = np.dot(T[a, s, :], R[a, s, :] + gamma * V)
 
                 j += 1
 

@@ -28,9 +28,8 @@ class ValueIteration(LearningAlgorithm):
             V, old_V = old_V, V
 
             for s in states:
-                T_s = T[:, s, :]
                 V[s] = max(
-                    T_s[a, :].dot(R[a, :] + gamma * old_V) for a in actions)
+                    T[a, s, :].dot(R[a, s, :] + gamma * old_V) for a in actions)
 
             iteration_count += 1
 

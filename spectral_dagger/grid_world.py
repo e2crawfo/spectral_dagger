@@ -145,6 +145,9 @@ class GridWorld(MDP):
 
         self.positions = zip(*np.where(self.world_map == ' '))
 
+        self.make_T()
+        self.make_R()
+
         self.reset()
 
     @property
@@ -210,6 +213,7 @@ class GridWorld(MDP):
 
         Returns the next state and the reward.
         """
+
         if not isinstance(action, GridAction):
             try:
                 action = GridAction(action)
@@ -217,6 +221,8 @@ class GridWorld(MDP):
                 raise ValueError(
                     "Action for GridWorld must either be GridAction, or "
                     "something convertible to a GridAction. Got %s." % action)
+
+        prev_position = self.current_position
 
         if self.current_position in self.pit_positions:
             sample = np.random.multinomial(1, self.init_dist)
@@ -231,7 +237,8 @@ class GridWorld(MDP):
             if self.world_map[next_position] == ' ':
                 self.current_position = next_position
 
-        reward = self.get_reward(action, self.state)
+        reward = self.get_reward(
+            action, self.pos2state(prev_position), self.state)
 
         return self.state, reward
 
@@ -264,13 +271,11 @@ class GridWorld(MDP):
     def has_terminal_states(self):
         return True
 
-    @property
-    def T(self):
+    def make_T(self):
         """
         Returns a set of transition matrices, one for each action.
         For each a, each row of T[a] sums to 1.
         """
-
         # local transition probabilities when trying to move straight
         # see fn execute_action for where this is implemented
         # dict index is (S, R, L), whether the location is blocked by a wall.
@@ -322,26 +327,32 @@ class GridWorld(MDP):
 
                 assert sum(T[a, i, :]) == 1.0
 
-        return T
+        self._T = T
+        self._T.flags.writeable = False
 
-    @property
-    def R(self):
+    def make_R(self):
         """
-        Returns a |actions| x |states| reward matrix.
+        Returns a |actions| x |states| x |states| reward matrix.
         """
-        R = np.zeros((self.num_actions, self.num_states))
+
+        R = np.zeros((self.num_actions, self.num_states, self.num_states))
 
         for a in self.actions:
             for s in self.states:
-                R[a, s] = self.get_reward(a, s)
+                for s_prime in self.states:
+                    R[a, s, s_prime] = self.get_reward(a, s, s_prime)
 
-        return R
+        self._R = R
+        self._R.flags.writeable = False
 
-    def get_reward(self, action, state):
-        if isinstance(state, GridState):
-            in_goal_state = state.position == self.goal_position
+    def get_reward(self, a, s, s_prime=None):
+        if s_prime is None:
+            return self.get_expected_reward(a, s)
+
+        if isinstance(s_prime, GridState):
+            in_goal_state = s_prime.position == self.goal_position
         else:
-            in_goal_state = state == self.goal_position
+            in_goal_state = s_prime == self.goal_position
 
         return 1.0 if in_goal_state else 0.0
 
@@ -453,6 +464,8 @@ class EgoGridWorld(POMDP):
 
         self.world_map = self.grid_world.world_map
 
+        self.make_O()
+
         self.reset()
 
     @property
@@ -531,12 +544,7 @@ class EgoGridWorld(POMDP):
     def state(self):
         return self.grid_world.state
 
-    @property
-    def T(self):
-        return self.grid_world.T
-
-    @property
-    def O(self):
+    def make_O(self):
         temp_state = self.state
 
         O = np.zeros((
@@ -550,14 +558,12 @@ class EgoGridWorld(POMDP):
 
         self.grid_world.reset(temp_state)
 
-        return O
+        self._O = O
+        self._O.flags.writeable = False
 
     @property
-    def R(self):
-        return self.grid_world.copy()
-
-    def get_reward(self, action, state):
-        return self.mdp.get_reward(action, state)
+    def O(self):
+        return self._O
 
     @property
     def init_dist(self):

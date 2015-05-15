@@ -109,12 +109,12 @@ class MDP(object):
         states: list
           The state space of the MDP.
         T: ndarray
-          An |actions| x |states| x |states|  matrix. Entry (a, i, j) gives
+          An |actions| x |states| x |states| matrix. Entry (a, i, j) gives
           the probability of moving from state i to state j given that action
           a taken.
         R: ndarray
-          An |actions| x |states| matrix. Entry (a, i) gives the reward for
-          ending up in state i given we took action a.
+          An |actions| x |states| x |states| matrix. Entry (a, i, j) gives the reward for
+          transitioning from state i to state j using action a.
         gamma: float
           Discount factor.
         initial_state: State
@@ -127,13 +127,24 @@ class MDP(object):
 
         self.actions = actions
         self.states = states
+
         self.initial_state = initial_state
         self.terminal_states = terminal_states
 
-        self._T = T
-        self._R = R
+        self._T = T.copy()
+        self._T.flags.writeable = False
+
+        assert all(np.sum(self._T, axis=2))
+        assert all(self._T > 0) and all(self._T < 1)
+        assert self._T.shape == (len(actions), len(states), len(states))
+
+        self._R = R.copy()
+        self._R.flags.writeable = False
+        assert self._R.shape == (len(actions), len(states), len(states))
 
         self.gamma = gamma
+
+        self.reset()
 
     @property
     def name(self):
@@ -178,10 +189,11 @@ class MDP(object):
         if isinstance(action, int):
             action = self.actions[action]
 
+        prev_state = self.current_state
         sample = np.random.multinomial(1, self._T[action, self.current_state])
         self.current_state = self.states[np.where(sample > 0)[0][0]]
 
-        reward = self.get_reward(action, self.current_state)
+        reward = self.get_reward(action, prev_state, self.current_state)
 
         return self.current_state, reward
 
@@ -209,17 +221,23 @@ class MDP(object):
 
     @property
     def T(self):
-        return self._T.copy()
+        return self._T
 
     @property
     def R(self):
-        return self._R.copy()
+        return self._R
 
-    def get_reward(self, action, state):
-        return self._R[action, state]
+    def get_expected_reward(self, a, s):
+        return self.T[a, s, :].dot(self.R[a, s, :])
+
+    def get_reward(self, a, s, s_prime=None):
+        if s_prime is None:
+            return self.get_expected_reward(a, s)
+        else:
+            return self.R[a, s, s_prime]
 
     def sample_trajectory(
-            self, mdp_policy, horizon=None, reset=None,
+            self, mdp_policy=None, horizon=None, reset=None,
             init=None, return_reward=True, display=False):
         """
         If horizon is None, then trajectory will continue until the episode
@@ -237,6 +255,13 @@ class MDP(object):
                 init = self.states[np.where(sample > 0)[0][0]]
 
             self.reset(init)
+
+        if mdp_policy is None and self.num_actions != 1:
+            raise ValueError(
+                "Must supply policy to sample from MDP with multiple actions.")
+
+        if mdp_policy is None:
+            mdp_policy = UniformRandomPolicy(self)
 
         mdp_policy.reset(self.state)
 
@@ -339,7 +364,33 @@ class GreedyPolicy(MDPPolicy):
 
     def get_action(self):
         T_s = self.T[:, self.current_state, :]
+        R_s = self.T[:, self.current_state, :]
 
         return max(
             self.actions,
-            key=lambda a: T_s[a, :].dot(self.R[a, :] + self.gamma * self.V))
+            key=lambda a: T_s[a, :].dot(R_s[a, :] + self.gamma * self.V))
+
+
+def evaluate_policy(mdp, policy, threshold=0.0001):
+    j = 0
+
+    V = np.ones(mdp.num_states)
+    old_V = np.inf * np.ones(V.shape)
+
+    T = mdp.T
+    R = mdp.R
+    gamma = mdp.gamma
+
+    while np.linalg.norm(V - old_V, ord=np.inf) > threshold:
+        old_V[:] = V
+
+        for s in mdp.states:
+            policy.reset(s)
+            a = policy.get_action()
+            V[s] = np.dot(T[a, s, :], R[a, s, :] + gamma * V)
+
+        j += 1
+
+    print "Value function converged after {0} iterations".format(j)
+
+    return V

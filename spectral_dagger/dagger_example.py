@@ -52,6 +52,8 @@ class BadExampleMDP(MDP):
 
         self._R = np.zeros((2, num_states))
 
+        self.reset()
+
     @property
     def name(self):
         return "BadExampleMDP"
@@ -140,6 +142,8 @@ class GoodExampleMDP(MDP):
         self.T[A_1][7][3] = 1.0
 
         self.reward = np.zeros((2, num_states))
+
+        self.reset()
 
     @property
     def name(self):
