@@ -36,7 +36,7 @@ def pytest_generate_tests(metafunc):
             "algorithm", [QLearning, Sarsa])
 
 
-def test_td(algorithm):
+def test_td(algorithm, display=False):
     env = GridWorld(cliff_world, noise=noise, gamma=gamma)
 
     policy = algorithm(
@@ -44,9 +44,9 @@ def test_td(algorithm):
         Q_0=np.random.random((env.num_states, env.num_actions)))
 
     env.sample_trajectory(
-        policy, reset=True, display=False)
+        policy, reset=True, display=display)
     env.sample_trajectory(
-        policy, reset=True, display=False)
+        policy, reset=True, display=display)
 
 
 def plot_average_reward(env, policy, n_episodes):

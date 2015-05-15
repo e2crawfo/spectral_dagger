@@ -4,7 +4,7 @@ from spectral_dagger.pbvi import PBVI
 from spectral_dagger.grid_world import EgoGridWorld
 
 
-def test_pbvi(do_plot=False):
+def test_pbvi(display=False):
     world = np.array([
         ['x', 'x', 'x', 'x', 'x'],
         ['x', ' ', ' ', ' ', 'x'],
@@ -26,4 +26,5 @@ def test_pbvi(do_plot=False):
         policy = alg.fit(pomdp)
 
         pomdp.sample_trajectory(
-            policy, horizon=20, reset=True, display=False)
+            policy, horizon=20, reset=True, display=display)
+

@@ -5,16 +5,16 @@ from spectral_dagger.mdp import UniformRandomPolicy as MDPUniformRandomPolicy
 from spectral_dagger.pomdp import UniformRandomPolicy as POUniformRandomPolicy
 
 
-def test_grid_world():
+def test_grid_world(display=False):
     env = GridWorld()
 
     policy = MDPUniformRandomPolicy(env)
 
     env.sample_trajectory(
-        policy, horizon=10, reset=True, display=False)
+        policy, horizon=10, reset=True, display=display)
 
 
-def test_cliff_world():
+def test_cliff_world(display=False):
     cliff_world = np.array([
         ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'],
         ['x', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'x'],
@@ -29,17 +29,17 @@ def test_cliff_world():
     alg = ValueIteration()
     policy = alg.fit(env)
     env.sample_trajectory(
-        policy, horizon=50, reset=True, display=False)
+        policy, horizon=50, reset=True, display=display)
 
     from mdp import UniformRandomPolicy
     env.sample_trajectory(
-        UniformRandomPolicy(env), horizon=50, reset=True, display=False)
+        UniformRandomPolicy(env), horizon=50, reset=True, display=display)
 
 
-def test_ego_grid_world():
+def test_ego_grid_world(display=False):
     env = EgoGridWorld(2)
 
     policy = POUniformRandomPolicy(env)
 
     env.sample_trajectory(
-        policy, horizon=10, reset=True, display=False)
+        policy, horizon=10, reset=True, display=display)

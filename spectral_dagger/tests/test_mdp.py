@@ -4,7 +4,7 @@ from spectral_dagger.value_iteration import ValueIteration
 import spectral_dagger.grid_world as grid_world
 
 
-def test_policy_iteration():
+def test_policy_iteration(display=False):
 
     env = grid_world.GridWorld(gamma=0.9)
 
@@ -12,12 +12,10 @@ def test_policy_iteration():
     policy = alg.fit(env)
 
     trajectory = env.sample_trajectory(
-        policy, horizon=20, reset=True, display=False)
-
-    print trajectory
+        policy, horizon=20, reset=True, display=display)
 
 
-def test_value_iteration():
+def test_value_iteration(display=False):
 
     env = grid_world.GridWorld(gamma=0.9)
 
@@ -25,6 +23,4 @@ def test_value_iteration():
     policy = alg.fit(env)
 
     trajectory = env.sample_trajectory(
-        policy, horizon=20, reset=True, display=False)
-
-    print trajectory
+        policy, horizon=20, reset=True, display=display)

@@ -12,7 +12,7 @@ import itertools
 from sklearn.svm import SVC
 
 
-def test_dagger():
+def test_dagger(display=False):
     # Define environment
     world_map = np.array([
         ['x', 'x', 'x', 'x', 'x'],
@@ -29,7 +29,7 @@ def test_dagger():
     expert = alg.fit(mdp)
 
     mdp.sample_trajectory(
-        expert, horizon=5, reset=True, display=False)
+        expert, horizon=5, reset=True, display=display)
 
     learning_alg = StateClassifier(SVC)
     beta = itertools.chain([1], iter(lambda: 0, 1))
@@ -43,10 +43,10 @@ def test_dagger():
     print "Testing final policy returned by DAgger..."
     for i in range(10):
         mdp.sample_trajectory(
-            policies[-1], horizon=10, reset=True, display=False)
+            policies[-1], horizon=10, reset=True, display=display)
 
 
-def test_po_dagger():
+def test_po_dagger(display=False):
     # Define environment
     world_map = np.array([
         ['x', 'x', 'x', 'x', 'x'],
@@ -62,7 +62,7 @@ def test_po_dagger():
     alg = PBVI(m=4, n=20)
     expert = alg.fit(pomdp)
     pomdp.sample_trajectory(
-        expert, 20, True, display=False)
+        expert, 20, True, display=display)
 
     learning_alg = BeliefStateClassifier(SVC)
     beta = itertools.chain([1], iter(lambda: 0, 1))
@@ -76,10 +76,10 @@ def test_po_dagger():
     print "Testing final policy returned by DAgger..."
     for i in range(10):
         pomdp.sample_trajectory(
-            policies[-1], horizon=10, reset=True, display=False)
+            policies[-1], horizon=10, reset=True, display=display)
 
 
-def test_spectral_dagger():
+def test_spectral_dagger(display=False):
     # Define environment
     world_map = np.array([
         ['x', 'x', 'x', 'x', 'x'],
@@ -95,7 +95,7 @@ def test_spectral_dagger():
     alg = PBVI(m=4, n=20)
     expert = alg.fit(pomdp)
     pomdp.sample_trajectory(
-        expert, horizon=5, reset=True, display=False)
+        expert, horizon=5, reset=True, display=display)
 
     learning_alg = SpectralClassifier(SVC)
     beta = itertools.chain([1], iter(lambda: 0, 1))
@@ -109,4 +109,4 @@ def test_spectral_dagger():
     print "Testing final policy returned by DAgger..."
     for i in range(10):
         pomdp.sample_trajectory(
-            policies[-1], horizon=3, reset=True, display=False)
+            policies[-1], horizon=3, reset=True, display=display)
