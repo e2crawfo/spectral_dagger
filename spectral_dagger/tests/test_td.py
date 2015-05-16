@@ -41,7 +41,7 @@ def test_td(algorithm, display=False):
 
     policy = algorithm(
         env, alpha=alpha, epsilon=epsilon,
-        Q_0=np.random.random((env.num_states, env.num_actions)))
+        Q_0=np.random.random((env.n_states, env.n_actions)))
 
     env.sample_trajectory(
         policy, reset=True, display=display)

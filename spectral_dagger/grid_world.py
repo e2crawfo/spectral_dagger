@@ -254,11 +254,11 @@ class GridWorld(MDP):
             in enumerate(self.positions)]
 
     @property
-    def num_actions(self):
+    def n_actions(self):
         return len(self.actions)
 
     @property
-    def num_states(self):
+    def n_states(self):
         return len(self.states)
 
     @property
@@ -296,13 +296,13 @@ class GridWorld(MDP):
             }
 
         positions = self.positions
-        num_positions = self.num_states
+        n_positions = self.n_states
 
         state_indices = {
             state: index for index, state in enumerate(positions)}
 
         T = np.zeros(
-            (self.num_actions, num_positions, num_positions))
+            (self.n_actions, n_positions, n_positions))
 
         for a in self.actions:
             for i, pos in enumerate(positions):
@@ -335,7 +335,7 @@ class GridWorld(MDP):
         Returns a |actions| x |states| x |states| reward matrix.
         """
 
-        R = np.zeros((self.num_actions, self.num_states, self.num_states))
+        R = np.zeros((self.n_actions, self.n_states, self.n_states))
 
         for a in self.actions:
             for s in self.states:
@@ -410,31 +410,31 @@ class GridWorld(MDP):
 
 
 class GridObservation(Observation):
-    def __init__(self, north, east, south, west, num_values):
+    def __init__(self, north, east, south, west, n_values):
         """
-        num_values is the number of different values we can encounter in
+        n_values is the number of different values we can encounter in
         a single direction. So usually the number of wall colors plus 1
         for non-walls (which are given value 0).
         """
 
         self.values = [north, east, south, west]
-        self.num_values = num_values
+        self.n_values = n_values
 
         super(GridObservation, self).__init__(self.get_id())
 
     def get_id(self):
         return sum(
-            [d * self.num_values**e for d, e in zip(self.values, range(4))])
+            [d * self.n_values**e for d, e in zip(self.values, range(4))])
 
     def __str__(self):
         return ("<GridObs id: %d, N: %d, E: %d, "
                 "S: %d, W: %d>" % tuple([self.get_id()] + self.values))
 
     @staticmethod
-    def get_all_observations(num_values):
-        d = range(num_values)
+    def get_all_observations(n_values):
+        d = range(n_values)
         observations = [
-            GridObservation(*(i + (num_values,)))
+            GridObservation(*(i + (n_values,)))
             for i in itertools.product(d, d, d, d)]
 
         return observations
@@ -445,20 +445,20 @@ class EgoGridWorld(POMDP):
     For Egocentric Grid World.
 
     Takes in a world map where all the walls are either x's or integers from
-    1 to num_colors. For each x, randomly replaces it with a number from
-    1 to num_colors. The result is a world map that effectively has colored
+    1 to n_colors. For each x, randomly replaces it with a number from
+    1 to n_colors. The result is a world map that effectively has colored
     walls.
     """
 
-    def __init__(self, num_colors, world_map=None, gamma=0.9, noise=0.1):
+    def __init__(self, n_colors, world_map=None, gamma=0.9, noise=0.1):
         if world_map is None:
             world_map = GridWorld.default_world_map.copy()
 
-        self.num_colors = num_colors
+        self.n_colors = n_colors
 
-        num_walls = np.count_nonzero(world_map == GridWorld.WALL_MARKER)
+        n_walls = np.count_nonzero(world_map == GridWorld.WALL_MARKER)
         world_map[world_map == GridWorld.WALL_MARKER] = np.random.randint(
-            1, num_colors+1, num_walls)
+            1, n_colors+1, n_walls)
 
         self.grid_world = GridWorld(world_map, gamma=gamma, noise=noise)
 
@@ -485,7 +485,7 @@ class EgoGridWorld(POMDP):
         its internal intial distribution.
         """
         if init_dist is not None:
-            if len(init_dist) != self.num_states:
+            if len(init_dist) != self.n_states:
                 raise ValueError(
                     "Initialization distribution must have number of elements "
                     "equal to the number of states in the POMDP.")
@@ -516,7 +516,7 @@ class EgoGridWorld(POMDP):
         south = self.get_obs_at(y_pos+1, x_pos)
         west = self.get_obs_at(y_pos, x_pos-1)
 
-        return GridObservation(north, east, south, west, self.num_colors+1)
+        return GridObservation(north, east, south, west, self.n_colors+1)
 
     def get_obs_at(self, y, x):
         val = self.world_map[y][x]
@@ -534,7 +534,7 @@ class EgoGridWorld(POMDP):
 
     @property
     def observations(self):
-        return GridObservation.get_all_observations(self.num_colors+1)
+        return GridObservation.get_all_observations(self.n_colors+1)
 
     @property
     def states(self):
@@ -548,10 +548,10 @@ class EgoGridWorld(POMDP):
         temp_state = self.state
 
         O = np.zeros((
-            self.num_actions, self.num_states,
-            self.num_observations))
+            self.n_actions, self.n_states,
+            self.n_observations))
 
-        for i in range(self.num_states):
+        for i in range(self.n_states):
             self.grid_world.reset(i)
             obs = self.generate_observation()
             O[:, i, obs.get_id()] = 1.0

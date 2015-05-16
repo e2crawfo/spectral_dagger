@@ -35,8 +35,8 @@ class BadExampleMDP(MDP):
 
         self.observations = self.states
 
-        num_states = len(self.states)
-        self._T = np.zeros((2, num_states, num_states))
+        n_states = len(self.states)
+        self._T = np.zeros((2, n_states, n_states))
 
         self._T[A_0][0][1] = 1.0
         self._T[A_0][1][2] = 1.0
@@ -50,7 +50,7 @@ class BadExampleMDP(MDP):
         self._T[A_1][3][4] = 1.0
         self._T[A_1][4][3] = 1.0
 
-        self._R = np.zeros((2, num_states))
+        self._R = np.zeros((2, n_states))
 
         self.reset()
 
@@ -118,8 +118,8 @@ class GoodExampleMDP(MDP):
 
         self.observations = self.states
 
-        num_states = len(self.states)
-        self.T = np.zeros((2, num_states, num_states))
+        n_states = len(self.states)
+        self.T = np.zeros((2, n_states, n_states))
 
         self.T[A_0][0][1] = 1.0
         self.T[A_0][1][2] = 1.0
@@ -141,7 +141,7 @@ class GoodExampleMDP(MDP):
         self.T[A_1][6][7] = 1.0
         self.T[A_1][7][3] = 1.0
 
-        self.reward = np.zeros((2, num_states))
+        self.reward = np.zeros((2, n_states))
 
         self.reset()
 
@@ -243,23 +243,23 @@ if __name__ == "__main__":
     alpha = 0.1
     beta = make_beta(alpha)
 
-    num_iterations = 100
-    num_samples = 20
+    n_iterations = 100
+    n_samples = 20
     horizon = 20
 
     policies = dagger.dagger(
         env, initial_policy, policy_class, expert, beta,
-        num_iterations, num_samples, horizon)
+        n_iterations, n_samples, horizon)
 
     for i, p in enumerate(policies):
         if hasattr(p, 'classifier'):
             print "Policy", i, ": coef: ", p.classifier.coef_
             print "Policy", i, ": intercept: ", p.classifier.intercept_
 
-    num_test_trajectories = 10
+    n_test_trajectories = 10
     test_horizon = 10
 
-    for i in range(num_test_trajectories):
+    for i in range(n_test_trajectories):
         trajectory = env.sample_trajectory(
             policies[-1], test_horizon, True, display=1)
 
@@ -267,7 +267,7 @@ if __name__ == "__main__":
     # from matplotlib.lines import Line2D
 
     # for i, p in enumerate(policies):
-    #     ax = plt.subplot(num_iterations, 1, i)
+    #     ax = plt.subplot(n_iterations, 1, i)
 
     #     ax.add_line(Line2D())
 

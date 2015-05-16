@@ -146,15 +146,15 @@ class POMDP(object):
         return self.mdp.gamma
 
     @property
-    def num_actions(self):
+    def n_actions(self):
         return len(self.actions)
 
     @property
-    def num_observations(self):
+    def n_observations(self):
         return len(self.observations)
 
     @property
-    def num_states(self):
+    def n_states(self):
         return len(self.states)
 
     @property

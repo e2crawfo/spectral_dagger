@@ -198,11 +198,11 @@ class MDP(object):
         return self.current_state, reward
 
     @property
-    def num_actions(self):
+    def n_actions(self):
         return len(self.actions)
 
     @property
-    def num_states(self):
+    def n_states(self):
         return len(self.states)
 
     @property
@@ -256,7 +256,7 @@ class MDP(object):
 
             self.reset(init)
 
-        if mdp_policy is None and self.num_actions != 1:
+        if mdp_policy is None and self.n_actions != 1:
             raise ValueError(
                 "Must supply policy to sample from MDP with multiple actions.")
 
@@ -278,9 +278,7 @@ class MDP(object):
                 print str(self)
 
             s = self.state
-
             a = mdp_policy.get_action()
-
             s_prime, r = self.execute_action(a)
 
             if return_reward:
@@ -364,7 +362,7 @@ class GreedyPolicy(MDPPolicy):
 
     def get_action(self):
         T_s = self.T[:, self.current_state, :]
-        R_s = self.T[:, self.current_state, :]
+        R_s = self.R[:, self.current_state, :]
 
         return max(
             self.actions,
@@ -374,7 +372,7 @@ class GreedyPolicy(MDPPolicy):
 def evaluate_policy(mdp, policy, threshold=0.0001):
     j = 0
 
-    V = np.ones(mdp.num_states)
+    V = np.zeros(mdp.n_states)
     old_V = np.inf * np.ones(V.shape)
 
     T = mdp.T
@@ -388,6 +386,8 @@ def evaluate_policy(mdp, policy, threshold=0.0001):
             policy.reset(s)
             a = policy.get_action()
             V[s] = np.dot(T[a, s, :], R[a, s, :] + gamma * V)
+
+        print V
 
         j += 1
 

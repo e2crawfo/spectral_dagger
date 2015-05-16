@@ -34,7 +34,7 @@ class PBVI(LearningAlgorithm):
                     [discount * self.T[a, s, :] * self.O[a, :, o]
                      for s in pomdp.states])
 
-        V = np.zeros((pomdp.num_states, len(belief_points)))
+        V = np.zeros((pomdp.n_states, len(belief_points)))
 
         for i in range(m):
             for j in range(n):

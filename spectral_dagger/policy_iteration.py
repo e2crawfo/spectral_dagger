@@ -13,11 +13,11 @@ class PolicyIteration(LearningAlgorithm):
         if policy is None:
             pi = {}
             for s in mdp.states:
-                pi[s] = mdp.actions[np.random.randint(mdp.num_actions)]
+                pi[s] = mdp.actions[np.random.randint(mdp.n_actions)]
 
             policy = MDPPolicy(pi)
 
-        V = np.ones(mdp.num_states)
+        V = np.zeros(mdp.n_states)
 
         T = mdp.T
         R = mdp.R
@@ -45,21 +45,21 @@ class PolicyIteration(LearningAlgorithm):
 
             print "Value function converged after {0} iterations".format(j)
 
-            new_policy = GreedyPolicy(mdp, V)
+            greedy = GreedyPolicy(mdp, V)
 
             for s in mdp.states:
                 policy.reset(s)
                 a = policy.get_action()
 
-                new_policy.reset(s)
-                greedy_a = new_policy.get_action()
+                greedy.reset(s)
+                greedy_a = greedy.get_action()
 
                 stable = a == greedy_a
 
                 if not stable:
                     break
 
-            policy = new_policy
+            policy = greedy
 
             i += 1
 

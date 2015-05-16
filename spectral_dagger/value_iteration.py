@@ -12,7 +12,7 @@ class ValueIteration(LearningAlgorithm):
     def fit(self, mdp, V_0=None):
 
         if V_0 is None:
-            V_0 = np.ones(mdp.num_states)
+            V_0 = np.ones(mdp.n_states)
 
         V = V_0.copy()
         old_V = np.inf * np.ones(V.shape)

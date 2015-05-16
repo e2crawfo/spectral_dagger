@@ -39,7 +39,7 @@ class QLearning(TD):
         self.alpha = alpha
 
         if Q_0 is None:
-            Q_0 = 100 * np.ones((mdp.num_states, mdp.num_actions))
+            Q_0 = 100 * np.ones((mdp.n_states, mdp.n_actions))
         self.Q = Q_0
 
         self.epsilon = epsilon
@@ -74,7 +74,7 @@ class Sarsa(TD):
         self.alpha = alpha
 
         if Q_0 is None:
-            Q_0 = 100 * np.ones((mdp.num_states, mdp.num_actions))
+            Q_0 = 100 * np.ones((mdp.n_states, mdp.n_actions))
         self.Q = Q_0
 
         self.epsilon = epsilon

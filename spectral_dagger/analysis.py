@@ -16,18 +16,18 @@ def do_pbvi(do_plot=False):
         ['x', 'x', 'x', 'x', 'x']]
     )
 
-    num_trials = 3
+    n_trials = 3
 
     means = []
     rewards = []
 
     colors = [1, 2]
 
-    for num_colors in colors:
+    for n_colors in colors:
         rewards.append([])
 
-        for trial in range(num_trials):
-            pomdp = EgoGridWorld(num_colors, world, gamma=0.99)
+        for trial in range(n_trials):
+            pomdp = EgoGridWorld(n_colors, world, gamma=0.99)
 
             print "Training model..."
             alg = PBVI()
@@ -38,7 +38,7 @@ def do_pbvi(do_plot=False):
 
             rewards[-1].append(sum(t[2] for t in trajectory))
 
-            print "Reward using %d colors: %f" % (num_colors, rewards[-1][-1])
+            print "Reward using %d colors: %f" % (n_colors, rewards[-1][-1])
 
     if do_plot:
         import matplotlib.pyplot as plt

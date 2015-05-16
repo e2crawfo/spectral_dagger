@@ -16,17 +16,17 @@ class SpectralPSRWithActions(object):
     def __init__(
             self, actions, observations, max_dim=80):
 
-        self.num_actions = len(actions)
+        self.n_actions = len(actions)
         self.actions = actions
 
-        self.num_observations = len(observations)
+        self.n_observations = len(observations)
         self.observations = observations
 
         self.buildtime = 0
         self.B_ao = {}
         self.max_dim = max_dim
 
-    def fit(self, data, max_basis_size, num_components, use_naive=False):
+    def fit(self, data, max_basis_size, n_components, use_naive=False):
         """
         data should be a list of lists. Each sublist correspodnds to a
         trajectory.  Each entry of the trajectory should be a 2-tuple,
@@ -57,7 +57,7 @@ class SpectralPSRWithActions(object):
         self.hankel = hankel_matrix
         self.symbol_hankels = symbol_hankels
 
-        num_components = min(num_components, hankel_matrix.shape[0])
+        n_components = min(n_components, hankel_matrix.shape[0])
 
         print "Performing SVD..."
         n_oversamples = 10
@@ -69,9 +69,9 @@ class SpectralPSRWithActions(object):
 
         V = VT.T
 
-        U = U[:, :num_components]
-        V = V[:, :num_components]
-        S = np.diag(S[:num_components])
+        U = U[:, :n_components]
+        V = V[:, :n_components]
+        S = np.diag(S[:n_components])
 
         # P^+ = (HV)^+ = (US)^+ = S^+ U+ = S^-1 U.T
         P_plus = csr_matrix((np.linalg.inv(S)).dot(U.T))
@@ -94,7 +94,7 @@ class SpectralPSRWithActions(object):
 
         # See Lemma 6.1.1 in Borja's thesis
         B = sum(self.B_ao.values())
-        self.b_inf = np.linalg.inv(np.eye(num_components)-B).dot(self.b_inf)
+        self.b_inf = np.linalg.inv(np.eye(n_components)-B).dot(self.b_inf)
 
         # b_0 S = hs => b_0 = hs S^+
         self.b_0 = hs.dot(S_plus)
@@ -166,7 +166,7 @@ class SpectralPSRWithActions(object):
     def get_WER(self, test_data):
         """Returns word error rate for the test data"""
         errors = 0
-        num_predictions = 0
+        n_predictions = 0
 
         for seq in test_data:
             self.reset()
@@ -179,9 +179,9 @@ class SpectralPSRWithActions(object):
 
                 self.update(a, o)
 
-                num_predictions += 1
+                n_predictions += 1
 
-        return errors/float(num_predictions)
+        return errors/float(n_predictions)
 
     def get_log_likelihood(self, test_data, base=2):
         """Returns average log likelihood for the test data"""
@@ -463,12 +463,12 @@ class SpectralClassifier(LearningAlgorithm):
     max_basis_size: int
         The maximum size of the basis for the spectral learner.
 
-    num_components: int
+    n_components: int
         The number of components to use in the spectral learner.
     """
     def __init__(
             self, classifier_cls, classifier_args=None,
-            classifier_kwargs=None, max_basis_size=500, num_components=50):
+            classifier_kwargs=None, max_basis_size=500, n_components=50):
 
         self.classifier_cls = classifier_cls
 
@@ -481,7 +481,7 @@ class SpectralClassifier(LearningAlgorithm):
         self.classifier_kwargs = classifier_kwargs
 
         self.max_basis_size = max_basis_size
-        self.num_components = num_components
+        self.n_components = n_components
 
     def fit(self, pomdp, trajectories, actions):
         """
@@ -507,7 +507,7 @@ class SpectralClassifier(LearningAlgorithm):
         self.psr = SpectralPSRWithActions(pomdp.actions, pomdp.observations)
 
         self.b_0, self.B_ao, self.b_inf = self.psr.fit(
-            trajectories, self.max_basis_size, self.num_components)
+            trajectories, self.max_basis_size, self.n_components)
 
         psr_states = []
         flat_actions = []
@@ -562,9 +562,9 @@ if __name__ == "__main__":
     import grid_world
 
     # Sample a bunch of trajectories, run the learning algorithm on them
-    num_trajectories = 20000
+    n_trajectories = 20000
     horizon = 3
-    num_components = 40
+    n_components = 40
     max_basis_size = 1000
     max_dim = 150
 
@@ -578,9 +578,9 @@ if __name__ == "__main__":
         ['x', 'x', 'x', 'x', 'x']]
     )
 
-    num_colors = 2
+    n_colors = 2
 
-    pomdp = grid_world.EgoGridWorld(num_colors, world)
+    pomdp = grid_world.EgoGridWorld(n_colors, world)
 
     exploration_policy = POMDPPolicy()
     exploration_policy.fit(pomdp)
@@ -588,7 +588,7 @@ if __name__ == "__main__":
     trajectories = []
 
     print "Sampling trajectories..."
-    for i in xrange(num_trajectories):
+    for i in xrange(n_trajectories):
         trajectory = pomdp.sample_trajectory(
             exploration_policy, horizon, reset=True,
             return_reward=False, display=False)
@@ -602,19 +602,19 @@ if __name__ == "__main__":
             pomdp.actions, pomdp.observations, max_dim)
 
         b_0, B_ao, b_inf = psr.fit(
-            trajectories, max_basis_size, num_components, use_naive)
+            trajectories, max_basis_size, n_components, use_naive)
 
         test_length = 10
-        num_tests = 2000
+        n_tests = 2000
 
-        num_below = []
+        n_below = []
         top_three_count = 0
 
         print "Running tests..."
 
         display = False
 
-        for t in range(num_tests):
+        for t in range(n_tests):
 
             if display:
                 print "\nStart test"
@@ -634,7 +634,7 @@ if __name__ == "__main__":
 
                 rank = psr.get_obs_rank(action, actual_obs)
 
-                num_below.append(rank[1])
+                n_below.append(rank[1])
                 if rank[0] < 3:
                     top_three_count += 1
 
@@ -652,16 +652,16 @@ if __name__ == "__main__":
                     print "PSR Rank of Actual Observation: ", rank
 
         print (
-            "Average num below: ", np.mean(num_below),
+            "Average num below: ", np.mean(n_below),
             "of", len(pomdp.observations))
         print "Probability in top 3: %f" % (
-            float(top_three_count) / (test_length * num_tests))
+            float(top_three_count) / (test_length * n_tests))
 
-        num_test_trajectories = 40
+        n_test_trajectories = 40
         test_trajectories = []
 
         print "Sampling test trajectories for WER..."
-        for i in xrange(num_test_trajectories):
+        for i in xrange(n_test_trajectories):
             trajectory = pomdp.sample_trajectory(
                 exploration_policy, horizon, reset=True,
                 return_reward=False, display=False)

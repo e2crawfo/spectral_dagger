@@ -56,7 +56,7 @@ def test_po_dagger(display=False):
         ['x', 'x', 'x', 'x', 'x']]
     )
 
-    pomdp = grid_world.EgoGridWorld(num_colors=1, world_map=world_map)
+    pomdp = grid_world.EgoGridWorld(n_colors=1, world_map=world_map)
 
     print "Computing expert policy..."
     alg = PBVI(m=4, n=20)
@@ -89,7 +89,7 @@ def test_spectral_dagger(display=False):
         ['x', 'x', 'x', 'x', 'x']]
     )
 
-    pomdp = grid_world.EgoGridWorld(num_colors=1, world_map=world_map)
+    pomdp = grid_world.EgoGridWorld(n_colors=1, world_map=world_map)
 
     print "Computing expert policy..."
     alg = PBVI(m=4, n=20)
