@@ -179,7 +179,10 @@ class StateClassifier(LearningAlgorithm):
             action_string = classifier.predict(state.as_vector())[0]
             return action_lookup[action_string]
 
-        return MDPPolicy(f)
+        policy = MDPPolicy(f)
+        policy.classifier = classifier
+
+        return policy
 
 
 class BeliefStateClassifier(LearningAlgorithm):
