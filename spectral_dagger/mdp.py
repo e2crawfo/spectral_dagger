@@ -113,8 +113,8 @@ class MDP(object):
           the probability of moving from state i to state j given that action
           a taken.
         R: ndarray
-          An |actions| x |states| x |states| matrix. Entry (a, i, j) gives the reward for
-          transitioning from state i to state j using action a.
+          An |actions| x |states| x |states| matrix. Entry (a, i, j) gives the
+          reward for transitioning from state i to state j using action a.
         gamma: float
           Discount factor.
         initial_state: State
@@ -174,12 +174,20 @@ class MDP(object):
         else:
             self.current_state = np.random.choice(self.states)
 
-    def execute_action(self, action):
+    def execute_action(self, action=None):
         """
         Play the given action.
 
         Returns the next state and the reward.
         """
+
+        if action is None:
+            if self.n_actions > 1:
+                raise ValueError(
+                    "Must supply a valid action to "
+                    "execute_action when n_actions > 1")
+            else:
+                action = 0
 
         if not isinstance(action, Action) and not isinstance(action, int):
             raise ValueError(
@@ -237,11 +245,19 @@ class MDP(object):
             return self.R[a, s, s_prime]
 
     def sample_trajectory(
-            self, mdp_policy=None, horizon=None, reset=None,
+            self, policy=None, horizon=None, reset=None,
             init=None, return_reward=True, display=False):
         """
         If horizon is None, then trajectory will continue until the episode
         ends (i.e. a terminal state is reached).
+
+        If the mdp has only one action, then policy's 'get_action' method will
+        not be called.
+
+        Not implemented yet:
+        If policy is a tuple, then the first policy will be treated as an
+        exploration policy, and the second will be treated as an estimation
+        policy (i.e. a policy we are trying to learn about).
         """
 
         if horizon is None and not self.has_terminal_states():
@@ -256,14 +272,15 @@ class MDP(object):
 
             self.reset(init)
 
-        if mdp_policy is None and self.n_actions != 1:
+        if not policy:
+            policy = UniformRandomPolicy(self)
+
+        if self.n_actions != 1 and not hasattr(policy, 'get_action'):
             raise ValueError(
-                "Must supply policy to sample from MDP with multiple actions.")
+                "Must supply a policy with a get_action method to sample "
+                "a trajectory on an MDP with multiple actions.")
 
-        if mdp_policy is None:
-            mdp_policy = UniformRandomPolicy(self)
-
-        mdp_policy.reset(self.state)
+        policy.reset(self.state)
 
         trajectory = []
 
@@ -278,15 +295,20 @@ class MDP(object):
                 print str(self)
 
             s = self.state
-            a = mdp_policy.get_action()
-            s_prime, r = self.execute_action(a)
+
+            if self.n_actions == 1:
+                a = 0
+                s_prime, r = self.execute_action(a)
+            else:
+                a = policy.get_action()
+                s_prime, r = self.execute_action(a)
 
             if return_reward:
                 trajectory.append((s, a, r))
             else:
                 trajectory.append((s, a))
 
-            mdp_policy.update(a, s_prime, r)
+            policy.update(a, s_prime, r)
 
             i += 1
 
@@ -369,7 +391,13 @@ class GreedyPolicy(MDPPolicy):
             key=lambda a: T_s[a, :].dot(R_s[a, :] + self.gamma * self.V))
 
 
-def evaluate_policy(mdp, policy, threshold=0.0001):
+def evaluate_policy(mdp, policy=None, threshold=0.00001):
+
+    if policy is None and mdp.n_actions != 1:
+        raise ValueError(
+            "Must supply a policy to find value function of an MDP with "
+            "multiple actions.")
+
     j = 0
 
     V = np.zeros(mdp.n_states)
@@ -383,11 +411,14 @@ def evaluate_policy(mdp, policy, threshold=0.0001):
         old_V[:] = V
 
         for s in mdp.states:
-            policy.reset(s)
-            a = policy.get_action()
-            V[s] = np.dot(T[a, s, :], R[a, s, :] + gamma * V)
 
-        print V
+            if mdp.n_actions == 1:
+                a = 0
+            else:
+                policy.reset(s)
+                a = policy.get_action()
+
+            V[s] = np.dot(T[a, s, :], R[a, s, :] + gamma * V)
 
         j += 1
 

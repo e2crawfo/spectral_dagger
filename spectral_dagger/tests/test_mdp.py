@@ -1,9 +1,22 @@
+from spectral_dagger.random_walk import RandomWalk
+from spectral_dagger.td import TD
 from spectral_dagger.policy_iteration import PolicyIteration
 from spectral_dagger.value_iteration import ValueIteration
 
 import spectral_dagger.grid_world as grid_world
 
-import numpy as np
+
+def test_simple(display=False):
+
+    # 1 action mdp (so a markov chain), no policy
+    mdp = RandomWalk(10)
+    trajectory = mdp.sample_trajectory(
+        reset=True, return_reward=True, display=display)
+
+    # 1 action mdp (so a markov chain), a learning policy
+    policy = TD(mdp, alpha=0.1)
+    trajectory = mdp.sample_trajectory(
+        policy=policy, reset=True, return_reward=True, display=display)
 
 
 def test_policy_iteration(display=False):
