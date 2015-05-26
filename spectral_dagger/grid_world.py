@@ -61,30 +61,139 @@ class GridAction(Action):
         elif self == EAST or self == WEST:
             return (GridAction(NORTH), GridAction(SOUTH))
 
-    def get_next_position(self, position):
-        """
-        Returns a pair of ints (y, x).
-        """
-
+    def get_offset(self):
         if self.get_id() == NORTH:
-            return (position[0]-1, position[1])
+            return np.array([-1, 0])
         elif self.get_id() == EAST:
-            return (position[0], position[1]+1)
+            return np.array([0, 1])
         elif self.get_id() == SOUTH:
-            return (position[0]+1, position[1])
+            return np.array([1, 0])
         elif self.get_id() == WEST:
-            return (position[0], position[1]-1)
+            return np.array([0, -1])
+
+    def get_next_position(self, position):
+        return Position(position) + self.get_offset()
 
     @staticmethod
     def get_all_actions():
         return [GridAction(s) for s in GridAction.strings]
 
 
-class GridWorld(MDP):
+def is_numeric(x):
+    return isinstance(x, float) or isinstance(x, int)
 
+
+class Position(object):
+    """
+    A wrapper around a size 2 ndarray which supports simple equality testing.
+    """
+
+    def __init__(self, x, y=None):
+
+        if is_numeric(x) and is_numeric(y):
+            self.position = np.array([x, y])
+        elif isinstance(x, Position):
+            self.position = np.array(x.position, copy=True)
+        else:
+            try:
+                self.position = np.array(x).flatten()
+
+                assert y is None
+                assert self.position.size == 2
+                assert self.position.ndim == 1
+            except:
+                raise NotImplementedError()
+
+    @property
+    def x(self):
+        return self.position[0]
+
+    @property
+    def y(self):
+        return self.position[1]
+
+    def __eq__(self, other):
+        try:
+            return all(self.position == other.position)
+        except:
+            try:
+                return all(self.position == other)
+            except:
+                raise NotImplementedError()
+
+    def __add__(self, other):
+        try:
+            new_position = self.position + other
+            return Position(new_position)
+        except:
+            raise NotImplementedError()
+
+    def __radd__(self, other):
+        return self + other
+
+    def __iadd__(self, other):
+        try:
+            self.position += other
+        except:
+            raise NotImplementedError()
+
+        return self
+
+    def __mul__(self, other):
+        try:
+            new_position = self.position * other
+            return Position(new_position)
+        except:
+            raise NotImplementedError()
+
+    def __rmul__(self, other):
+        return self * other
+
+    def __imul__(self, other):
+        try:
+            self.position *= other
+        except:
+            raise NotImplementedError()
+
+        return self
+
+    def __neg__(self):
+        return Position(-self.position)
+
+    def __getitem__(self, index):
+        try:
+            val = self.position[index]
+        except:
+            raise KeyError("Invalid key %s used to index %s." % (index, self))
+
+        return val
+
+    def __setitem__(self, index, val):
+        try:
+            self.position[index] = val
+        except:
+            raise KeyError("Invalid key %s used to index %s." % (index, self))
+
+    def __hash__(self):
+        return hash(tuple(self))
+
+    def __iter__(self):
+        return iter(self.position)
+
+    def __array__(self):
+        return self.position.copy()
+
+    def __str__(self):
+        return "<%f, %f>" % (self.x, self.y)
+
+    def __repr__(self):
+        return str(self)
+
+
+class WorldMap(object):
     default_world_map = np.array([
         ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'],
-        ['x', ' ', ' ', ' ', 'x', ' ', ' ', 'A', ' ', ' ', ' ', ' ', ' ', 'x'],
+        ['x', ' ', ' ', ' ', 'x', ' ', ' ', 'S', ' ', ' ', ' ', ' ', ' ', 'x'],
         ['x', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'x', 'G', ' ', 'x'],
         ['x', 'x', 'x', 'x', ' ', ' ', ' ', ' ', ' ', ' ', 'x', ' ', ' ', 'x'],
         ['x', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'x', ' ', ' ', 'x'],
@@ -94,56 +203,170 @@ class GridWorld(MDP):
 
     """
     Rules for parsing a map:
-        1. First find any special characters like A, G, record their locations,
+        1. First find any special characters like S, G, record their locations,
            and turn them into spaces.
-            * "A" specifies agent start location. If not provided, agent start
+            * "S" specifies agent start location. If not provided, agent start
               location chosen uniformly at random from all floor tiles each
               time the environment is reset.
             * "G" specifies the goal location. For now there has to be exactly
               one of these.
             * "O" (capital O) specifies a pit or a hole. Stepping on such a
-              space will cause the agent to go back to the initial state.
+              space will cause the agent to suffer a large negative reward,
+              and go back to the initial state.
+            * "P" specifies a puddle. Stepping on such a
+              space will cause the agent to suffer a large negative reward,
+              but they will not reset back to the initial state.
         2. All spaces are considered empty space which the agent can occupy.
         3. All other remaining characters are considered walls.
         4. The map must be surrounded by walls. Otherwise, agents will try to
            step off the edge of the map, causing errors.
     """
 
-    START_MARKER = 'A'
+    START_MARKER = 'S'
     GOAL_MARKER = 'G'
     PIT_MARKER = 'O'
+    PUDDLE_MARKER = 'P'
     WALL_MARKER = 'x'
+
+    def __init__(self, world_map):
+        if world_map is None:
+            world_map = WorldMap.default_world_map
+
+        self.world_map = np.array(world_map, copy=True)
+        self.parse_map()
+
+    def parse_map(self):
+        init_positions = self.get_locations_of(WorldMap.START_MARKER)
+
+        if not init_positions:
+            self.init_position = None
+        else:
+            self.init_position = init_positions[0]
+
+        goal_positions = self.get_locations_of(WorldMap.GOAL_MARKER)
+        if not goal_positions:
+            raise ValueError(
+                "World world_map must contain a `%s` "
+                "indicating goal location." % WorldMap.GOAL_MARKER)
+        else:
+            self.goal_position = goal_positions[0]
+
+        self.pit_positions = self.get_locations_of(WorldMap.PIT_MARKER)
+        self.puddle_positions = self.get_locations_of(WorldMap.PUDDLE_MARKER)
+
+        self.positions = self.get_locations_of(' ')
+        self.positions.extend(self.pit_positions)
+        self.positions.extend(self.puddle_positions)
+        self.positions.append(self.goal_position)
+
+        if self.init_position:
+            self.positions.append(self.init_position)
+
+        self.current_position = None
+
+    def get_locations_of(self, c):
+        """ Returns a list of Position objects, giving the positions where the
+        the world_map array takes value `c` """
+
+        positions = np.where(self.world_map == c)
+        positions = [Position(i) for i in zip(*positions)]
+        return positions
+
+    def is_valid_position(self, pos):
+        return pos in self.positions
+
+    def __getitem__(self, index):
+        if isinstance(index, np.ndarray) and index.size == 2:
+            index = tuple(index)
+        elif isinstance(index, Position):
+            index = tuple(np.array(index))
+
+        return self.world_map[index]
+
+    def __setitem__(self, index, item):
+        if isinstance(index, np.ndarray) and index.size == 2:
+            index = tuple(index)
+        elif isinstance(index, Position):
+            index = tuple(np.array(index))
+
+        self.world_map[index] = item
+
+    def __str__(self):
+        w = ''
+        for i in xrange(self.world_map.shape[0]):
+            for j in xrange(self.world_map.shape[1]):
+                if (self.current_position is not None
+                        and (i, j) == self.current_position):
+                    w += 'A'
+                elif (i, j) == self.init_position:
+                    w += WorldMap.START_MARKER
+                elif (i, j) == self.goal_position:
+                    w += WorldMap.GOAL_MARKER
+                elif (i, j) in self.pit_positions:
+                    w += WorldMap.PIT_MARKER
+                elif (i, j) in self.puddle_positions:
+                    w += WorldMap.PUDDLE_MARKER
+                else:
+                    w += str(self.world_map[i][j])
+
+            if i < self.world_map.shape[0] - 1:
+                w += '\n'
+
+        return w
+
+
+class ColoredWorldMap(WorldMap):
+    def __init__(self, n_colors, world_map=None):
+        assert n_colors >= 1
+
+        if world_map is None:
+            world_map = WorldMap.default_world_map
+        self.world_map = np.array(world_map, copy=True)
+
+        self.n_colors = n_colors
+        self.parse_map()
+
+    def parse_map(self):
+        n_walls = np.count_nonzero(self.world_map == WorldMap.WALL_MARKER)
+        is_wall = self.world_map == WorldMap.WALL_MARKER
+        self.world_map[is_wall] = (
+            np.random.randint(1, self.n_colors+1, n_walls))
+
+        super(ColoredWorldMap, self).parse_map()
+
+    def get_color_at(self, pos):
+        # TODO: designate colors for pits and puddles
+        val = self[pos]
+
+        try:
+            # A wall
+            val = int(val)
+            return val
+        except:
+            # Anything else
+            return 0
+
+
+class GridWorld(MDP):
+
+    GOAL_REWARD = 10
+    PIT_REWARD = -100
+    PUDDLE_REWARD = -100
 
     def __init__(self, world_map=None, gamma=0.9, noise=0.1):
         self.gamma = gamma
         self.noise = noise
 
-        if world_map is None:
-            world_map = GridWorld.default_world_map
-
-        self.world_map = world_map.copy()
-
-        if GridWorld.START_MARKER not in self.world_map:
-            self.init_position = None
+        if isinstance(world_map, WorldMap):
+            self.world_map = world_map
         else:
-            init_position = np.where(world_map == GridWorld.START_MARKER)
-            self.init_position = init_position[0][0], init_position[1][0]
-            self.world_map[self.init_position] = ' '
+            self.world_map = WorldMap(world_map)
 
-        if GridWorld.GOAL_MARKER not in self.world_map:
-            raise ValueError(
-                "World world_map must contain a `%s` "
-                "indicating goal location." % GridWorld.GOAL_MARKER)
-
-        goal_position = np.where(world_map == GridWorld.GOAL_MARKER)
-        self.goal_position = goal_position[0][0], goal_position[1][0]
-
-        self.world_map[self.goal_position] = ' '
-
-        self.pit_positions = zip(*np.where(world_map == GridWorld.PIT_MARKER))
-        self.world_map[zip(*self.pit_positions)] = ' '
-
-        self.positions = zip(*np.where(self.world_map == ' '))
+        self.init_position = self.world_map.init_position
+        self.goal_position = self.world_map.goal_position
+        self.pit_positions = self.world_map.pit_positions
+        self.puddle_positions = self.world_map.puddle_positions
+        self.positions = self.world_map.positions
 
         self.make_T()
         self.make_R()
@@ -155,23 +378,7 @@ class GridWorld(MDP):
         return "GridWorld"
 
     def __str__(self):
-        w = ''
-        for i in xrange(self.world_map.shape[0]):
-            for j in xrange(self.world_map.shape[1]):
-                if (i, j) == self.current_position:
-                    w += GridWorld.START_MARKER
-                elif (i, j) == self.init_position:
-                    w += 'I'
-                elif (i, j) == self.goal_position:
-                    w += GridWorld.GOAL_MARKER
-                elif (i, j) in self.pit_positions:
-                    w += GridWorld.PIT_MARKER
-                else:
-                    w += str(self.world_map[i][j])
-
-            w += '\n'
-
-        return w
+        return str(self.world_map)
 
     def reset(self, state=None):
         """
@@ -193,16 +400,23 @@ class GridWorld(MDP):
             self.current_position = self.positions[state]
         elif state is None:
             if self.init_position is None:
-                locations = zip(*np.where(self.world_map == ' '))
-                self.current_position = locations[
+                locations = set(self.positions)
+                locations -= set(self.pit_positions)
+                locations -= set(self.puddle_positions)
+                locations -= set([self.goal_position])
+
+                self.current_position = list(locations)[
                     np.random.randint(len(locations))]
             else:
                 self.current_position = self.init_position
 
         else:
-            raise ValueError(
-                "GridWorld.reset expected GridState or int"
-                "or None, received %s" % state)
+            try:
+                self.current_position = Position(state)
+            except:
+                raise ValueError(
+                    "GridWorld.reset received invalid starting "
+                    "state: %s" % state)
 
     def execute_action(self, action):
         """
@@ -224,7 +438,9 @@ class GridWorld(MDP):
 
         prev_position = self.current_position
 
-        if self.current_position in self.pit_positions:
+        in_pit_state = self.in_pit_state()
+
+        if in_pit_state:
             sample = np.random.multinomial(1, self.init_dist)
             self.current_position = self.positions[np.where(sample > 0)[0]]
         else:
@@ -234,13 +450,29 @@ class GridWorld(MDP):
 
             next_position = action.get_next_position(self.current_position)
 
-            if self.world_map[next_position] == ' ':
+            if self.world_map.is_valid_position(next_position):
                 self.current_position = next_position
 
         reward = self.get_reward(
             action, self.pos2state(prev_position), self.state)
 
         return self.state, reward
+
+    @property
+    def current_position(self):
+        return self.world_map.current_position
+
+    @current_position.setter
+    def current_position(self, pos):
+        if not isinstance(pos, Position):
+            try:
+                self.world_map.current_position = Position(pos)
+            except:
+                raise TypeError(
+                    "Cannot set current position to %s with "
+                    "type %s." % (pos, type(pos)))
+        else:
+            self.world_map.current_position = pos
 
     @property
     def actions(self):
@@ -265,11 +497,29 @@ class GridWorld(MDP):
     def state(self):
         return self.pos2state(self.current_position)
 
-    def in_terminal_state(self):
-        return self.current_position == self.goal_position
-
     def has_terminal_states(self):
         return True
+
+    def in_terminal_state(self):
+        return self.is_terminal_state(self.current_position)
+
+    def in_pit_state(self):
+        return self.is_pit_state(self.current_position)
+
+    def in_puddle_state(self):
+        return self.is_puddle_state(self.current_position)
+
+    def is_terminal_state(self, s):
+        s = s.position if isinstance(s, GridState) else s
+        return Position(s) == self.goal_position
+
+    def is_pit_state(self, s):
+        s = s.position if isinstance(s, GridState) else s
+        return Position(s) in self.pit_positions
+
+    def is_puddle_state(self, s):
+        s = s.position if isinstance(s, GridState) else s
+        return Position(s) in self.puddle_positions
 
     def make_T(self):
         """
@@ -314,7 +564,7 @@ class GridWorld(MDP):
                     left = a.left().get_next_position(pos)
 
                     key = tuple([
-                        self.world_map[loc] != ' '
+                        not self.world_map.is_valid_position(loc)
                         for loc in (straight, right, left)])
 
                     probs = local_transitions[key]
@@ -349,28 +599,34 @@ class GridWorld(MDP):
         if s_prime is None:
             return self.get_expected_reward(a, s)
 
-        if isinstance(s_prime, GridState):
-            in_goal_state = s_prime.position == self.goal_position
+        if self.is_terminal_state(s_prime):
+            return GridWorld.GOAL_REWARD
+        elif self.is_pit_state(s_prime):
+            return GridWorld.PIT_REWARD
+        elif self.is_puddle_state(s_prime):
+            return GridWorld.PUDDLE_REWARD
         else:
-            in_goal_state = s_prime == self.goal_position
-
-        return 1.0 if in_goal_state else 0.0
+            return 0
 
     @property
     def init_dist(self):
         if self.init_position:
-            init_dist = np.zeros(len(self.states))
+            init_dist = np.zeros(len(self.positions))
             init_dist[self.positions.index(self.init_position)] = 1.0
         else:
             init_dist = np.array(
-                [pos not in self.pit_positions for pos in self.positions])
+                [not self.is_pit_state(p)
+                 and not self.is_puddle_state(p)
+                 and not self.is_terminal_state(p)
+                 for p in self.positions])
+
             init_dist = init_dist / float(sum(init_dist))
 
         return init_dist
 
     def pos2state(self, position):
         return GridState(
-            position, id=self.positions.index(position),
+            position.position, id=self.positions.index(position),
             dimension=len(self.positions))
 
     def print_value_function(self, V):
@@ -385,11 +641,12 @@ class GridWorld(MDP):
         value_func = self.world_map.copy()
         value_func = value_func.astype('|S%s' % max_length)
 
-        for i in xrange(self.world_map.shape[0]):
-            for j in xrange(self.world_map.shape[1]):
+        for i in xrange(self.world_map.world_map.shape[0]):
+            for j in xrange(self.world_map.world_map.shape[1]):
                 pos = (i, j)
                 if pos in self.positions:
                     value_func[pos] = str(V[self.pos2state(pos)])
+
         return value_func
 
     def print_deterministic_policy(self, pi):
@@ -400,8 +657,8 @@ class GridWorld(MDP):
 
         policy = self.world_map.copy()
 
-        for i in xrange(self.world_map.shape[0]):
-            for j in xrange(self.world_map.shape[1]):
+        for i in xrange(self.world_map.world_map.shape[0]):
+            for j in xrange(self.world_map.world_map.shape[1]):
                 pos = (i, j)
                 if pos in self.positions:
                     policy[pos] = GridAction.symbols[pi[self.pos2state(pos)]]
@@ -451,21 +708,10 @@ class EgoGridWorld(POMDP):
     """
 
     def __init__(self, n_colors, world_map=None, gamma=0.9, noise=0.1):
-        if world_map is None:
-            world_map = GridWorld.default_world_map.copy()
-
-        self.n_colors = n_colors
-
-        n_walls = np.count_nonzero(world_map == GridWorld.WALL_MARKER)
-        world_map[world_map == GridWorld.WALL_MARKER] = np.random.randint(
-            1, n_colors+1, n_walls)
-
-        self.grid_world = GridWorld(world_map, gamma=gamma, noise=noise)
-
-        self.world_map = self.grid_world.world_map
+        self.world_map = ColoredWorldMap(n_colors, world_map)
+        self.grid_world = GridWorld(self.world_map, gamma=gamma, noise=noise)
 
         self.make_O()
-
         self.reset()
 
     @property
@@ -509,24 +755,15 @@ class EgoGridWorld(POMDP):
         return obs, reward
 
     def generate_observation(self):
-        y_pos, x_pos = self.grid_world.current_position
+        pos = self.grid_world.current_position
 
-        north = self.get_obs_at(y_pos-1, x_pos)
-        east = self.get_obs_at(y_pos, x_pos+1)
-        south = self.get_obs_at(y_pos+1, x_pos)
-        west = self.get_obs_at(y_pos, x_pos-1)
+        north = self.world_map.get_color_at(pos + (-1, 0))
+        east = self.world_map.get_color_at(pos + (0, 1))
+        south = self.world_map.get_color_at(pos + (1, 0))
+        west = self.world_map.get_color_at(pos + (0, -1))
 
-        return GridObservation(north, east, south, west, self.n_colors+1)
-
-    def get_obs_at(self, y, x):
-        val = self.world_map[y][x]
-        try:
-            # A wall
-            val = int(val)
-            return val
-        except:
-            # Anything else
-            return 0
+        return GridObservation(
+            north, east, south, west, self.world_map.n_colors+1)
 
     @property
     def actions(self):
@@ -534,7 +771,7 @@ class EgoGridWorld(POMDP):
 
     @property
     def observations(self):
-        return GridObservation.get_all_observations(self.n_colors+1)
+        return GridObservation.get_all_observations(self.world_map.n_colors+1)
 
     @property
     def states(self):

@@ -16,7 +16,7 @@ def test_dagger(display=False):
     # Define environment
     world_map = np.array([
         ['x', 'x', 'x', 'x', 'x'],
-        ['x', ' ', ' ', 'A', 'x'],
+        ['x', ' ', ' ', 'S', 'x'],
         ['x', ' ', ' ', ' ', 'x'],
         ['x', 'G', ' ', ' ', 'x'],
         ['x', 'x', 'x', 'x', 'x']]
