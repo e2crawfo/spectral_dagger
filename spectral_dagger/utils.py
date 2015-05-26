@@ -2,6 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
+def rmse(a, b):
+    return np.sqrt(np.mean((a - b) ** 2))
+
+
 def make_beta(alpha):
     i = 1
     while True:
@@ -49,7 +53,8 @@ class ABLine2D(plt.Line2D):
 
     coefs[0] * x + coefs[1] * y + bias = 0
 
-    Additional arguments are passed to the <matplotlib.lines.Line2D> constructor.
+    Additional arguments are passed to the <matplotlib.lines.Line2D>
+    constructor.
     """
 
     def __init__(self, bias, coefs, *args, **kwargs):
@@ -58,14 +63,14 @@ class ABLine2D(plt.Line2D):
         assert coefs[0] != 0 or coefs[1] != 0
 
         # get current axes if user has not specified them
-        if not 'axes' in kwargs:
-            kwargs.update({'axes':plt.gca()})
+        if 'axes' not in kwargs:
+            kwargs.update({'axes': plt.gca()})
 
         ax = kwargs['axes']
 
         # if unspecified, get the current line color from the axes
         if not ('color' in kwargs or 'c' in kwargs):
-            kwargs.update({'color':ax._get_lines.color_cycle.next()})
+            kwargs.update({'color': ax._get_lines.color_cycle.next()})
 
         # init the line, add it to the axes
         super(ABLine2D, self).__init__([], [], *args, **kwargs)
