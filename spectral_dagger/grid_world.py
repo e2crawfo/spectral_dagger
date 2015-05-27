@@ -85,7 +85,9 @@ def is_numeric(x):
 
 class Position(object):
     """
-    A wrapper around a size 2 ndarray which supports simple equality testing.
+    A mix between a 1-D ndarray of size 2 and a tuple of length 2. Supports
+    the convenient algebraic manipulation of the former, and the hashability,
+    immutability, and ability to act as an index of the latter.
     """
 
     def __init__(self, x, y=None):
@@ -96,7 +98,7 @@ class Position(object):
             self.position = np.array(x.position, copy=True)
         else:
             try:
-                self.position = np.array(x).flatten()
+                self.position = np.array(x, copy=True).flatten()
 
                 assert y is None
                 assert self.position.size == 2
@@ -104,13 +106,7 @@ class Position(object):
             except:
                 raise NotImplementedError()
 
-    @property
-    def x(self):
-        return self.position[0]
-
-    @property
-    def y(self):
-        return self.position[1]
+        self.position.flags.writeable = False
 
     def __eq__(self, other):
         try:
@@ -129,15 +125,31 @@ class Position(object):
             raise NotImplementedError()
 
     def __radd__(self, other):
-        return self + other
-
-    def __iadd__(self, other):
         try:
-            self.position += other
+            new_position = other + self.position
+            return Position(new_position)
         except:
             raise NotImplementedError()
 
-        return self
+    def __iadd__(self, other):
+        return self.__add__(other)
+
+    def __sub__(self, other):
+        try:
+            new_position = self.position - other
+            return Position(new_position)
+        except:
+            raise NotImplementedError()
+
+    def __rsub__(self, other):
+        try:
+            new_position = other - self.position
+            return Position(new_position)
+        except:
+            raise NotImplementedError()
+
+    def __isub__(self, other):
+        return self.__sub__(other)
 
     def __mul__(self, other):
         try:
@@ -147,15 +159,31 @@ class Position(object):
             raise NotImplementedError()
 
     def __rmul__(self, other):
-        return self * other
-
-    def __imul__(self, other):
         try:
-            self.position *= other
+            new_position = other * self.position
+            return Position(new_position)
         except:
             raise NotImplementedError()
 
-        return self
+    def __imul__(self, other):
+        return self.__mul__(other)
+
+    def __div__(self, other):
+        try:
+            new_position = self.position / other
+            return Position(new_position)
+        except:
+            raise NotImplementedError()
+
+    def __rdiv__(self, other):
+        try:
+            new_position = other / self.position
+            return Position(new_position)
+        except:
+            raise NotImplementedError()
+
+    def __idiv__(self, other):
+        return self.__div__(other)
 
     def __neg__(self):
         return Position(-self.position)
@@ -168,12 +196,6 @@ class Position(object):
 
         return val
 
-    def __setitem__(self, index, val):
-        try:
-            self.position[index] = val
-        except:
-            raise KeyError("Invalid key %s used to index %s." % (index, self))
-
     def __hash__(self):
         return hash(tuple(self))
 
@@ -184,7 +206,7 @@ class Position(object):
         return self.position.copy()
 
     def __str__(self):
-        return "<%f, %f>" % (self.x, self.y)
+        return "<%f, %f>" % tuple(self.position)
 
     def __repr__(self):
         return str(self)
@@ -274,6 +296,27 @@ class WorldMap(object):
 
     def is_valid_position(self, pos):
         return pos in self.positions
+
+    def in_terminal_state(self):
+        return self.is_terminal_state(self.current_position)
+
+    def in_pit_state(self):
+        return self.is_pit_state(self.current_position)
+
+    def in_puddle_state(self):
+        return self.is_puddle_state(self.current_position)
+
+    def is_terminal_state(self, s):
+        s = s.position if isinstance(s, GridState) else s
+        return Position(s) == self.goal_position
+
+    def is_pit_state(self, s):
+        s = s.position if isinstance(s, GridState) else s
+        return Position(s) in self.pit_positions
+
+    def is_puddle_state(self, s):
+        s = s.position if isinstance(s, GridState) else s
+        return Position(s) in self.puddle_positions
 
     def __getitem__(self, index):
         if isinstance(index, np.ndarray) and index.size == 2:
@@ -408,7 +451,7 @@ class GridWorld(MDP):
                 self.current_position = list(locations)[
                     np.random.randint(len(locations))]
             else:
-                self.current_position = self.init_position
+                self.current_position = Position(self.init_position)
 
         else:
             try:
@@ -438,9 +481,7 @@ class GridWorld(MDP):
 
         prev_position = self.current_position
 
-        in_pit_state = self.in_pit_state()
-
-        if in_pit_state:
+        if self.world_map.in_pit_state():
             sample = np.random.multinomial(1, self.init_dist)
             self.current_position = self.positions[np.where(sample > 0)[0]]
         else:
@@ -464,15 +505,12 @@ class GridWorld(MDP):
 
     @current_position.setter
     def current_position(self, pos):
-        if not isinstance(pos, Position):
-            try:
-                self.world_map.current_position = Position(pos)
-            except:
-                raise TypeError(
-                    "Cannot set current position to %s with "
-                    "type %s." % (pos, type(pos)))
-        else:
-            self.world_map.current_position = pos
+        try:
+            self.world_map.current_position = Position(pos)
+        except:
+            raise TypeError(
+                "Cannot set current position to %s with "
+                "type %s." % (pos, type(pos)))
 
     @property
     def actions(self):
@@ -501,25 +539,13 @@ class GridWorld(MDP):
         return True
 
     def in_terminal_state(self):
-        return self.is_terminal_state(self.current_position)
+        return self.world_map.in_terminal_state()
 
     def in_pit_state(self):
-        return self.is_pit_state(self.current_position)
+        return self.world_map.is_pit_state(self.current_position)
 
     def in_puddle_state(self):
-        return self.is_puddle_state(self.current_position)
-
-    def is_terminal_state(self, s):
-        s = s.position if isinstance(s, GridState) else s
-        return Position(s) == self.goal_position
-
-    def is_pit_state(self, s):
-        s = s.position if isinstance(s, GridState) else s
-        return Position(s) in self.pit_positions
-
-    def is_puddle_state(self, s):
-        s = s.position if isinstance(s, GridState) else s
-        return Position(s) in self.puddle_positions
+        return self.world_map.is_puddle_state(self.current_position)
 
     def make_T(self):
         """
@@ -599,11 +625,11 @@ class GridWorld(MDP):
         if s_prime is None:
             return self.get_expected_reward(a, s)
 
-        if self.is_terminal_state(s_prime):
+        if self.world_map.is_terminal_state(s_prime):
             return GridWorld.GOAL_REWARD
-        elif self.is_pit_state(s_prime):
+        elif self.world_map.is_pit_state(s_prime):
             return GridWorld.PIT_REWARD
-        elif self.is_puddle_state(s_prime):
+        elif self.world_map.is_puddle_state(s_prime):
             return GridWorld.PUDDLE_REWARD
         else:
             return 0
@@ -615,9 +641,9 @@ class GridWorld(MDP):
             init_dist[self.positions.index(self.init_position)] = 1.0
         else:
             init_dist = np.array(
-                [not self.is_pit_state(p)
-                 and not self.is_puddle_state(p)
-                 and not self.is_terminal_state(p)
+                [not self.world_map.is_pit_state(p)
+                 and not self.world_map.is_puddle_state(p)
+                 and not self.world_map.is_terminal_state(p)
                  for p in self.positions])
 
             init_dist = init_dist / float(sum(init_dist))
