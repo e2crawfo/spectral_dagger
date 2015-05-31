@@ -1,9 +1,147 @@
-from td import Sarsa, TD
+from td import Sarsa, TD, LinearGradientSarsa
 from grid_world import GridWorld
 from mdp import evaluate_policy
+from utils import geometric_sequence
+from cts_grid_world import ContinuousGridWorld
+from function_approximation import RectangularTileCoding
 
 import matplotlib.pyplot as plt
 import numpy as np
+
+
+# LinearGradientSarsa ************************
+
+def run_td_gsarsa(
+        name, env_class, env_kwargs,
+        policy_class, policy_kwargs,
+        fe_class, fe_kwargs, n_episodes, n_trials, horizon):
+
+    env = env_class(**env_kwargs)
+
+    alpha = policy_kwargs['alpha']
+    epsilon = policy_kwargs['epsilon']
+
+    policy_kwargs['alpha'] = geometric_sequence(
+        policy_kwargs['alpha'], tau=100)
+    policy_kwargs['epsilon'] = geometric_sequence(
+        policy_kwargs['epsilon'], tau=100)
+    policy_kwargs['feature_extractor'] = fe_class(**fe_kwargs)
+
+    rewards = []
+    max_theta = -np.inf
+    min_theta = -np.inf
+
+    for j in range(n_trials):
+        policy = policy_class(env, **policy_kwargs)
+
+        for i in range(n_episodes):
+            trajectory = env.sample_trajectory(
+                policy, reset=True, display=False, return_reward=True,
+                horizon=horizon)
+
+            rewards.extend([t[2] for t in trajectory])
+
+        max_theta = max(max_theta, np.max(np.max(policy.theta)))
+        min_theta = min(min_theta, np.min(np.min(policy.theta)))
+
+    return {
+        'average_reward': np.mean(rewards),
+        'n_episodes': n_episodes,
+        'n_trials': n_trials,
+        'name': name,
+        'epsilon': epsilon,
+        'alpha': alpha,
+        'L': policy_kwargs['L'],
+        'min_theta': min_theta,
+        'max_theta': max_theta
+    }
+
+
+def task_generate_gsarsa_data():
+    a_0 = np.linspace(0.1, 0.3, 5)
+    e_0 = np.linspace(0.1, 0.3, 5)
+    L = np.linspace(0, 0.9, 5)
+
+    horizon = 20
+    n_episodes = 30
+    n_trials = 10
+
+    dummy_map = np.array([
+        ['x', 'x', 'x', 'x', 'x'],
+        ['x', ' ', ' ', 'G', 'x'],
+        ['x', ' ', ' ', ' ', 'x'],
+        ['x', ' ', ' ', ' ', 'x'],
+        ['x', 'x', 'x', 'x', 'x']])
+    speed = 0.5
+
+    env_class = ContinuousGridWorld
+    env_kwargs = {
+        'world_map': dummy_map,
+        'speed': speed,
+    }
+
+    dummy_world = ContinuousGridWorld(**env_kwargs)
+
+    fe_kwargs = {
+        'n_tilings': 1,
+        'bounds': dummy_world.world_map.bounds.s,
+        'granularity': 0.5
+    }
+
+    fe_class = RectangularTileCoding
+
+    policy_class = LinearGradientSarsa
+
+    for e in e_0:
+        for a in a_0:
+            for l in L:
+                policy_kwargs = {
+                    'alpha': a,
+                    'epsilon': e,
+                    'L': l,
+                }
+
+                task_name = 'e_0: %f, a_0: %f, L: %f' % (e, a, l)
+                task_args = [
+                    task_name, env_class, env_kwargs,
+                    policy_class, policy_kwargs,
+                    fe_class, fe_kwargs,
+                    n_episodes, n_trials, horizon]
+
+                yield {
+                    'name': task_name,
+                    'actions': [(run_td_gsarsa, task_args)],
+                }
+
+
+def plot_gsarsa(output):
+    fig = plt.figure()
+    ax = plt.gca()
+    ax.set_ylim((0, 3))
+    ax.set_xlabel("alpha")
+    ax.set_ylabel("average reward")
+
+    epsilon = sorted(set(v['epsilon'] for v in output.values()))
+    L = sorted(set(v['L'] for v in output.values()))
+
+    for e in epsilon:
+        for l in L:
+            values = filter(lambda v: v['epsilon'] == e and v['L'] == l, output.values())
+            values = sorted(values, key=lambda v: v['alpha'])
+            plt.plot(
+                [v['alpha'] for v in values],
+                [v['average_reward'] for v in values],
+                label="epsilon: %f, L: %f" % (e, l))
+
+    plt.legend()
+    plt.show()
+
+
+def task_plot_gsarsa():
+    return {
+        'actions': [plot_gsarsa],
+        'getargs': {'output': ('generate_gsarsa_data', None)}
+    }
 
 
 # PREDICTION *********************************

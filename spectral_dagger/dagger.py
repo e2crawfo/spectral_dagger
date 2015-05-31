@@ -36,7 +36,7 @@ def dagger(
         for j in range(n_samples_per_iter):
             mdp.reset()
 
-            state = mdp.state
+            state = mdp.current_state
 
             expert.reset(state)
             policy.reset(state)

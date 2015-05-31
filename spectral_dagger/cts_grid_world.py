@@ -1,74 +1,7 @@
 import numpy as np
-import operator
 
-from grid_world import GridWorld, GridState, GridAction, WorldMap, Position
-
-
-class Shape(object):
-    def __init__(self):
-        raise NotImplementedError()
-
-
-class Rectangle(Shape):
-    def __init__(self, s, centre=None, top_left=None, closed=False):
-        if centre is not None and top_left is not None:
-            raise ValueError(
-                "Cannot supply both a centre and a "
-                "top-left corner to Rectangle.")
-
-        if centre is None and top_left is None:
-            raise ValueError(
-                "Must supply either a centre or a top_left corner "
-                "to Rectangle.")
-
-        self.s = Position(s)
-
-        if centre is not None:
-            centre = Position(centre)
-            top_left = centre - self.s / 2.0
-
-        self.top_left = Position(top_left)
-        self.closed = closed
-
-    def __contains__(self, pos):
-        c = operator.le if self.closed else operator.lt
-
-        inside = (
-            c(self.top_left[0], pos[0])
-            and c(pos[0], self.top_left[0] + self.s[0]))
-
-        inside &= (
-            c(self.top_left[1], pos[1])
-            and c(pos[1], self.top_left[1] + self.s[1]))
-
-        return inside
-
-    def __str__(self):
-        s = "<Rectangle. top_left: %s, s: %s> " % (self.top_left, self.s)
-        return s
-
-    def __repr__(self):
-        return str(self)
-
-
-class Circle(Shape):
-    def __init__(self, r, centre, closed=False):
-        self.centre = Position(centre)
-        self.r = r
-        assert self.r > 0, "Radius must be > 0."
-
-        self.closed = closed
-
-    def __contains__(self, pos):
-        c = operator.le if self.closed else operator.lt
-        return c(np.linalg.norm(pos - self.centre), self.r)
-
-    def __str__(self):
-        s = "<Circle. centre: %s, r: %s> " % (self.centre, self.r)
-        return s
-
-    def __repr__(self):
-        return str(self)
+from grid_world import GridWorld, GridState, GridAction, WorldMap
+from geometry import Rectangle, Circle, Position
 
 
 class ContinuousWorldMap(WorldMap):
@@ -84,16 +17,12 @@ class ContinuousWorldMap(WorldMap):
     def parse_map(self):
         super(ContinuousWorldMap, self).parse_map()
 
-        if self.init_position is None:
-            raise Exception(
-                "Must supply initial position to ContinuousWorldMap.")
+        self.bounds = Rectangle(
+            top_left=(0.0, 0.0), s=np.array(self.world_map.shape)-1)
 
-        self.border = Rectangle(
-            top_left=(-0.5, -0.5), s=self.world_map.shape)
-
-        # TODO: fix this for colored case
+        # TODO: make this work for colored case
         self.walls = [
-            Rectangle((1, 1), centre=c)
+            Rectangle((1, 1), centre=c, closed=True)
             for c in self.get_locations_of(WorldMap.WALL_MARKER)]
 
         self.goal_region = Circle(
@@ -105,7 +34,7 @@ class ContinuousWorldMap(WorldMap):
             Circle(self.region_radius, p) for p in self.pit_positions]
 
     def is_valid_position(self, pos):
-        return pos in self.border and not any([pos in r for r in self.walls])
+        return pos in self.bounds and not any([pos in r for r in self.walls])
 
     def in_terminal_state(self):
         return self.is_terminal_state(self.current_position)
@@ -131,14 +60,6 @@ class ContinuousWorldMap(WorldMap):
         return any([s in p for p in self.puddle_regions])
 
 
-dummy_map = np.array([
-    ['x', 'x', 'x', 'x'],
-    ['x', ' ', 'G', 'x'],
-    ['x', ' ', 'P', 'x'],
-    ['x', 'S', 'O', 'x'],
-    ['x', 'x', 'x', 'x']])
-
-
 class ContinuousGridWorld(GridWorld):
     """
     y gives vertical extent, and increases downward. The centre of the
@@ -147,7 +68,10 @@ class ContinuousGridWorld(GridWorld):
     indexing scheme that matrices use in math (except its continuous now).
     """
 
-    def __init__(self, world_map=None, gamma=0.9, speed=0.1, noise_std=0.01):
+    def __init__(
+            self, world_map=None, gamma=0.9, speed=0.1,
+            noise_std=0.01, rewards=None):
+
         self.gamma = gamma
         self.speed = speed
         self.noise_std = noise_std
@@ -159,6 +83,8 @@ class ContinuousGridWorld(GridWorld):
         self.pit_positions = self.world_map.pit_positions
         self.puddle_positions = self.world_map.puddle_positions
         self.positions = self.world_map.positions
+
+        self.set_rewards(rewards)
 
         self.reset()
 
@@ -183,7 +109,15 @@ class ContinuousGridWorld(GridWorld):
         if isinstance(state, GridState):
             self.current_position = state.position
         elif state is None:
-            self.current_position = self.init_position
+            if self.init_position is None:
+                self.current_position = Position(
+                    np.random.random(2) * self.world_map.bounds.s)
+
+                while not self.in_valid_start_state():
+                    self.current_position = Position(
+                        np.random.random(2) * self.world_map.bounds.s)
+            else:
+                self.current_position = self.init_position
         else:
             try:
                 self.current_position = state
@@ -192,14 +126,15 @@ class ContinuousGridWorld(GridWorld):
                     "ContinuousGridWorld.reset expected GridState or "
                     "2-dimensional ndarray or None, received %s" % state)
 
+    def in_valid_start_state(self):
+        return (
+            self.world_map.is_valid_position(self.current_position)
+            and not self.in_pit_state()
+            and not self.in_puddle_state()
+            and not self.in_terminal_state())
+
     def execute_action(self, action):
-        if not isinstance(action, GridAction):
-            try:
-                action = GridAction(action)
-            except:
-                raise ValueError(
-                    "Action for GridWorld must either be GridAction, or "
-                    "something convertible to a GridAction. Got %s." % action)
+        action = GridAction(action)
 
         if self.world_map.in_pit_state():
             prev_position = self.current_position
@@ -207,7 +142,9 @@ class ContinuousGridWorld(GridWorld):
         else:
             d_position = self.speed * action.get_offset()
             next_position = self.current_position + d_position
-            next_position += np.random.normal(0, self.noise_std, 2)
+
+            if self.noise_std > 0:
+                next_position += np.random.normal(0, self.noise_std, 2)
 
             prev_position = self.current_position
 
@@ -220,6 +157,10 @@ class ContinuousGridWorld(GridWorld):
             action, prev_position, self.current_position)
 
         return self.current_position, reward
+
+    @property
+    def current_state(self):
+        return self.current_position
 
     def __str__(self):
         s = "State: %s\n" % self.current_position

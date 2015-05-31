@@ -213,10 +213,6 @@ class MDP(object):
     def n_states(self):
         return len(self.states)
 
-    @property
-    def state(self):
-        return self.current_state
-
     def in_terminal_state(self):
         return (
             self.has_terminal_states()
@@ -280,7 +276,7 @@ class MDP(object):
                 "Must supply a policy with a get_action method to sample "
                 "a trajectory on an MDP with multiple actions.")
 
-        policy.reset(self.state)
+        policy.reset(self.current_state)
 
         trajectory = []
 
@@ -294,7 +290,7 @@ class MDP(object):
             if display:
                 print str(self)
 
-            s = self.state
+            s = self.current_state
 
             if self.n_actions == 1:
                 a = 0
@@ -317,10 +313,8 @@ class MDP(object):
                 print s_prime
                 time.sleep(0.3)
 
-            if horizon is None:
-                terminated = self.in_terminal_state()
-            else:
-                terminated = i >= horizon
+            terminated = (
+                self.in_terminal_state() or horizon is not None and i >= horizon)
 
         if display:
             print str(self)

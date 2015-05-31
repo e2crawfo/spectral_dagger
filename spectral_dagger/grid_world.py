@@ -4,11 +4,13 @@ import itertools
 
 from mdp import MDP, State, Action
 from pomdp import POMDP, Observation
+from geometry import Position
 
 
 class GridState(State):
     def __init__(self, position, id, dimension):
-        self.position = position
+        self.position = np.array(position, copy=True)
+        self.position.flags.writeable = False
         super(GridState, self).__init__(id, dimension)
 
     def as_vector(self):
@@ -26,6 +28,9 @@ class GridState(State):
         return "<GridState id: %s, position: (y: %d, x: %d), dim: %d>" % (
             self.get_id(), self.position[0], self.position[1], self.dimension)
 
+    def __array__(self):
+        return self.position.copy()
+
 
 NORTH = 0
 EAST = 1
@@ -36,13 +41,24 @@ WEST = 3
 class GridAction(Action):
     strings = ['NORTH', 'EAST', 'SOUTH', 'WEST']
     symbols = ['^', '>', 'v', '<']
-    ids = {item: i for i, item in enumerate(strings)}
+
+    string_ids = {item: i for i, item in enumerate(strings)}
+    symbol_ids = {item: i for i, item in enumerate(symbols)}
 
     def __init__(self, dir):
         if isinstance(dir, int):
             id = dir
+        elif isinstance(dir, GridAction):
+            id = dir.get_id()
+        elif isinstance(dir, str):
+            if len(dir) == 1:
+                id = GridAction.symbol_ids[dir]
+            else:
+                id = GridAction.string_ids[dir.upper()]
         else:
-            id = GridAction.ids[dir.upper()]
+            raise NotImplementedError(
+                "Cannot create a GridAction from object "
+                "%s of type %s." % (dir, type(dir)))
 
         super(GridAction, self).__init__(id)
 
@@ -77,139 +93,6 @@ class GridAction(Action):
     @staticmethod
     def get_all_actions():
         return [GridAction(s) for s in GridAction.strings]
-
-
-def is_numeric(x):
-    return isinstance(x, float) or isinstance(x, int)
-
-
-class Position(object):
-    """
-    A mix between a 1-D ndarray of size 2 and a tuple of length 2. Supports
-    the convenient algebraic manipulation of the former, and the hashability,
-    immutability, and ability to act as an index of the latter.
-    """
-
-    def __init__(self, x, y=None):
-
-        if is_numeric(x) and is_numeric(y):
-            self.position = np.array([x, y])
-        elif isinstance(x, Position):
-            self.position = np.array(x.position, copy=True)
-        else:
-            try:
-                self.position = np.array(x, copy=True).flatten()
-
-                assert y is None
-                assert self.position.size == 2
-                assert self.position.ndim == 1
-            except:
-                raise NotImplementedError()
-
-        self.position.flags.writeable = False
-
-    def __eq__(self, other):
-        try:
-            return all(self.position == other.position)
-        except:
-            try:
-                return all(self.position == other)
-            except:
-                raise NotImplementedError()
-
-    def __add__(self, other):
-        try:
-            new_position = self.position + other
-            return Position(new_position)
-        except:
-            raise NotImplementedError()
-
-    def __radd__(self, other):
-        try:
-            new_position = other + self.position
-            return Position(new_position)
-        except:
-            raise NotImplementedError()
-
-    def __iadd__(self, other):
-        return self.__add__(other)
-
-    def __sub__(self, other):
-        try:
-            new_position = self.position - other
-            return Position(new_position)
-        except:
-            raise NotImplementedError()
-
-    def __rsub__(self, other):
-        try:
-            new_position = other - self.position
-            return Position(new_position)
-        except:
-            raise NotImplementedError()
-
-    def __isub__(self, other):
-        return self.__sub__(other)
-
-    def __mul__(self, other):
-        try:
-            new_position = self.position * other
-            return Position(new_position)
-        except:
-            raise NotImplementedError()
-
-    def __rmul__(self, other):
-        try:
-            new_position = other * self.position
-            return Position(new_position)
-        except:
-            raise NotImplementedError()
-
-    def __imul__(self, other):
-        return self.__mul__(other)
-
-    def __div__(self, other):
-        try:
-            new_position = self.position / other
-            return Position(new_position)
-        except:
-            raise NotImplementedError()
-
-    def __rdiv__(self, other):
-        try:
-            new_position = other / self.position
-            return Position(new_position)
-        except:
-            raise NotImplementedError()
-
-    def __idiv__(self, other):
-        return self.__div__(other)
-
-    def __neg__(self):
-        return Position(-self.position)
-
-    def __getitem__(self, index):
-        try:
-            val = self.position[index]
-        except:
-            raise KeyError("Invalid key %s used to index %s." % (index, self))
-
-        return val
-
-    def __hash__(self):
-        return hash(tuple(self))
-
-    def __iter__(self):
-        return iter(self.position)
-
-    def __array__(self):
-        return self.position.copy()
-
-    def __str__(self):
-        return "<%f, %f>" % tuple(self.position)
-
-    def __repr__(self):
-        return str(self)
 
 
 class WorldMap(object):
@@ -307,15 +190,12 @@ class WorldMap(object):
         return self.is_puddle_state(self.current_position)
 
     def is_terminal_state(self, s):
-        s = s.position if isinstance(s, GridState) else s
         return Position(s) == self.goal_position
 
     def is_pit_state(self, s):
-        s = s.position if isinstance(s, GridState) else s
         return Position(s) in self.pit_positions
 
     def is_puddle_state(self, s):
-        s = s.position if isinstance(s, GridState) else s
         return Position(s) in self.puddle_positions
 
     def __getitem__(self, index):
@@ -396,7 +276,7 @@ class GridWorld(MDP):
     PIT_REWARD = -100
     PUDDLE_REWARD = -100
 
-    def __init__(self, world_map=None, gamma=0.9, noise=0.1):
+    def __init__(self, world_map=None, gamma=0.9, noise=0.1, rewards=None):
         self.gamma = gamma
         self.noise = noise
 
@@ -411,6 +291,8 @@ class GridWorld(MDP):
         self.puddle_positions = self.world_map.puddle_positions
         self.positions = self.world_map.positions
 
+        self.set_rewards(rewards)
+
         self.make_T()
         self.make_R()
 
@@ -422,6 +304,13 @@ class GridWorld(MDP):
 
     def __str__(self):
         return str(self.world_map)
+
+    def set_rewards(self, rewards):
+        if rewards is None:
+            rewards = {}
+        self.puddle_reward = rewards.get('puddle', GridWorld.PUDDLE_REWARD)
+        self.pit_reward = rewards.get('pit', GridWorld.PIT_REWARD)
+        self.goal_reward = rewards.get('goal', GridWorld.GOAL_REWARD)
 
     def reset(self, state=None):
         """
@@ -438,7 +327,7 @@ class GridWorld(MDP):
         """
 
         if isinstance(state, GridState):
-            self.current_position = state.position
+            self.current_position = Position(state.position)
         elif isinstance(state, int):
             self.current_position = self.positions[state]
         elif state is None:
@@ -470,14 +359,12 @@ class GridWorld(MDP):
 
         Returns the next state and the reward.
         """
-
-        if not isinstance(action, GridAction):
-            try:
-                action = GridAction(action)
-            except:
-                raise ValueError(
-                    "Action for GridWorld must either be GridAction, or "
-                    "something convertible to a GridAction. Got %s." % action)
+        try:
+            action = GridAction(action)
+        except:
+            raise ValueError(
+                "Action for GridWorld must either be GridAction, or "
+                "something convertible to a GridAction. Got %s." % action)
 
         prev_position = self.current_position
 
@@ -495,9 +382,9 @@ class GridWorld(MDP):
                 self.current_position = next_position
 
         reward = self.get_reward(
-            action, self.pos2state(prev_position), self.state)
+            action, self.pos2state(prev_position), self.current_state)
 
-        return self.state, reward
+        return self.current_state, reward
 
     @property
     def current_position(self):
@@ -532,7 +419,7 @@ class GridWorld(MDP):
         return len(self.states)
 
     @property
-    def state(self):
+    def current_state(self):
         return self.pos2state(self.current_position)
 
     def has_terminal_states(self):
@@ -626,11 +513,11 @@ class GridWorld(MDP):
             return self.get_expected_reward(a, s)
 
         if self.world_map.is_terminal_state(s_prime):
-            return GridWorld.GOAL_REWARD
+            return self.goal_reward
         elif self.world_map.is_pit_state(s_prime):
-            return GridWorld.PIT_REWARD
+            return self.pit_reward
         elif self.world_map.is_puddle_state(s_prime):
-            return GridWorld.PUDDLE_REWARD
+            return self.puddle_reward
         else:
             return 0
 
@@ -803,12 +690,8 @@ class EgoGridWorld(POMDP):
     def states(self):
         return self.grid_world.states
 
-    @property
-    def state(self):
-        return self.grid_world.state
-
     def make_O(self):
-        temp_state = self.state
+        temp_state = self.current_state
 
         O = np.zeros((
             self.n_actions, self.n_states,

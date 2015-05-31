@@ -1,8 +1,10 @@
 import numpy as np
 
 from spectral_dagger.grid_world import GridWorld, EgoGridWorld
+from spectral_dagger.cts_grid_world import ContinuousGridWorld
 from spectral_dagger.mdp import UniformRandomPolicy as MDPUniformRandomPolicy
 from spectral_dagger.pomdp import UniformRandomPolicy as POUniformRandomPolicy
+from spectral_dagger.value_iteration import ValueIteration
 
 
 def test_parse_map(display=False):
@@ -88,15 +90,13 @@ def test_cliff_world(display=False):
 
     env = GridWorld(cliff_world)
 
-    from value_iteration import ValueIteration
     alg = ValueIteration()
     policy = alg.fit(env)
     env.sample_trajectory(
         policy, horizon=50, reset=True, display=display)
 
-    from mdp import UniformRandomPolicy
     env.sample_trajectory(
-        UniformRandomPolicy(env), horizon=50, reset=True, display=display)
+        MDPUniformRandomPolicy(env), horizon=50, reset=True, display=display)
 
 
 def test_ego_grid_world(display=False):
@@ -106,3 +106,58 @@ def test_ego_grid_world(display=False):
 
     env.sample_trajectory(
         policy, horizon=10, reset=True, display=display)
+
+
+def test_cts_grid_world(display=False):
+    dummy_map = np.array([
+        ['x', 'x', 'x', 'x'],
+        ['x', ' ', 'G', 'x'],
+        ['x', ' ', 'P', 'x'],
+        ['x', 'S', 'O', 'x'],
+        ['x', 'x', 'x', 'x']])
+
+    dummy_world = ContinuousGridWorld(dummy_map, speed=1.0, noise_std=0)
+    assert dummy_world.current_position == (3.0, 1.0)
+
+    assert not dummy_world.in_pit_state()
+    assert not dummy_world.in_puddle_state()
+    assert not dummy_world.in_terminal_state()
+
+    dummy_world.execute_action('NORTH')
+    dummy_world.execute_action('NORTH')
+    dummy_world.execute_action('NORTH')
+
+    assert not dummy_world.in_pit_state()
+    assert not dummy_world.in_puddle_state()
+    assert not dummy_world.in_terminal_state()
+    assert dummy_world.current_position == (1.0, 1.0)
+
+    dummy_world.execute_action('EAST')
+    assert dummy_world.in_terminal_state()
+    assert not dummy_world.in_pit_state()
+    assert not dummy_world.in_puddle_state()
+    assert dummy_world.current_position == (1.0, 2.0)
+
+    dummy_world.execute_action('SOUTH')
+    assert not dummy_world.in_terminal_state()
+    assert not dummy_world.in_pit_state()
+    assert dummy_world.in_puddle_state()
+    assert dummy_world.current_position == (2.0, 2.0)
+
+    dummy_world.execute_action('EAST')
+    assert not dummy_world.in_terminal_state()
+    assert not dummy_world.in_pit_state()
+    assert dummy_world.in_puddle_state()
+    assert dummy_world.current_position == (2.0, 2.0)
+
+    dummy_world.execute_action('SOUTH')
+    assert not dummy_world.in_terminal_state()
+    assert dummy_world.in_pit_state()
+    assert not dummy_world.in_puddle_state()
+    assert dummy_world.current_position == (3.0, 2.0)
+
+    dummy_world.execute_action('EAST')
+    assert not dummy_world.in_terminal_state()
+    assert not dummy_world.in_pit_state()
+    assert not dummy_world.in_puddle_state()
+    assert dummy_world.current_position == (3.0, 1.0)

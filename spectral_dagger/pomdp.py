@@ -136,7 +136,8 @@ class POMDP(object):
 
         state, reward = self.mdp.execute_action(action)
 
-        sample = np.random.multinomial(1, self.O[action, self.mdp.state])
+        sample = np.random.multinomial(
+            1, self.O[action, self.mdp.current_state])
         obs = Observation(np.where(sample > 0)[0][0])
 
         return obs, reward
@@ -158,8 +159,8 @@ class POMDP(object):
         return len(self.states)
 
     @property
-    def state(self):
-        return self.mdp.state
+    def current_state(self):
+        return self.mdp.current_state
 
     @property
     def T(self):
