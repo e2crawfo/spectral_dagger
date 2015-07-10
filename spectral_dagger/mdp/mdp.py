@@ -1,6 +1,8 @@
 import numpy as np
 import time
 
+from .policy import UniformRandomPolicy
+
 
 class State(object):
     def __init__(self, id, dimension, name=""):
@@ -241,7 +243,7 @@ class MDP(object):
             return self.R[a, s, s_prime]
 
     def sample_trajectory(
-            self, policy=None, horizon=None, reset=None,
+            self, policy=None, horizon=None, reset=True,
             init=None, return_reward=True, display=False):
         """
         If horizon is None, then trajectory will continue until the episode
@@ -309,12 +311,17 @@ class MDP(object):
             i += 1
 
             if display:
-                print a
-                print s_prime
+                print "Action:", a
+                print "New state:", s_prime
+                print "Reward:", r
                 time.sleep(0.3)
 
             terminated = (
-                self.in_terminal_state() or horizon is not None and i >= horizon)
+                self.in_terminal_state()
+                or horizon is not None and i >= horizon)
+
+        a = 0 if self.n_actions == 1 else policy.get_action()
+        policy.update(a, self.current_state)
 
         if display:
             print str(self)
@@ -322,67 +329,56 @@ class MDP(object):
         return trajectory
 
 
-class MDPPolicy(object):
+class SingleActionMDP(MDP):
     """
-    The most general MDPPolicy class.
-
-    Parameters
-    ----------
-    pi: dict or callable
-        A mapping from states to actions.
+    Create a single-action mdp (aka a markov chain) by merging
+    a multi-action MDP and a policy.
     """
 
-    def __init__(self, pi):
-        self.is_dict = hasattr(pi, '__getitem__')
-
-        if not self.is_dict and not callable(pi):
-            raise Exception(
-                "pi must be either a dict or a callable.")
-
-        self.pi = pi
-
-    def reset(self, state):
-        self.current_state = state
-
-    def update(self, action, state, reward=None):
-        self.current_state = state
-
-    def get_action(self):
-        if self.is_dict:
-            return self.pi[self.current_state]
-        else:
-            return self.pi(self.current_state)
-
-
-class UniformRandomPolicy(MDPPolicy):
-
-    def __init__(self, mdp):
-        self.actions = mdp.actions
-
-    def get_action(self):
-        return np.random.choice(self.actions)
-
-
-class GreedyPolicy(MDPPolicy):
-
-    def __init__(self, mdp, V):
-        self.T = mdp.T
-        self.R = mdp.R
+    def __init__(self, mdp, policy):
+        self.mdp = mdp
+        self.policy = policy
+        self.actions = [0]
         self.gamma = mdp.gamma
-        self.actions = mdp.actions
+        self.states = self.mdp.states
 
-        self.V = V.copy()
+    @property
+    def name(self):
+        return "SingleActionMDP: " + self.mdp.name
 
-    def set_value(self, s, v):
-        self.V[s] = v
+    def __str__(self):
+        return str(self.mdp)
 
-    def get_action(self):
-        T_s = self.T[:, self.current_state, :]
-        R_s = self.R[:, self.current_state, :]
+    def reset(self, state=None):
+        self.mdp.reset(state)
+        self.policy.reset(self.mdp.current_state)
 
-        return max(
-            self.actions,
-            key=lambda a: T_s[a, :].dot(R_s[a, :] + self.gamma * self.V))
+    def execute_action(self, action=None):
+        """ Ignores the given action, uses the action from the policy. """
+        a = self.policy.get_action()
+        s_prime, r = self.mdp.execute_action(a)
+        self.policy.update(a, s_prime, r)
+        return s_prime, r
+
+    def in_terminal_state(self):
+        return self.mdp.in_terminal_state()
+
+    def has_terminal_states(self):
+        return self.mdp.has_terminal_states()
+
+    # TODO: T and R are not really correct, should take policy into account.
+    @property
+    def T(self):
+        return self.mdp.T
+
+    @property
+    def R(self):
+        return self.mdp.R
+
+    @property
+    def current_state(self):
+        return self.mdp.current_state
+
 
 
 def evaluate_policy(mdp, policy=None, threshold=0.00001):

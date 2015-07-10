@@ -1,6 +1,6 @@
 import numpy as np
 
-from geometry import Position, Circle
+from geometry import Position
 
 
 class FeatureExtractor(object):
@@ -75,7 +75,9 @@ class RectangularTileCoding(FeatureExtractor):
             (self.n_tilings, self.tiling_shape[0], self.tiling_shape[1]))
 
         if indices.size != 0:
-            vector[np.arange(self.n_tilings), indices[:, 0], indices[:, 1]] = 1.0
+            vector[
+                np.arange(self.n_tilings),
+                indices[:, 0], indices[:, 1]] = 1.0
 
         vector = vector.flatten()
         if self.intercept:
@@ -113,6 +115,42 @@ class CircularCoarseCoding(FeatureExtractor):
             vector = np.concatenate((vector, [1]))
 
         return vector
+
+
+class StateActionFeatureExtractor(FeatureExtractor):
+    """
+    Create a state-action feature extractor from a state feature extractor.
+
+    Given a state-action pair (s, a), obtains features for the s from the
+    provided state-feautre extractor, and then offsets those features in the
+    returned vector according to a. Pads the rest with 0's.
+    """
+
+    def __init__(self, state_feature_extractor, n_actions):
+        self.state_feature_extractor = state_feature_extractor
+        self.n_actions = n_actions
+        self.n_state_features = self.state_feature_extractor.n_features
+        self._n_features = self.n_actions * self.n_state_features
+
+    def as_vector(self, state, action):
+        state_rep = self.state_feature_extractor.as_vector(state)
+
+        vector = np.zeros(self.n_features)
+        action = int(action)
+        lo = action * self.n_state_features
+        hi = lo + self.n_state_features
+        vector[lo:hi] = state_rep
+
+        return vector
+
+
+def discounted_features(trajectory, feature_extractor, gamma):
+    features = np.zeros(feature_extractor.n_features)
+
+    for i, (s, a, r) in enumerate(trajectory):
+        features += gamma**i * feature_extractor.as_vector(s, a)
+
+    return features
 
 
 if __name__ == "__main__":

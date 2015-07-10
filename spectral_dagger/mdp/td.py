@@ -18,9 +18,12 @@ class TD(MDPPolicy):
         self.active_traces = []
 
         if V_0 is None:
-            V_0 = 100 * np.ones(mdp.n_states)
-
-        self.V = V_0.copy()
+            V_0 = 100 * np.ones((mdp.n_states, mdp.n_actions))
+        elif isinstance(V_0, np.ndarray):
+            V_0 = V_0.copy()
+        else:
+            V_0 = np.full((mdp.n_states, mdp.n_actions), V_0)
+        self._V = V_0
 
         self._alpha = alpha
 
@@ -73,6 +76,10 @@ class TD(MDPPolicy):
             if self.eligibility_trace[s] < 0.001:
                 self.active_traces.remove(s)
 
+    def get_action(self):
+        raise NotImplementedError(
+            "Cannot get action from TD policy. Not a control policy.")
+
 
 class LinearGradientTD(TD):
     """
@@ -124,6 +131,93 @@ class LinearGradientTD(TD):
         return features.dot(self.theta)
 
 
+class QTD(TD):
+    """ A prediction policy. Learns the action-value function (Q(s,a))
+    of a policy acting on an MDP, but does not execute actions."""
+
+    def __init__(self, mdp, alpha, L=0, Q_0=None):
+        """
+        L is the lambda parameter for TD sarsa. L = 0 equivalent to
+        vanilla SARSA
+        """
+
+        self.actions = mdp.actions
+        self.gamma = mdp.gamma
+
+        self.L = L
+
+        if L > 0:
+            self.eligibility_trace = np.zeros((mdp.n_states, mdp.n_actions))
+
+        self.active_traces = []
+
+        if Q_0 is None:
+            Q_0 = 100 * np.ones((mdp.n_states, mdp.n_actions))
+        elif isinstance(Q_0, np.ndarray):
+            Q_0 = Q_0.copy()
+        else:
+            Q_0 = np.full((mdp.n_states, mdp.n_actions), Q_0)
+        self._Q = Q_0
+
+        self._alpha = alpha
+
+        if not hasattr(self._alpha, 'next'):
+            self.alpha = self._alpha
+
+        self.update_parameters()
+
+        self.prev_reward = None
+
+    def reset(self, state):
+        self.prev_state = None
+        self.prev_action = None
+        self.prev_reward = None
+
+        if self.L > 0:
+            self.eligibility_trace[:] = 0
+            self.active_traces = []
+
+        self.current_state = state
+
+        self.update_parameters()
+
+    def update(self, action, state, reward=None):
+
+        if self.prev_reward is not None:
+            if self.L > 0:
+                self.eligibility_trace[self.prev_state, self.prev_action] += 1
+                s, a = (self.prev_state, self.prev_action)
+                if (s, a) not in self.active_traces:
+                    self.active_traces.append((s, a))
+
+            Q = self._Q
+            delta = (
+                self.prev_reward + self.gamma * Q[self.current_state, action]
+                - Q[self.prev_state, self.prev_action])
+
+            if self.L > 0:
+                for (s, a) in self.active_traces:
+                    et = self.eligibility_trace[s, a]
+                    Q[s, a] += self.alpha * delta * et
+            else:
+                Q[self.prev_state, self.prev_action] += self.alpha * delta
+
+        self.prev_state = self.current_state
+        self.prev_action = action
+        self.prev_reward = reward
+
+        self.current_state = state
+
+        for s, a in self.active_traces[:]:
+            self.eligibility_trace[s, a] *= self.gamma * self.L
+
+            if self.eligibility_trace[s, a] < 0.001:
+                self.active_traces.remove((s, a))
+
+    def Q(self, state, action):
+        return self._Q[state, action]
+
+
 class ControlTD(TD):
     """
     A base class for TD policies that include control. Chooses actions
@@ -171,7 +265,11 @@ class QLearning(ControlTD):
 
         if Q_0 is None:
             Q_0 = 100 * np.ones((mdp.n_states, mdp.n_actions))
-        self._Q = Q_0.copy()
+        elif isinstance(Q_0, np.ndarray):
+            Q_0 = Q_0.copy()
+        else:
+            Q_0 = np.full((mdp.n_states, mdp.n_actions), Q_0)
+        self._Q = Q_0
 
         self._epsilon = epsilon
         self._alpha = alpha
@@ -201,8 +299,7 @@ class QLearning(ControlTD):
 
 
 class Sarsa(ControlTD):
-    def __init__(
-            self, mdp, alpha, L=0, epsilon=0.1, Q_0=None):
+    def __init__(self, mdp, alpha, L=0, epsilon=0.1, Q_0=None):
         """
         L is the lambda parameter for TD sarsa. L = 0 equivalent to
         vanilla SARSA
@@ -213,17 +310,18 @@ class Sarsa(ControlTD):
 
         self.L = L
 
-        # list of lists of length 2. 1st item is (s, a) pair,
-        # second item is eligibility trace value
         if L > 0:
             self.eligibility_trace = np.zeros((mdp.n_states, mdp.n_actions))
 
         self.active_traces = []
 
         if Q_0 is None:
-            Q_0 = 1 * np.ones((mdp.n_states, mdp.n_actions))
-
-        self._Q = Q_0.copy()
+            Q_0 = 100 * np.ones((mdp.n_states, mdp.n_actions))
+        elif isinstance(Q_0, np.ndarray):
+            Q_0 = Q_0.copy()
+        else:
+            Q_0 = np.full((mdp.n_states, mdp.n_actions), Q_0)
+        self._Q = Q_0
 
         self._epsilon = epsilon
         self._alpha = alpha
@@ -239,11 +337,6 @@ class Sarsa(ControlTD):
         self.prev_reward = None
 
     def reset(self, state):
-        # hack - handle last step of last round
-        if self.prev_reward is not None:
-            a = self.get_action()
-            self.update(a, self.current_state)
-
         self.prev_state = None
         self.prev_action = None
         self.prev_reward = None
@@ -295,6 +388,17 @@ class LinearGradientSarsa(ControlTD):
             self, mdp, feature_extractor, alpha,
             L=0, epsilon=0.1, theta_0=None):
 
+        """
+        We can look at this as using a single parameter vector, theta,
+        with length n_features * n_actions. In a given state, each action
+        has a different but related representation. Action 0 has the
+        state-feature vector in the first n_features locations and is
+        0 everywhere else, action 1 has the state-feature vector in the
+        second n_features locations and is 0 everywhere else, etc. This is
+        the interpretation, but implementationally we store theta in an
+        n_features x n_actions matrix. Effectively, we have a separate
+        linear value function for each action.
+        """
         self.gamma = mdp.gamma
         self.L = L
         self.actions = mdp.actions
@@ -303,7 +407,8 @@ class LinearGradientSarsa(ControlTD):
         if theta_0 is not None:
             self.theta = theta_0.flatten()[:]
             self.theta = np.tile(self.theta, (1, self.n_actions))
-            assert self.theta.size == feature_extractor.n_features * self.n_actions
+            assert (
+                self.theta.size == feature_extractor.n_features * self.n_actions)
         else:
             self.theta = np.zeros(
                 (feature_extractor.n_features, self.n_actions))
@@ -325,10 +430,6 @@ class LinearGradientSarsa(ControlTD):
         self.prev_reward = None
 
     def reset(self, state):
-        if self.prev_reward is not None:
-            a = self.get_action()
-            self.update(a, self.current_state)
-
         self.prev_state = None
         self.prev_action = None
         self.prev_reward = None
@@ -410,7 +511,8 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     fig = plt.figure()
     plt.subplot(3, 1, 1)
-    plt.scatter([s[1] for s, a, r in trajectory], [-s[0] for s, a, r in trajectory])
+    plt.scatter(
+        [s[1] for s, a, r in trajectory], [-s[0] for s, a, r in trajectory])
     plt.subplot(3, 1, 2)
     plt.plot(n_steps)
     plt.subplot(3, 1, 3)

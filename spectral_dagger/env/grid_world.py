@@ -4,7 +4,7 @@ import itertools
 
 from mdp import MDP, State, Action
 from pomdp import POMDP, Observation
-from geometry import Position
+from geometry import Position, Rectangle
 
 
 class GridState(State):
@@ -121,6 +121,12 @@ class WorldMap(object):
             * "P" specifies a puddle. Stepping on such a
               space will cause the agent to suffer a large negative reward,
               but they will not reset back to the initial state.
+            * "D" specifies a "death" square. Stepping on such a
+              space will cause the episode to end, and potentially cause
+              the agent to suffer a large negative reward.
+            * "T" specifies a "trap" square. Stepping on such a
+              space will cause the agent to be unable to move for the remainder
+              of the episode, and potentially suffer a large negative reward.
         2. All spaces are considered empty space which the agent can occupy.
         3. All other remaining characters are considered walls.
         4. The map must be surrounded by walls. Otherwise, agents will try to
@@ -131,6 +137,8 @@ class WorldMap(object):
     GOAL_MARKER = 'G'
     PIT_MARKER = 'O'
     PUDDLE_MARKER = 'P'
+    DEATH_MARKER = 'D'
+    TRAP_MARKER = 'T'
     WALL_MARKER = 'x'
 
     def __init__(self, world_map):
@@ -142,6 +150,9 @@ class WorldMap(object):
 
     def parse_map(self):
         init_positions = self.get_locations_of(WorldMap.START_MARKER)
+
+        self.bounds = Rectangle(
+            top_left=(0.0, 0.0), s=np.array(self.world_map.shape)-1)
 
         if not init_positions:
             self.init_position = None
@@ -158,10 +169,14 @@ class WorldMap(object):
 
         self.pit_positions = self.get_locations_of(WorldMap.PIT_MARKER)
         self.puddle_positions = self.get_locations_of(WorldMap.PUDDLE_MARKER)
+        self.death_positions = self.get_locations_of(WorldMap.DEATH_MARKER)
+        self.trap_positions = self.get_locations_of(WorldMap.TRAP_MARKER)
 
         self.positions = self.get_locations_of(' ')
         self.positions.extend(self.pit_positions)
         self.positions.extend(self.puddle_positions)
+        self.positions.extend(self.death_positions)
+        self.positions.extend(self.trap_positions)
         self.positions.append(self.goal_position)
 
         if self.init_position:
@@ -183,13 +198,25 @@ class WorldMap(object):
     def in_terminal_state(self):
         return self.is_terminal_state(self.current_position)
 
+    def in_goal_state(self):
+        return self.is_goal_state(self.current_position)
+
     def in_pit_state(self):
         return self.is_pit_state(self.current_position)
 
     def in_puddle_state(self):
         return self.is_puddle_state(self.current_position)
 
+    def in_death_state(self):
+        return self.is_death_state(self.current_position)
+
+    def in_trap_state(self):
+        return self.is_trap_state(self.current_position)
+
     def is_terminal_state(self, s):
+        return self.is_goal_state(s) or self.is_death_state(s)
+
+    def is_goal_state(self, s):
         return Position(s) == self.goal_position
 
     def is_pit_state(self, s):
@@ -197,6 +224,12 @@ class WorldMap(object):
 
     def is_puddle_state(self, s):
         return Position(s) in self.puddle_positions
+
+    def is_death_state(self, s):
+        return Position(s) in self.death_positions
+
+    def is_trap_state(self, s):
+        return Position(s) in self.trap_positions
 
     def __getitem__(self, index):
         if isinstance(index, np.ndarray) and index.size == 2:
@@ -229,6 +262,10 @@ class WorldMap(object):
                     w += WorldMap.PIT_MARKER
                 elif (i, j) in self.puddle_positions:
                     w += WorldMap.PUDDLE_MARKER
+                elif (i, j) in self.death_positions:
+                    w += WorldMap.DEATH_MARKER
+                elif (i, j) in self.trap_positions:
+                    w += WorldMap.TRAP_MARKER
                 else:
                     w += str(self.world_map[i][j])
 
@@ -272,11 +309,16 @@ class ColoredWorldMap(WorldMap):
 
 class GridWorld(MDP):
 
+    DEFAULT_REWARD = 0
     GOAL_REWARD = 10
     PIT_REWARD = -100
     PUDDLE_REWARD = -100
+    DEATH_REWARD = -100
+    TRAP_REWARD = -1
 
-    def __init__(self, world_map=None, gamma=0.9, noise=0.1, rewards=None):
+    def __init__(
+            self, world_map=None, gamma=0.9, noise=0.1,
+            rewards=None, terminate=True):
         self.gamma = gamma
         self.noise = noise
 
@@ -289,7 +331,11 @@ class GridWorld(MDP):
         self.goal_position = self.world_map.goal_position
         self.pit_positions = self.world_map.pit_positions
         self.puddle_positions = self.world_map.puddle_positions
+        self.death_positions = self.world_map.death_positions
+        self.trap_positions = self.world_map.trap_positions
         self.positions = self.world_map.positions
+
+        self.terminate = terminate
 
         self.set_rewards(rewards)
 
@@ -308,9 +354,12 @@ class GridWorld(MDP):
     def set_rewards(self, rewards):
         if rewards is None:
             rewards = {}
-        self.puddle_reward = rewards.get('puddle', GridWorld.PUDDLE_REWARD)
         self.pit_reward = rewards.get('pit', GridWorld.PIT_REWARD)
+        self.puddle_reward = rewards.get('puddle', GridWorld.PUDDLE_REWARD)
+        self.death_reward = rewards.get('death', GridWorld.DEATH_REWARD)
+        self.trap_reward = rewards.get('trap', GridWorld.TRAP_REWARD)
         self.goal_reward = rewards.get('goal', GridWorld.GOAL_REWARD)
+        self.default_reward = rewards.get('default', GridWorld.DEFAULT_REWARD)
 
     def reset(self, state=None):
         """
@@ -335,6 +384,8 @@ class GridWorld(MDP):
                 locations = set(self.positions)
                 locations -= set(self.pit_positions)
                 locations -= set(self.puddle_positions)
+                locations -= set(self.death_positions)
+                locations -= set(self.trap_positions)
                 locations -= set([self.goal_position])
 
                 self.current_position = list(locations)[
@@ -371,6 +422,8 @@ class GridWorld(MDP):
         if self.world_map.in_pit_state():
             sample = np.random.multinomial(1, self.init_dist)
             self.current_position = self.positions[np.where(sample > 0)[0]]
+        elif self.world_map.in_trap_state():
+            pass
         else:
             if(np.random.random() < self.noise):
                 perp_dirs = action.get_perpendicular_directions()
@@ -423,10 +476,11 @@ class GridWorld(MDP):
         return self.pos2state(self.current_position)
 
     def has_terminal_states(self):
-        return True
+        return self.terminate
 
     def in_terminal_state(self):
-        return self.world_map.in_terminal_state()
+        return (
+            self.has_terminal_states() and self.world_map.in_terminal_state())
 
     def in_pit_state(self):
         return self.world_map.is_pit_state(self.current_position)
@@ -471,6 +525,8 @@ class GridWorld(MDP):
             for i, pos in enumerate(positions):
                 if pos in self.pit_positions:
                     T[a, i, :] = self.init_dist
+                elif pos in self.trap_positions:
+                    T[a, i, i] = 1.0
                 else:
                     straight = a.get_next_position(pos)
                     right = a.right().get_next_position(pos)
@@ -512,14 +568,18 @@ class GridWorld(MDP):
         if s_prime is None:
             return self.get_expected_reward(a, s)
 
-        if self.world_map.is_terminal_state(s_prime):
+        if self.world_map.is_goal_state(s_prime):
             return self.goal_reward
+        elif self.world_map.is_death_state(s_prime):
+            return self.death_reward
+        elif self.world_map.is_trap_state(s_prime):
+            return self.trap_reward
         elif self.world_map.is_pit_state(s_prime):
             return self.pit_reward
         elif self.world_map.is_puddle_state(s_prime):
             return self.puddle_reward
         else:
-            return 0
+            return self.default_reward
 
     @property
     def init_dist(self):

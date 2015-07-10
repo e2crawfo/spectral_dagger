@@ -17,9 +17,6 @@ class ContinuousWorldMap(WorldMap):
     def parse_map(self):
         super(ContinuousWorldMap, self).parse_map()
 
-        self.bounds = Rectangle(
-            top_left=(0.0, 0.0), s=np.array(self.world_map.shape)-1)
-
         # TODO: make this work for colored case
         self.walls = [
             Rectangle((1, 1), centre=c, closed=True)
@@ -70,7 +67,7 @@ class ContinuousGridWorld(GridWorld):
 
     def __init__(
             self, world_map=None, gamma=0.9, speed=0.1,
-            noise_std=0.01, rewards=None):
+            noise_std=0.01, rewards=None, terminate_on_goal=True):
 
         self.gamma = gamma
         self.speed = speed
@@ -83,6 +80,7 @@ class ContinuousGridWorld(GridWorld):
         self.pit_positions = self.world_map.pit_positions
         self.puddle_positions = self.world_map.puddle_positions
         self.positions = self.world_map.positions
+        self.terminate_on_goal = terminate_on_goal
 
         self.set_rewards(rewards)
 
