@@ -5,13 +5,13 @@ from pomdp import BeliefStatePolicy
 
 from learning_algorithm import LearningAlgorithm
 
-from spectral_dagger.utils import geometric_sequence
-from spectral_dagger.utils import LinearGibbsPolicy
-from spectral_dagger.utils import laplace_smoothing
+from spectral_dagger.utils.math import geometric_sequence
+from spectral_dagger.utils.math import laplace_smoothing
+from spectral_dagger.mdp import LinearGibbsPolicy
 
-from spectral_dagger.cts_grid_world import ContinuousGridWorld
-from spectral_dagger.grid_world import GridWorld
-from spectral_dagger.value_iteration import ValueIteration
+from spectral_dagger.envs import ContinuousGridWorld
+from spectral_dagger.envs import GridWorld
+from spectral_dagger.mdp import ValueIteration
 from spectral_dagger.function_approximation import RectangularTileCoding
 from spectral_dagger.function_approximation import StateActionFeatureExtractor
 
@@ -184,7 +184,7 @@ world_map = np.array([
 mdp = GridWorld(
     world_map, gamma=gamma,
     rewards={'goal': 0, 'default': -1, 'puddle': -5},
-    terminate_on_goal=False)
+    terminate=False)
 
 training_trajectories = []
 previous_policies = []

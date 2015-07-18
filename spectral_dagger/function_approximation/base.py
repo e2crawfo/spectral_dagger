@@ -1,6 +1,6 @@
 import numpy as np
 
-from geometry import Position
+from spectral_dagger.utils.geometry import Position
 
 
 class FeatureExtractor(object):

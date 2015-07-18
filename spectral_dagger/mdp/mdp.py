@@ -1,7 +1,7 @@
 import numpy as np
 import time
 
-from .policy import UniformRandomPolicy
+from spectral_dagger.mdp.policy import UniformRandomPolicy
 
 
 class State(object):
@@ -242,6 +242,9 @@ class MDP(object):
         else:
             return self.R[a, s, s_prime]
 
+    def is_continuous(self):
+        return False
+
     def sample_trajectory(
             self, policy=None, horizon=None, reset=True,
             init=None, return_reward=True, display=False):
@@ -379,6 +382,104 @@ class SingleActionMDP(MDP):
     def current_state(self):
         return self.mdp.current_state
 
+
+class LinearRewardMDP(MDP):
+    def __init__(self, mdp, feature_extractor, theta):
+        self.mdp = mdp
+        self.feature_extractor = feature_extractor
+        self.theta = theta
+        self.gamma = self.mdp.gamma
+
+        self.make_R()
+
+    @property
+    def name(self):
+        return "LinearRewardMDP"
+
+    def __str__(self):
+        return str(self.mdp)
+
+    @property
+    def states(self):
+        return self.mdp.states
+
+    @property
+    def actions(self):
+        return self.mdp.actions
+
+    def reset(self, state=None):
+        self.mdp.reset(state)
+
+    def execute_action(self, action=None):
+        if action is None:
+            if self.n_actions > 1:
+                raise ValueError(
+                    "Must supply a valid action to "
+                    "execute_action when n_actions > 1")
+            else:
+                action = 0
+
+        if not isinstance(action, Action) and not isinstance(action, int):
+            raise ValueError(
+                "Action must either be an integer or an instance of the "
+                "Action class. Got object of type %s instead." % type(action))
+
+        if isinstance(action, int):
+            action = self.actions[action]
+
+        prev_state = self.mdp.current_state
+        s, _ = self.mdp.execute_action(action)
+        r = self.get_reward(action, prev_state)
+
+        return s, r
+
+    @property
+    def n_actions(self):
+        return self.mdp.n_actions
+
+    @property
+    def n_states(self):
+        return self.mdp.n_states
+
+    def in_terminal_state(self):
+        return self.mdp.in_terminal_state()
+
+    def has_terminal_states(self):
+        return self.mdp.has_terminal_states()
+
+    @property
+    def T(self):
+        return self.mdp.T
+
+    @property
+    def R(self):
+        if self._R is None:
+            raise ValueError(
+                "Cannot get reward operator of environment "
+                "with continuous state space.")
+        else:
+            return self._R
+
+    def get_reward(self, a, s, s_prime=None):
+        state_features = self.feature_extractor.as_vector(s, a)
+        return self.theta.dot(state_features)
+
+    @property
+    def current_state(self):
+        return self.mdp.current_state
+
+    def make_R(self):
+        if self.mdp.is_continuous():
+            self._R = None
+        else:
+            R = np.zeros((self.n_actions, self.n_states, self.n_states))
+
+            for a in self.actions:
+                for s in self.states:
+                    R[a, s, :] = self.get_reward(a, s)
+
+            self._R = R
+            self._R.flags.writeable = False
 
 
 def evaluate_policy(mdp, policy=None, threshold=0.00001):

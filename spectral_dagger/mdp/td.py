@@ -1,5 +1,5 @@
 import numpy as np
-from mdp import MDPPolicy
+from spectral_dagger.mdp import MDPPolicy
 
 
 class TD(MDPPolicy):
@@ -465,9 +465,9 @@ class LinearGradientSarsa(ControlTD):
 
 
 if __name__ == "__main__":
-    from cts_grid_world import ContinuousGridWorld
-    from utils import geometric_sequence
-    from function_approximation import RectangularTileCoding
+    from spectral_dagger.envs import ContinuousGridWorld
+    from spectral_dagger.utils.math import geometric_sequence
+    from spectral_dagger.function_approximation import RectangularTileCoding
 
     dummy_map = np.array([
         ['x', 'x', 'x', 'x', 'x'],

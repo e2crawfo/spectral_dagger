@@ -1,10 +1,9 @@
 import numpy as np
-
 import itertools
 
-from mdp import MDP, State, Action
-from pomdp import POMDP, Observation
-from geometry import Position, Rectangle
+from spectral_dagger.mdp import MDP, State, Action
+from spectral_dagger.pomdp import POMDP, Observation
+from spectral_dagger.utils.geometry import Position, Rectangle
 
 
 class GridState(State):

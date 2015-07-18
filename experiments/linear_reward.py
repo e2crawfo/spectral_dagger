@@ -1,10 +1,9 @@
 import numpy as np
 
-from spectral_dagger.value_iteration import ValueIteration
-from spectral_dagger.grid_world import GridWorld
+from spectral_dagger.mdp import ValueIteration, LinearRewardMDP
+from spectral_dagger.envs import GridWorld
 from spectral_dagger.function_approximation import RectangularTileCoding
 from spectral_dagger.function_approximation import StateActionFeatureExtractor
-from spectral_dagger.utils import LinearRewardMDP
 
 """
 Take an MDP, fits its reward function using linear regression, then solve the
@@ -37,7 +36,7 @@ world_map = np.array([
 mdp = GridWorld(
     world_map, gamma=gamma,
     rewards={'goal': 0, 'default': -1, 'puddle': -2, 'pit': -1},
-    terminate_on_goal=False)
+    terminate=False)
 
 mdp.sample_trajectory(
     ValueIteration().fit(mdp), horizon=horizon, display=False)
@@ -58,8 +57,8 @@ for s in mdp.states:
         s_prime, r = mdp.execute_action(a)
         Y.append(r)
 
-import sklearn
-model = sklearn.linear_model.Ridge(alpha=0.5)
+from sklearn.linear_model import Ridge
+model = Ridge(alpha=0.5)
 model.fit(X, Y)
 true_theta = model.coef_
 

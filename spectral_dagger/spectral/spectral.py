@@ -6,8 +6,8 @@ import heapq
 from collections import defaultdict
 import itertools
 
-from learning_algorithm import LearningAlgorithm
-from pomdp import POMDPPolicy
+from spectral_dagger.learning_algorithm import LearningAlgorithm
+from spectral_dagger.pomdp import POMDPPolicy
 
 VERBOSE = True
 

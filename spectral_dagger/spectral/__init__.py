@@ -1,1 +1,2 @@
-# __init__.py
+from .spectral import SpectralPSRWithActions, SpectralClassifier
+from .spectral import SpectralPolicy

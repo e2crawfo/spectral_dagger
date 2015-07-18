@@ -1,16 +1,14 @@
 import numpy as np
 from collections import defaultdict
 
-from spectral_dagger.mdp import UniformRandomPolicy
-from spectral_dagger.value_iteration import ValueIteration
-from spectral_dagger.grid_world import GridWorld
+from spectral_dagger.mdp import UniformRandomPolicy, ValueIteration
+from spectral_dagger.mdp import LinearRewardMDP
+from spectral_dagger.envs import GridWorld
 from spectral_dagger.function_approximation import RectangularTileCoding
 from spectral_dagger.function_approximation import StateActionFeatureExtractor
 from spectral_dagger.function_approximation import discounted_features
 
-from spectral_dagger.utils import laplace_smoothing
-from spectral_dagger.utils import geometric_sequence
-from spectral_dagger.utils import LinearRewardMDP
+from spectral_dagger.utils.math import laplace_smoothing, geometric_sequence
 
 n_expert_trajectories = 5
 n_sample_trajectories = 10
@@ -22,21 +20,10 @@ learning_rate = geometric_sequence(0.2, tau=33)
 
 world_map = np.array([
     ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'],
-    ['x', 'S', ' ', ' ', ' ', ' ', ' ', ' ', 'x'],
     ['x', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'x'],
-    ['x', ' ', 'x', ' ', ' ', ' ', 'x', ' ', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'x', 'x', 'x', 'x', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'x'],
-    ['x', 'x', 'x', 'x', 'x', 'x', 'x', ' ', 'x'],
-    ['x', 'G', ' ', ' ', ' ', ' ', 'x', ' ', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', 'x', ' ', 'x'],
-    ['x', ' ', 'x', ' ', ' ', ' ', 'x', ' ', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', 'x', ' ', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', 'x', ' ', 'x'],
+    ['x', ' ', 'x', ' ', 'x', ' ', ' ', ' ', 'x'],
+    ['x', ' ', 'x', 'G', 'x', ' ', 'x', ' ', 'x'],
+    ['x', ' ', 'P', ' ', ' ', ' ', ' ', ' ', 'x'],
     ['x', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'x'],
     ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x']])
 
@@ -60,7 +47,7 @@ world_map = np.array([
     ['x', ' ', 'x', 'x', 'P', ' ', 'x'],
     ['x', ' ', ' ', ' ', ' ', ' ', 'x'],
     ['x', ' ', 'x', 'x', 'x', ' ', 'x'],
-    ['x', ' ', ' ', 'S', ' ', ' ', 'x'],
+    ['x', ' ', ' ', ' ', ' ', ' ', 'x'],
     ['x', 'P', 'P', 'P', 'x', ' ', 'x'],
     ['x', 'x', 'x', 'x', 'x', 'x', 'x']])
 mdp = GridWorld(
@@ -102,8 +89,8 @@ expert_features = np.mean(
         for t in expert_trajectories]),
     axis=0)
 
-print np.where(expert_features != 0)
-print expert_features[np.where(expert_features != 0)]
+# print np.where(expert_features != 0)
+# print expert_features[np.where(expert_features != 0)]
 
 sampling_policy = UniformRandomPolicy(mdp)
 
@@ -128,12 +115,9 @@ for tau in sample_trajectories:
         pi_tau *= sampling_policy.action_distribution(s)[a]
         u_tau *= expert_action_dist[s][a]
 
-        print pi_tau
-        print u_tau
-
     f_tau = discounted_features(tau, feature_extractor, gamma)
-    print np.where(f_tau != 0)
-    print f_tau[np.where(f_tau != 0)]
+    # print np.where(f_tau != 0)
+    # print f_tau[np.where(f_tau != 0)]
 
     pi.append(pi_tau)
     u.append(u_tau)
@@ -156,8 +140,6 @@ for i in range(n_restarts):
         theta = np.random.random(feature_extractor.n_features) - 0.5
     else:
         theta = expert_features[:]
-
-    print theta
 
     # perform the optimization
     # linear_mdp = LinearRewardMDP(mdp, feature_extractor, theta)

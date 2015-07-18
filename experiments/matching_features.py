@@ -1,9 +1,9 @@
 import numpy as np
 
-from spectral_dagger.utils import geometric_sequence
-from spectral_dagger.utils import LinearGibbsPolicy
-from spectral_dagger.value_iteration import ValueIteration
-from spectral_dagger.grid_world import GridWorld
+from spectral_dagger.utils.math import geometric_sequence
+from spectral_dagger.mdp import LinearGibbsPolicy
+from spectral_dagger.mdp import ValueIteration
+from spectral_dagger.envs import GridWorld
 from spectral_dagger.function_approximation import RectangularTileCoding
 from spectral_dagger.function_approximation import StateActionFeatureExtractor
 from spectral_dagger.function_approximation import discounted_features
@@ -22,7 +22,7 @@ n_iters = 2
 n_samples_per_iter = 5
 n_samples_per_gradient = 10
 threshold = 0.001
-lmbda = 0.01
+lmbda = 0.99
 
 world_map = np.array([
     ['x', 'x', 'x', 'x', 'x', 'x', 'x'],

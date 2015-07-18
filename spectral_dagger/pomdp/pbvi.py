@@ -1,8 +1,8 @@
 """An implementation of point-based value iteration."""
 
 import numpy as np
-from learning_algorithm import LearningAlgorithm
-from pomdp import BeliefStatePolicy
+from spectral_dagger.learning_algorithm import LearningAlgorithm
+from spectral_dagger.pomdp import BeliefStatePolicy
 
 
 class PBVI(LearningAlgorithm):

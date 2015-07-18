@@ -1,7 +1,7 @@
 import numpy as np
 import time
 
-from mdp import MDP
+from spectral_dagger.mdp import MDP
 
 
 class Observation(object):

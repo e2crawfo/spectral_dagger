@@ -1,7 +1,8 @@
 import numpy as np
 
-from grid_world import GridWorld, GridState, GridAction, WorldMap
-from geometry import Rectangle, Circle, Position
+from spectral_dagger.envs.grid_world import GridWorld, GridState
+from spectral_dagger.envs.grid_world import GridAction, WorldMap
+from spectral_dagger.utils.geometry import Rectangle, Circle, Position
 
 
 class ContinuousWorldMap(WorldMap):
@@ -170,3 +171,24 @@ class ContinuousGridWorld(GridWorld):
 
     def __repr__(self):
         return str(self)
+
+    def is_continuous(self):
+        return True
+
+    @property
+    def n_states(self):
+        raise ValueError(
+            "Cannot call n_states on environment "
+            "with continuous state space.")
+
+    @property
+    def T(self):
+        raise ValueError(
+            "Cannot get transition operator of environment "
+            "with continuous state space.")
+
+    @property
+    def R(self):
+        raise ValueError(
+            "Cannot get reward operator of environment "
+            "with continuous state space.")

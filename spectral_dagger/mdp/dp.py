@@ -1,7 +1,7 @@
 import numpy as np
 
-from mdp import GreedyPolicy, MDPPolicy
-from learning_algorithm import LearningAlgorithm
+from spectral_dagger.mdp import GreedyPolicy, MDPPolicy
+from spectral_dagger.learning_algorithm import LearningAlgorithm
 
 
 class PolicyIteration(LearningAlgorithm):
