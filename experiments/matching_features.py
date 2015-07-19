@@ -16,25 +16,24 @@ data sets as regularization.
 """
 
 n_expert_trajectories = 5
-horizon = 15
+horizon = 20
 gamma = 0.99
 n_iters = 2
 n_samples_per_iter = 5
 n_samples_per_gradient = 10
 threshold = 0.001
-lmbda = 0.99
+lmbda = 0.5
 
 world_map = np.array([
-    ['x', 'x', 'x', 'x', 'x', 'x', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', 'x'],
-    ['x', ' ', 'T', ' ', 'T', ' ', 'x'],
-    ['x', 'x', 'T', ' ', 'T', 'x', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', 'x'],
-    ['x', ' ', ' ', 'G', ' ', ' ', 'x'],
-    ['x', 'x', 'x', 'x', 'x', 'x', 'x']])
+    ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'],
+    ['x', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'x'],
+    ['x', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'x'],
+    ['x', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'x'],
+    ['x', ' ', 'T', ' ', 'T', ' ', ' ', ' ', ' ', 'x'],
+    ['x', 'x', 'T', ' ', 'T', 'x', 'x', ' ', 'x', 'x'],
+    ['x', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'x'],
+    ['x', ' ', ' ', 'G', ' ', ' ', ' ', ' ', ' ', 'x'],
+    ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x']])
 
 mdp = GridWorld(
     world_map, gamma=gamma,
@@ -94,7 +93,7 @@ for i in range(n_iters):
 
                 gradient = np.zeros(n_features)
 
-                for k, (s, a, r) in enumerate(trajectory):
+                for l, (s, a, r) in enumerate(trajectory):
                     feature_vectors = np.array([
                         feature_extractor.as_vector(s, b)
                         for b in mdp.actions])
@@ -105,16 +104,18 @@ for i in range(n_iters):
 
                 df = discounted_features(trajectory, feature_extractor, gamma)
                 reward = df.dot(df - 2 * expert_features)
-                print "Reward: ", reward
 
                 gradient *= reward - average_reward
 
-                count = float(j * k + 1)
+                count = float(j * n_samples_per_gradient + k + 1)
                 average_reward = ((count-1) * average_reward + reward) / count
+                print "Average Reward: ", average_reward
 
                 feature_gradient += -gradient
 
-            feature_gradient /= n_samples_per_gradient
+            norm = np.linalg.norm(feature_gradient)
+            if norm > 0:
+                feature_gradient /= norm
 
         classification_gradient = np.zeros(n_features)
         if lmbda < 1:
@@ -125,11 +126,15 @@ for i in range(n_iters):
                     policy.feature_extractor.as_vector(s, b)
                     for b in mdp.actions])
 
-                classification_gradient += (
+                classification_gradient += policy.action_distribution(s)[a] * (
                     feature_extractor.as_vector(s, a)
                     - feature_vectors.T.dot(policy.action_distribution(s)))
 
-        policy.phi += learning_rate.next() * (
+            norm = np.linalg.norm(classification_gradient)
+            if norm > 0:
+                classification_gradient /= norm
+
+        policy.phi += alpha * (
             (1-lmbda) * classification_gradient + lmbda * feature_gradient)
 
         alpha = learning_rate.next()
