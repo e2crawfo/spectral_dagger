@@ -181,6 +181,8 @@ class WorldMap(object):
         if self.init_position:
             self.positions.append(self.init_position)
 
+        self.positions.sort(key=lambda p: tuple(p.position), reverse=False)
+
         self.current_position = None
 
     def get_locations_of(self, c):
