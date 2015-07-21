@@ -73,10 +73,11 @@ class GreedyPolicy(MDPPolicy):
 
 
 class LinearGibbsPolicy(MDPPolicy):
-    def __init__(self, mdp, feature_extractor, phi):
+    def __init__(self, mdp, feature_extractor, phi, temperature=1.0):
         self.mdp = mdp
         self.feature_extractor = feature_extractor
         self.phi = phi.flatten()
+        self.temperature = temperature
 
         assert len(self.phi == self.feature_extractor.n_features)
 
@@ -97,10 +98,29 @@ class LinearGibbsPolicy(MDPPolicy):
         feature_vectors = np.array([
             self.feature_extractor.as_vector(state, a)
             for a in self.mdp.actions])
-        probs = np.exp(feature_vectors.dot(self.phi))
+        probs = np.exp(self.temperature * feature_vectors.dot(self.phi))
         probs = probs / sum(probs)
 
         return probs
+
+    def gradient_log(self, s, a):
+        feature_vectors = np.array([
+            self.feature_extractor.as_vector(s, b)
+            for b in self.mdp.actions])
+
+        grad_log = (
+            self.feature_extractor.as_vector(s, a)
+            - feature_vectors.T.dot(self.action_distribution(s)))
+
+        return grad_log
+
+    def gradient(self, s, a):
+        """
+        Uses the identity:
+            grad(pi(a | s)) = pi(a | s) * grad(log pi(a | s))
+        """
+        grad = self.action_distribution(s)[a] * self.gradient_log(s, a)
+        return grad
 
 
 class GridKeyboardPolicy(MDPPolicy):

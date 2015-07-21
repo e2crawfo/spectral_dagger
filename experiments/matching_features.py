@@ -1,6 +1,7 @@
 import numpy as np
+from collections import defaultdict
 
-from spectral_dagger.utils.math import geometric_sequence
+from spectral_dagger.utils.math import geometric_sequence, laplace_smoothing
 from spectral_dagger.mdp import LinearGibbsPolicy
 from spectral_dagger.mdp import ValueIteration
 from spectral_dagger.envs import GridWorld
@@ -23,6 +24,7 @@ n_samples_per_iter = 5
 n_samples_per_gradient = 10
 threshold = 0.001
 lmbda = 0.5
+smoothing = 1.0
 
 world_map = np.array([
     ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'],
@@ -49,6 +51,7 @@ n_features = feature_extractor.n_features
 # define expert
 expert = ValueIteration().fit(mdp)
 
+expert_action_data = defaultdict(list)
 expert_examples = []
 
 # gather expert trajectories
@@ -59,7 +62,12 @@ for n in range(n_expert_trajectories):
     expert_trajectories.append(trajectory)
 
     for s, a, r in trajectory:
+        expert_action_data[s].append(a)
         expert_examples.append((s, a))
+
+expert_action_dist = {
+    s: laplace_smoothing(smoothing, mdp.actions, expert_action_data[s])
+    for s in mdp.states}
 
 # calculate discounted expert features
 expert_features = [
@@ -94,13 +102,8 @@ for i in range(n_iters):
                 gradient = np.zeros(n_features)
 
                 for l, (s, a, r) in enumerate(trajectory):
-                    feature_vectors = np.array([
-                        feature_extractor.as_vector(s, b)
-                        for b in mdp.actions])
 
-                    gradient += (
-                        feature_extractor.as_vector(s, a)
-                        - feature_vectors.T.dot(policy.action_distribution(s)))
+                    gradient += policy.gradient_log(s, a)
 
                 df = discounted_features(trajectory, feature_extractor, gamma)
                 reward = df.dot(df - 2 * expert_features)
@@ -122,13 +125,11 @@ for i in range(n_iters):
             # Now calculate gradient of classifier.
             # Recall that we're using linear gibbs for now.
             for (s, a) in expert_examples:
-                feature_vectors = np.array([
-                    policy.feature_extractor.as_vector(s, b)
-                    for b in mdp.actions])
+                error = (
+                    policy.action_distribution(s)[a]
+                    - expert_action_dist[s][a])
 
-                classification_gradient += policy.action_distribution(s)[a] * (
-                    feature_extractor.as_vector(s, a)
-                    - feature_vectors.T.dot(policy.action_distribution(s)))
+                classification_gradient += error * policy.gradient(s, a)
 
             norm = np.linalg.norm(classification_gradient)
             if norm > 0:
@@ -154,4 +155,3 @@ for i in range(n_iters):
     print "After iteration %d" % i
     tau = mdp.sample_trajectory(
         policy, horizon=horizon, display=True)
-
