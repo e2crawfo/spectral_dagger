@@ -184,7 +184,7 @@ world_map = np.array([
 mdp = GridWorld(
     world_map, gamma=gamma,
     rewards={'goal': 0, 'default': -1, 'puddle': -5},
-    terminate=False)
+    terminate_on_goal=False)
 
 training_trajectories = []
 previous_policies = []

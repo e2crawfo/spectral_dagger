@@ -319,7 +319,7 @@ class GridWorld(MDP):
 
     def __init__(
             self, world_map=None, gamma=0.9, noise=0.1,
-            rewards=None, terminate=True):
+            rewards=None, terminate_on_goal=True):
         self.gamma = gamma
         self.noise = noise
 
@@ -336,7 +336,7 @@ class GridWorld(MDP):
         self.trap_positions = self.world_map.trap_positions
         self.positions = self.world_map.positions
 
-        self.terminate = terminate
+        self.terminate_on_goal = terminate_on_goal
 
         self.set_rewards(rewards)
 
@@ -477,7 +477,7 @@ class GridWorld(MDP):
         return self.pos2state(self.current_position)
 
     def has_terminal_states(self):
-        return self.terminate
+        return self.terminate_on_goal
 
     def in_terminal_state(self):
         return (

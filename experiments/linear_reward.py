@@ -36,7 +36,7 @@ world_map = np.array([
 mdp = GridWorld(
     world_map, gamma=gamma,
     rewards={'goal': 0, 'default': -1, 'puddle': -2, 'pit': -1},
-    terminate=False)
+    terminate_on_goal=False)
 
 mdp.sample_trajectory(
     ValueIteration().fit(mdp), horizon=horizon, display=False)

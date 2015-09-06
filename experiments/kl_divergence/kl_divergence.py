@@ -32,7 +32,7 @@ def f(
     mdp = GridWorld(
         world_map, gamma=gamma,
         rewards={'goal': 0, 'default': -1, 'puddle': -5, 'trap': -1},
-        terminate=False)
+        terminate_on_goal=False)
     state_feature_extractor = RectangularTileCoding(
         n_tilings=1, bounds=mdp.world_map.bounds.s,
         granularity=1, intercept=True)
