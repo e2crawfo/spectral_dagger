@@ -30,22 +30,18 @@ class ContinuousWorldMap(WorldMap):
             Circle(self.region_radius, p) for p in self.puddle_positions]
         self.pit_regions = [
             Circle(self.region_radius, p) for p in self.pit_positions]
+        self.death_regions = [
+            Circle(self.region_radius, p) for p in self.death_positions]
+        self.trap_regions = [
+            Circle(self.region_radius, p) for p in self.trap_positions]
 
     def is_valid_position(self, pos):
         return pos in self.bounds and not any([pos in r for r in self.walls])
 
-    def in_terminal_state(self):
-        return self.is_terminal_state(self.current_position)
-
-    def in_pit_state(self):
-        return self.is_pit_state(self.current_position)
-
-    def in_puddle_state(self):
-        return self.is_puddle_state(self.current_position)
-
-    def is_terminal_state(self, s):
+    def is_goal_state(self, s):
         s = s.position if isinstance(s, GridState) else s
-        return Position(s) in self.goal_region
+        s = Position(s)
+        return s in self.goal_region
 
     def is_pit_state(self, s):
         s = s.position if isinstance(s, GridState) else s
@@ -56,6 +52,16 @@ class ContinuousWorldMap(WorldMap):
         s = s.position if isinstance(s, GridState) else s
         s = Position(s)
         return any([s in p for p in self.puddle_regions])
+
+    def is_death_state(self, s):
+        s = s.position if isinstance(s, GridState) else s
+        s = Position(s)
+        return any([s in p for p in self.death_regions])
+
+    def is_trap_state(self, s):
+        s = s.position if isinstance(s, GridState) else s
+        s = Position(s)
+        return any([s in p for p in self.trap_regions])
 
 
 class ContinuousGridWorld(GridWorld):
