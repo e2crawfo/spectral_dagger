@@ -73,13 +73,13 @@ class GreedyPolicy(MDPPolicy):
 
 
 class LinearGibbsPolicy(MDPPolicy):
-    def __init__(self, mdp, feature_extractor, phi, temperature=1.0):
-        self.mdp = mdp
+    def __init__(self, actions, feature_extractor, theta, temperature=1.0):
+        self.actions = actions
         self.feature_extractor = feature_extractor
-        self.phi = phi.flatten()
+        self.theta = theta.flatten()
         self.temperature = temperature
 
-        assert len(self.phi == self.feature_extractor.n_features)
+        assert len(self.theta == self.feature_extractor.n_features)
 
     def reset(self, state):
         self.current_state = state
@@ -97,8 +97,8 @@ class LinearGibbsPolicy(MDPPolicy):
     def action_distribution(self, state):
         feature_vectors = np.array([
             self.feature_extractor.as_vector(state, a)
-            for a in self.mdp.actions])
-        probs = np.exp(self.temperature * feature_vectors.dot(self.phi))
+            for a in self.actions])
+        probs = np.exp(self.temperature * feature_vectors.dot(self.theta))
         probs = probs / sum(probs)
 
         return probs
@@ -106,7 +106,7 @@ class LinearGibbsPolicy(MDPPolicy):
     def gradient_log(self, s, a):
         feature_vectors = np.array([
             self.feature_extractor.as_vector(s, b)
-            for b in self.mdp.actions])
+            for b in self.actions])
 
         grad_log = (
             self.feature_extractor.as_vector(s, a)

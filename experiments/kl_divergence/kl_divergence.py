@@ -71,7 +71,7 @@ def f(
         average_reward = 0
 
         policy = LinearGibbsPolicy(
-            mdp, feature_extractor,
+            mdp.actions, feature_extractor,
             np.random.random(feature_extractor.n_features) - 0.5)
 
         # Initialize weights by doing classification
@@ -96,7 +96,7 @@ def f(
                     classification_gradient /= norm
 
                 # Move in direction of anti-gradient since we're minimizing
-                policy.phi += -alpha * classification_gradient
+                policy.theta += -alpha * classification_gradient
                 alpha = learning_rate.next()
 
             trajectory = mdp.sample_trajectory(
@@ -145,7 +145,7 @@ def f(
                 gradient /= norm
 
             # Move in direction of anti-gradient since we're minimizing
-            policy.phi += -alpha * gradient
+            policy.theta += -alpha * gradient
 
             alpha = learning_rate.next()
             j += 1

@@ -82,7 +82,7 @@ for i in range(n_iters):
     average_reward = 0
 
     policy = LinearGibbsPolicy(
-        mdp, feature_extractor,
+        mdp.actions, feature_extractor,
         np.random.random(feature_extractor.n_features) - 0.5)
 
     learning_rate = geometric_sequence(0.2, tau=33)
@@ -135,7 +135,7 @@ for i in range(n_iters):
             if norm > 0:
                 classification_gradient /= norm
 
-        policy.phi += alpha * (
+        policy.theta += alpha * (
             (1-lmbda) * classification_gradient + lmbda * feature_gradient)
 
         alpha = learning_rate.next()

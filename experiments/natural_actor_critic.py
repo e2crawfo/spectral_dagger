@@ -32,7 +32,7 @@ feature_extractor = StateActionFeatureExtractor(
     state_feature_extractor, mdp.n_actions)
 
 policy = LinearGibbsPolicy(
-    mdp, feature_extractor, np.random.random(feature_extractor.n_features))
+    mdp.actions, feature_extractor, np.random.random(feature_extractor.n_features))
 
 R = []
 average_reward = 0
@@ -60,7 +60,7 @@ for i in range(n_steps):
         average_reward = ((count-1) * average_reward + total_reward) / count
         R.append(total_reward)
 
-    policy.phi += alpha.next() * np.mean(np.array(gradients).T, axis=1)
+    policy.theta += alpha.next() * np.mean(np.array(gradients).T, axis=1)
 
 import matplotlib.pyplot as plt
 

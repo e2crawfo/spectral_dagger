@@ -93,7 +93,7 @@ for d in expert_step_wise_states:
 
 # Now perform the optimization
 policy = LinearGibbsPolicy(
-    mdp, feature_extractor,
+    mdp.actions, feature_extractor,
     np.random.random(feature_extractor.n_features) - 0.5)
 
 alpha = learning_rate.next()
@@ -143,7 +143,7 @@ while alpha > threshold:
         if norm > 0:
             classification_gradient /= norm
 
-    policy.phi += alpha * (
+    policy.theta += alpha * (
         (1-lmbda) * classification_gradient + lmbda * feature_gradient)
 
     alpha = learning_rate.next()
