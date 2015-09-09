@@ -21,7 +21,7 @@ def p_sequence(start=1.0, p=1.0):
 
     i = start
     while True:
-        value = 1.0 / (start**p)
+        value = 1.0 / (i**p)
         yield value
         i += 1
 
