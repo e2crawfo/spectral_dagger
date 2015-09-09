@@ -84,8 +84,8 @@ def task_generate_gsarsa_data():
 
     fe_kwargs = {
         'n_tilings': 1,
-        'bounds': dummy_world.world_map.bounds.s,
-        'granularity': 0.5
+        'extent': dummy_world.world_map.bounds.s,
+        'tile_dims': 0.5
     }
 
     fe_class = RectangularTileCoding

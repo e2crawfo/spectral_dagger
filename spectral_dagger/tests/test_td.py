@@ -77,7 +77,7 @@ def test_linear_gtd(display=False):
         dummy_world, UniformRandomPolicy(dummy_world))
 
     feature_extractor = RectangularTileCoding(
-        n_tilings=3, bounds=dummy_world.world_map.bounds.s, granularity=0.5)
+        n_tilings=3, extent=dummy_world.world_map.bounds.s, tile_counts=5)
     linear_gtd = LinearGradientTD(
         random_world, feature_extractor, geometric_sequence(0.2, 20))
 

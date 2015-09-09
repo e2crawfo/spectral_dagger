@@ -27,7 +27,7 @@ mdp = ContinuousGridWorld(
     world_map, speed=0.5, rewards={'goal': 0, 'default': -1, 'puddle': -10})
 
 state_feature_extractor = RectangularTileCoding(
-    n_tilings=2, bounds=mdp.world_map.bounds.s, granularity=0.3)
+    n_tilings=2, extent=mdp.world_map.bounds.s, tile_dims=0.3)
 feature_extractor = StateActionFeatureExtractor(
     state_feature_extractor, mdp.n_actions)
 

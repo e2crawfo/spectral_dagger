@@ -59,7 +59,7 @@ mdp = ContinuousGridWorld(
     terminate_on_goal=False)
 
 state_feature_extractor = RectangularTileCoding(
-    n_tilings=1, bounds=mdp.world_map.bounds.s, granularity=1, intercept=False)
+    n_tilings=1, extent=mdp.world_map.bounds.s, tile_dims=1, intercept=False)
 feature_extractor = StateActionFeatureExtractor(
     state_feature_extractor, mdp.n_actions)
 n_features = feature_extractor.n_features

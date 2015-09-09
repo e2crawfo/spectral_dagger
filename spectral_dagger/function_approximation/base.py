@@ -1,7 +1,5 @@
 import numpy as np
 
-from spectral_dagger.utils.geometry import Position
-
 
 class FeatureExtractor(object):
     def __init__(self):
@@ -12,72 +10,143 @@ class FeatureExtractor(object):
         return self._n_features
 
 
-class RectangularTiling(FeatureExtractor):
-    def __init__(self, offset, bounds, granularity):
-        self.offset = offset
-        self.granularity = granularity
-
-    def as_vector(self, state):
-        try:
-            position = Position(state)
-        except:
-            raise NotImplementedError()
-
-        vector = np.array(
-            [position in shape for shape in self.shapes], dtype=bool)
-
-        return vector
-
-
 class RectangularTileCoding(FeatureExtractor):
-    def __init__(self, n_tilings, bounds, granularity, intercept=True):
+    def __init__(
+            self, n_tilings, extent, origin=None,
+            tile_dims=None, tile_counts=None, intercept=True):
         """
-        Tile at the beginning and the end is the same.
-        That is, there is wrap-around.
+        Implements axis-aligned rectangluar tile coding.
 
-        bounds: 2-D vector giving the extent of the tiled region
-        granularity: 2-D vector or a position
-        offsets should be negative, and less than the granularity
+        Parameters
+        ----------
+        n_tilings: int
+            Number of tilings. Offset from origin for each tiling is
+            chosen randomly.
+
+        extent: 1-D numpy array
+            Dimensions of the (hyper-)rectangle that the tilings should
+            cover. Number of entries in this array determines the
+            dimensionality of the tiling. Must be at least 1 entry.
+
+        origin: 1-D numpy array
+            Location of the corner of the (hyper-) rectangular region
+            that the tilings are covering which has the smallest dimensions
+            along every dimension. In 2 dimensions, the bottom-left
+            corner, assuming the positive orthant is in the top-right.
+
+        (NOTE: exactly one of the following two parameters must be supplied)
+
+        tile_dims: optional, 1-D numpy array or float
+            Dimensions of each tile. If a float is given, the tiles are
+            squares with the given side-length.
+
+        tile_counts: optional, 1-D numpy array or int
+            Number of tiles along each dimension. If an int is given, the
+            same number of tiles is used along every dimension.
+
+        intercept: boolean
+            Whether to include an intercept feature, a feature that always
+            has value 1.
         """
 
-        self.granularity = np.array(granularity)
-        self.bounds = np.array(bounds)
         self.n_tilings = n_tilings
 
-        self.offsets = -np.random.random((n_tilings, 2))
-        self.offsets *= self.granularity
+        dtype = np.dtype('d')
+        self.dtype = dtype
 
-        self.tiling_shape = np.ceil(self.bounds / self.granularity) + 1
-        self.tiling_size = np.product(self.tiling_shape)
+        self.extent = np.array(extent, dtype=dtype)
+        assert self.extent.ndim == 1, "'extent' must be a vector."
+
+        self.n_dims = self.extent.size
+
+        if origin is None:
+            origin = np.zeros(self.n_dims)
+        self.origin = np.array(origin, dtype=dtype)
+        assert self.origin.ndim == 1
+        assert self.origin.size == self.n_dims
+
+        if (tile_dims is None) == (tile_counts is None):
+            raise ValueError(
+                "Must specify either tile_dims or "
+                "tile_counts, but not both.")
+
+        if tile_dims is not None:
+            try:
+                f = float(tile_dims)
+                self.tile_dims = f * np.ones(self.n_dims, dtype=dtype)
+            except:
+                self.tile_dims = np.array(tile_dims, dtype=dtype)
+
+            assert self.tile_dims.ndim == 1
+            assert self.tile_dims.size == self.n_dims
+            assert all(self.tile_dims > 0), (
+                "Detected non-positive tile_dims")
+            assert any(self.tile_dims < self.extent), (
+                "Invalid tile_dims, all tile_counts will be 1")
+
+            active_dims = self.tile_dims <= self.extent
+
+        if tile_counts is not None:
+            try:
+                i = int(tile_counts)
+                self.tile_counts = (
+                    i * np.ones(self.n_dims, dtype=np.dtype('i')))
+            except:
+                self.tile_counts = np.array(tile_counts, dtype=np.dtype('i'))
+
+            assert self.tile_counts.ndim == 1
+            assert self.tile_counts.size == self.n_dims
+            assert all(self.tile_counts >= 1), "Detected non-pos tile_counts."
+            assert any(self.tile_counts >= 2), "All tile_counts inactive."
+
+            active_dims = self.tile_counts >= 2
+            self.tile_dims = np.copy(self.extent)
+            self.tile_dims[active_dims] = (
+                self.extent / (self.tile_counts - 1))
+
+        self.tiling_offsets = np.tile(self.origin, (self.n_tilings, 1))
+        random_offsets = -np.random.random((self.n_tilings, len(active_dims)))
+        self.tiling_offsets[:, active_dims] += (
+            self.tile_dims[active_dims] * random_offsets)
+
+        self.tiling_shape = np.ones(self.n_dims)
+        self.tiling_shape[active_dims] = (
+            (np.ceil(self.extent / self.tile_dims) + 1)[active_dims])
+        self.tiling_size = int(np.product(self.tiling_shape[active_dims]))
         self._n_features = n_tilings * self.tiling_size
 
         self.intercept = intercept
         if self.intercept:
             self._n_features += 1
 
-    def as_vector(self, state):
+    def as_vector(self, position):
         """
-        State is convertible to a size-2 ndarray.
-        """
-        position = np.array(state)
+        Return a feature vector describing `position' using
+        axis-aligned tile-coding.
 
-        indices = position - self.offsets
-        indices /= self.granularity
+        position: 1-D numpy array
+            The position to be converted into a feature vector. Size
+            must be equal to self.n_dims.
+        """
+
+        position = np.array(position, dtype=self.dtype)
+        assert position.ndim == 1
+        assert position.size == self.n_dims
+
+        indices = position - self.tiling_offsets
+        indices /= self.tile_dims
         indices = np.array(np.floor(indices), dtype=np.int16)
+        lower_bound = np.all(indices >= 0, axis=1)
+        upper_bound = np.all(indices < self.tiling_shape, axis=1)
+        indices = np.hstack(
+            (np.arange(self.n_tilings)[:, np.newaxis], indices))
 
-        def valid(x):
-            v = x[0] >= 0 and x[0] < self.tiling_shape[0]
-            v &= x[1] >= 0 and x[1] < self.tiling_shape[1]
-            return v
-        indices = np.array(filter(valid, indices))
+        indices = indices[np.logical_and(lower_bound, upper_bound), :]
 
-        vector = np.zeros(
-            (self.n_tilings, self.tiling_shape[0], self.tiling_shape[1]))
+        vector = np.zeros([self.n_tilings] + list(self.tiling_shape))
 
         if indices.size != 0:
-            vector[
-                np.arange(self.n_tilings),
-                indices[:, 0], indices[:, 1]] = 1.0
+            vector[tuple(indices.T)] = 1.0
 
         vector = vector.flatten()
         if self.intercept:

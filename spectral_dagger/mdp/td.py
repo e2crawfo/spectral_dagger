@@ -480,7 +480,7 @@ if __name__ == "__main__":
 
     dummy_world = ContinuousGridWorld(dummy_map, speed=0.5)
     feature_extractor = RectangularTileCoding(
-        n_tilings=5, bounds=dummy_world.world_map.bounds.s, granularity=0.5)
+        n_tilings=5, extent=dummy_world.world_map.bounds.s, tile_dims=0.5)
     alpha = geometric_sequence(0.1, 1, 500)
     epsilon = geometric_sequence(0.05, 1, 100)
     L = 0.5
