@@ -27,7 +27,8 @@ class GridState(State):
         return "<GridState id: %s, position: (y: %d, x: %d), dim: %d>" % (
             self.get_id(), self.position[0], self.position[1], self.dimension)
 
-    def __array__(self):
+    def __array__(
+            self, dtype=np.float32, copy=True, order='C', subok=True, ndmin=0):
         return self.position.copy()
 
 
@@ -44,25 +45,25 @@ class GridAction(Action):
     string_ids = {item: i for i, item in enumerate(strings)}
     symbol_ids = {item: i for i, item in enumerate(symbols)}
 
-    def __init__(self, dir):
-        if isinstance(dir, int):
-            id = dir
-        elif isinstance(dir, GridAction):
-            id = dir.get_id()
-        elif isinstance(dir, str):
-            if len(dir) == 1:
-                id = GridAction.symbol_ids[dir]
+    def __init__(self, direction):
+        if isinstance(direction, int):
+            id = direction
+        elif isinstance(direction, GridAction):
+            id = direction.get_id()
+        elif isinstance(direction, str):
+            if len(direction) == 1:
+                id = GridAction.symbol_ids[direction]
             else:
-                id = GridAction.string_ids[dir.upper()]
+                id = GridAction.string_ids[direction.upper()]
         else:
             raise NotImplementedError(
                 "Cannot create a GridAction from object "
-                "%s of type %s." % (dir, type(dir)))
+                "%s of type %s." % (direction, type(direction)))
 
         super(GridAction, self).__init__(id)
 
     def __str__(self):
-        return "<GridAction dir: %s>" % GridAction.strings[self.get_id()]
+        return "<GridAction direction: %s>" % GridAction.strings[self.get_id()]
 
     def left(self):
         return GridAction((self.get_id() - 1) % 4)
@@ -77,14 +78,12 @@ class GridAction(Action):
             return (GridAction(NORTH), GridAction(SOUTH))
 
     def get_offset(self):
-        if self.get_id() == NORTH:
-            return np.array([-1, 0])
-        elif self.get_id() == EAST:
-            return np.array([0, 1])
-        elif self.get_id() == SOUTH:
-            return np.array([1, 0])
-        elif self.get_id() == WEST:
-            return np.array([0, -1])
+        new_pos = {
+            NORTH: [-1, 0],
+            EAST: [0, 1],
+            SOUTH: [1, 0],
+            WEST: [0, -1]}[self.get_id()]
+        return np.array(new_pos)
 
     def get_next_position(self, position):
         return Position(position) + self.get_offset()
@@ -248,32 +247,37 @@ class WorldMap(object):
 
         self.world_map[index] = item
 
+    def array_rep(self):
+        env = np.zeros(self.world_map.shape, dtype=np.dtype('S1'))
+        for i in xrange(self.world_map.shape[0]):
+            for j in xrange(self.world_map.shape[1]):
+                if (i, j) == self.init_position:
+                    env[i, j] = WorldMap.START_MARKER
+                elif (i, j) == self.goal_position:
+                    env[i, j] = WorldMap.GOAL_MARKER
+                elif (i, j) in self.pit_positions:
+                    env[i, j] = WorldMap.PIT_MARKER
+                elif (i, j) in self.puddle_positions:
+                    env[i, j] = WorldMap.PUDDLE_MARKER
+                elif (i, j) in self.death_positions:
+                    env[i, j] = WorldMap.DEATH_MARKER
+                elif (i, j) in self.trap_positions:
+                    env[i, j] = WorldMap.TRAP_MARKER
+                else:
+                    env[i, j] = str(self.world_map[i, j])
+
+        return env
+
     def __str__(self):
-        w = ''
+        env = self.array_rep()
+
         for i in xrange(self.world_map.shape[0]):
             for j in xrange(self.world_map.shape[1]):
                 if (self.current_position is not None
                         and (i, j) == self.current_position):
-                    w += 'A'
-                elif (i, j) == self.init_position:
-                    w += WorldMap.START_MARKER
-                elif (i, j) == self.goal_position:
-                    w += WorldMap.GOAL_MARKER
-                elif (i, j) in self.pit_positions:
-                    w += WorldMap.PIT_MARKER
-                elif (i, j) in self.puddle_positions:
-                    w += WorldMap.PUDDLE_MARKER
-                elif (i, j) in self.death_positions:
-                    w += WorldMap.DEATH_MARKER
-                elif (i, j) in self.trap_positions:
-                    w += WorldMap.TRAP_MARKER
-                else:
-                    w += str(self.world_map[i][j])
+                    env[i, j] = 'A'
 
-            if i < self.world_map.shape[0] - 1:
-                w += '\n'
-
-        return w
+        return '\n'.join([''.join(row) for row in env])
 
 
 class ColoredWorldMap(WorldMap):

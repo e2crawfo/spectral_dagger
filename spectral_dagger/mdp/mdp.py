@@ -255,6 +255,8 @@ class MDP(object):
         If the mdp has only one action, then policy's 'get_action' method will
         not be called.
 
+        display is the number of seconds to wait between steps.
+
         Not implemented yet:
         If policy is a tuple, then the first policy will be treated as an
         exploration policy, and the second will be treated as an estimation
@@ -272,6 +274,10 @@ class MDP(object):
                 init = self.states[np.where(sample > 0)[0][0]]
 
             self.reset(init)
+
+        if display:
+            display = float(display)
+            assert display > 0.0
 
         if not policy:
             policy = UniformRandomPolicy(self)
@@ -317,7 +323,7 @@ class MDP(object):
                 print "Action:", a
                 print "New state:", s_prime
                 print "Reward:", r
-                time.sleep(0.3)
+                time.sleep(display)
 
             terminated = (
                 self.in_terminal_state()

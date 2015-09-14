@@ -1,7 +1,7 @@
 import numpy as np
 
-from spectral_dagger.envs.grid_world import GridWorld, GridState
-from spectral_dagger.envs.grid_world import GridAction, WorldMap
+from spectral_dagger.envs.grid_world import GridWorld, WorldMap
+from spectral_dagger.envs.grid_world import GridAction, GridState
 from spectral_dagger.utils.geometry import Rectangle, Circle, Position
 
 
@@ -35,6 +35,12 @@ class ContinuousWorldMap(WorldMap):
         self.trap_regions = [
             Circle(self.region_radius, p) for p in self.trap_positions]
 
+        env_shape = [int(i) for i in self.bounds.s]
+        self.lattice = np.meshgrid(
+            *[range(i+1) for i in env_shape], indexing='ij')
+        self.lattice = zip(*[a.flatten() for a in self.lattice])
+        self.lattice = [Rectangle((1, 1), centre=c) for c in self.lattice]
+
     def is_valid_position(self, pos):
         return pos in self.bounds and not any([pos in r for r in self.walls])
 
@@ -62,6 +68,15 @@ class ContinuousWorldMap(WorldMap):
         s = s.position if isinstance(s, GridState) else s
         s = Position(s)
         return any([s in p for p in self.trap_regions])
+
+    def __str__(self):
+        env = self.array_rep()
+        agent_in_square = [self.current_position in r for r in self.lattice]
+        assert sum(agent_in_square) == 1
+        index = agent_in_square.index(1)
+        env[int(index / env.shape[1]), int(index % env.shape[1])] = 'A'
+
+        return '\n'.join([''.join(row) for row in env])
 
 
 class ContinuousGridWorld(GridWorld):

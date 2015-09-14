@@ -123,7 +123,8 @@ class Position(object):
     def __iter__(self):
         return iter(self.position)
 
-    def __array__(self):
+    def __array__(
+            self, dtype=np.float32, copy=True, order='C', subok=True, ndmin=0):
         return self.position.copy()
 
     def __str__(self):

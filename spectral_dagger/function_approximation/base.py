@@ -49,7 +49,8 @@ class RectangularTileCoding(FeatureExtractor):
             has value 1.
         """
 
-        self.n_tilings = n_tilings
+        assert n_tilings == int(n_tilings), "'n_tilings' must be an integer."
+        self.n_tilings = int(n_tilings)
 
         dtype = np.dtype('d')
         self.dtype = dtype
@@ -109,7 +110,7 @@ class RectangularTileCoding(FeatureExtractor):
         self.tiling_offsets[:, active_dims] += (
             self.tile_dims[active_dims] * random_offsets)
 
-        self.tiling_shape = np.ones(self.n_dims)
+        self.tiling_shape = np.ones(self.n_dims, dtype=np.dtype('i'))
         self.tiling_shape[active_dims] = (
             (np.ceil(self.extent / self.tile_dims) + 1)[active_dims])
         self.tiling_size = int(np.product(self.tiling_shape[active_dims]))

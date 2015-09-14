@@ -17,7 +17,7 @@ def geometric_sequence(base=np.e, tau=1.0, start=1):
 
 
 def p_sequence(start=1.0, p=1.0):
-    """ Implements a p sequence, a generalization of the harmonic sequence. """
+    """ Implements a p-sequence, a generalization of the harmonic sequence. """
 
     i = start
     while True:
