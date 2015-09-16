@@ -10,6 +10,32 @@ class FeatureExtractor(object):
         return self._n_features
 
 
+class IdentityFeatureExtractor(FeatureExtractor):
+    def __init__(self, n_features, intercept=True):
+        self._n_features = n_features
+        self.intercept = intercept
+
+        if self.intercept:
+            self._n_features += 1
+
+    def as_vector(self, s):
+        vector = np.array(s)
+
+        if self.intercept:
+            vector = np.concatenate((vector, [1]))
+
+        if vector.ndim != 1:
+            raise ValueError(
+                "State %s converts to non-vector array." % s)
+
+        if vector.size != self.n_features:
+            raise ValueError(
+                "State %s converts to array with %d elements, "
+                "expecting $d elements." % (s, vector.size, self.n_features))
+
+        return vector
+
+
 class RectangularTileCoding(FeatureExtractor):
     def __init__(
             self, n_tilings, extent, origin=None,
