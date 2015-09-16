@@ -1,7 +1,7 @@
 import numpy as np
 import logging
 
-from mdp import MDPPolicy
+from spectral_dagger.mdp import MDPPolicy
 
 
 class REINFORCE(MDPPolicy):
@@ -120,10 +120,11 @@ class REINFORCE(MDPPolicy):
         """
         Estimate gradient direction from sample trajectories.
 
-        Returns: unit vector in gradient, gradient norm
+        Returns: unit vector in gradient direction, gradient norm
         """
 
         cumulative_reward = []
+        horizon = max(len(tau) for tau in sample_trajectories)
 
         for tau in sample_trajectories:
             r = [r for (_, _, r) in tau]
