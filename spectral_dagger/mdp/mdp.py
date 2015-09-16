@@ -148,13 +148,9 @@ class MDP(object):
 
         self.reset()
 
-    @property
-    def name(self):
-        return "DefaultMDP"
-
     def __str__(self):
         return "%s. Current state: %s" % (
-            self.name, str(self.current_state))
+            self.__class__.__name__, str(self.current_state))
 
     def reset(self, state=None):
         """
@@ -222,8 +218,8 @@ class MDP(object):
 
     def has_terminal_states(self):
         return (
-            self.terminal_states is not []
-            and self.terminal_states is not None)
+            hasattr(self, 'terminal_states')
+            and self.terminal_states)
 
     @property
     def T(self):
@@ -351,10 +347,6 @@ class SingleActionMDP(MDP):
         self.gamma = mdp.gamma
         self.states = self.mdp.states
 
-    @property
-    def name(self):
-        return "SingleActionMDP: " + self.mdp.name
-
     def __str__(self):
         return str(self.mdp)
 
@@ -389,18 +381,13 @@ class SingleActionMDP(MDP):
         return self.mdp.current_state
 
 
-class LinearRewardMDP(MDP):
-    def __init__(self, mdp, feature_extractor, theta):
+class AlternateRewardMDP(MDP):
+    def __init__(self, mdp, reward_func):
         self.mdp = mdp
-        self.feature_extractor = feature_extractor
-        self.theta = theta
+        self.get_reward = reward_func
         self.gamma = self.mdp.gamma
 
         self.make_R()
-
-    @property
-    def name(self):
-        return "LinearRewardMDP"
 
     def __str__(self):
         return str(self.mdp)
@@ -417,25 +404,9 @@ class LinearRewardMDP(MDP):
         self.mdp.reset(state)
 
     def execute_action(self, action=None):
-        if action is None:
-            if self.n_actions > 1:
-                raise ValueError(
-                    "Must supply a valid action to "
-                    "execute_action when n_actions > 1")
-            else:
-                action = 0
-
-        if not isinstance(action, Action) and not isinstance(action, int):
-            raise ValueError(
-                "Action must either be an integer or an instance of the "
-                "Action class. Got object of type %s instead." % type(action))
-
-        if isinstance(action, int):
-            action = self.actions[action]
-
-        prev_state = self.mdp.current_state
+        prev_state = self.current_state
         s, _ = self.mdp.execute_action(action)
-        r = self.get_reward(action, prev_state)
+        r = self.get_reward(action, prev_state, s)
 
         return s, r
 
@@ -466,10 +437,6 @@ class LinearRewardMDP(MDP):
         else:
             return self._R
 
-    def get_reward(self, a, s, s_prime=None):
-        state_features = self.feature_extractor.as_vector(s, a)
-        return self.theta.dot(state_features)
-
     @property
     def current_state(self):
         return self.mdp.current_state
@@ -486,6 +453,47 @@ class LinearRewardMDP(MDP):
 
             self._R = R
             self._R.flags.writeable = False
+
+
+class TimeDependentRewardMDP(AlternateRewardMDP):
+    def __init__(self, mdp, reward_func):
+        self.mdp = mdp
+        self.get_reward = reward_func
+        self.gamma = self.mdp.gamma
+        self.t = 0
+
+    def reset(self, state=None):
+        self.mdp.reset(state)
+        self.t = 0
+
+    def execute_action(self, action=None):
+        prev_state = self.current_state
+        s, _ = self.mdp.execute_action(action)
+        r = self.get_reward(action, prev_state, s, self.t)
+
+        self.t += 1
+
+        return s, r
+
+    @property
+    def R(self):
+        raise RuntimeError(
+            "Reward operator does not exist for instances of "
+            "TimeDependentReward since the reward is time-dependent.")
+
+
+class LinearRewardMDP(AlternateRewardMDP):
+    def __init__(self, mdp, feature_extractor, theta):
+        self.mdp = mdp
+        self.feature_extractor = feature_extractor
+        self.theta = theta
+        self.gamma = self.mdp.gamma
+
+        self.make_R()
+
+    def get_reward(self, a, s, s_prime=None):
+        state_features = self.feature_extractor.as_vector(s, a)
+        return self.theta.dot(state_features)
 
 
 def evaluate_policy(mdp, policy=None, threshold=0.00001):
