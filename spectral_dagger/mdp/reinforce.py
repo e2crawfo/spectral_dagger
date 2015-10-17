@@ -3,6 +3,8 @@ import logging
 
 from spectral_dagger.mdp import MDPPolicy
 
+from sklearn import linear_model
+
 
 class REINFORCE(MDPPolicy):
 
@@ -71,10 +73,8 @@ class REINFORCE(MDPPolicy):
 
         n_steps = 0
         while alpha > tol and n_steps < max_steps:
-            sample_trajectories = [
-                mdp.sample_trajectory(
-                    policy, horizon, reset=True, display=False)
-                for k in range(n_samples)]
+            sample_trajectories, returns = self.get_sample_trajectories(
+                n_samples, mdp, policy, horizon)
 
             current_gradient, norm = (
                 self.estimate_gradient(sample_trajectories, policy))
@@ -96,11 +96,7 @@ class REINFORCE(MDPPolicy):
                 except StopIteration:
                     pass
 
-            returns = [
-                sum(r for (_, _, r) in tau) for tau in sample_trajectories]
-            for i, r in enumerate(returns):
-                print "Return from iter %d:  %f" % (i, r)
-
+            print "Average return: %f" % np.mean(returns)
             print (
                 "Updated theta with alpha: %s, theta norm: %s" % (alpha, norm))
 
@@ -108,12 +104,23 @@ class REINFORCE(MDPPolicy):
             self.logger.info("Gradient step")
             self.logger.info("Step norm: %s" % norm)
             self.logger.info("Alpha: %s" % alpha)
-            for i, r in enumerate(returns):
-                self.logger.info("Return from iter %d:  %f", i, r)
+            self.logger.info("Average return: %f", np.mean(returns))
 
             n_steps += 1
 
         return policy
+
+    @staticmethod
+    def get_sample_trajectories(n_samples, mdp, policy, horizon):
+        sample_trajectories = [
+            mdp.sample_trajectory(
+                policy, horizon, reset=True, display=False)
+            for k in range(n_samples)]
+
+        returns = [
+            sum(r for (_, _, r) in tau) for tau in sample_trajectories]
+
+        return sample_trajectories, returns
 
     @staticmethod
     def estimate_gradient(sample_trajectories, policy):
@@ -149,9 +156,161 @@ class REINFORCE(MDPPolicy):
         return gradient, norm
 
 
+class TrajectoryData(object):
+    """ Object storing relevant features of a trajectory """
+    def __init__(self, features, state_0, total_reward):
+        self.features = features
+        self.state_0 = state_0
+        self.total_reward = total_reward
+
+
+class eNAC(REINFORCE):
+
+    def __init__(self, policy_class, *policy_args, **policy_kwargs):
+        self.policy_class = policy_class
+        self.policy_args = policy_args
+        self.policy_kwargs = policy_kwargs
+
+    @staticmethod
+    def get_sample_trajectories(n_samples, mdp, policy, horizon):
+        """
+        Return data summarizing sampled trajectories.
+
+        The gradient estimate does not require the complete trajectories,
+        so don't bother storing them.
+        """
+
+        print "Sampling %d trajectories." % n_samples
+        trajectory_data = []
+        returns = []
+
+        for i in range(n_samples):
+            if i % 100 == 0:
+                print "Sampling trajectory %d" % i
+
+            tau = mdp.sample_trajectory(
+                policy, horizon, reset=True, display=False)
+
+            tau_data = TrajectoryData(
+                features=np.zeros(policy.theta.size),
+                state_0=np.copy(tau[0][0]),
+                total_reward=0)
+
+            for t, (s, a, r) in enumerate(tau):
+                tau_data.features += (
+                    (mdp.gamma ** t) * policy.gradient_log(s, a))
+                tau_data.total_reward += r
+
+            trajectory_data.append(tau_data)
+            returns.append(tau_data.total_reward)
+
+        return trajectory_data, returns
+
+    @staticmethod
+    def estimate_gradient(sample_trajectories, policy):
+        """
+        Estimate gradient direction from sample trajectories.
+
+        Returns: unit vector in gradient direction, gradient norm
+        """
+        X_value = []
+        Y_value = []
+
+        for tau_data in sample_trajectories:
+            X_value.append(tau_data.state_0)
+            Y_value.append(tau_data.total_reward)
+
+        X_value = np.array(X_value)
+        Y_value = np.array(Y_value)
+
+        value_function = linear_model.LinearRegression(
+            fit_intercept=True,
+            normalize=False,
+            copy_X=False)
+
+        value_function.fit(X_value, Y_value)
+
+        X = []
+        Y = []
+
+        # Now perform the regression
+        for tau_data in sample_trajectories:
+            X.append(tau_data.features)
+            Y.append(
+                tau_data.total_reward
+                + value_function.predict(tau_data.state_0))
+
+        X = np.array(X)
+        Y = np.array(Y)
+
+        model = linear_model.LinearRegression(
+            fit_intercept=False,
+            normalize=False,
+            copy_X=False)
+
+        model.fit(X, Y)
+        gradient = np.copy(model.coef_)
+
+        norm = np.linalg.norm(gradient)
+        if norm > 0:
+            gradient /= norm
+
+        return gradient, norm
+
+
+# if __name__ == "__main__":
+#     from spectral_dagger.envs import ContinuousGridWorld
+#     from spectral_dagger.mdp import LinearGibbsPolicy
+#     from spectral_dagger.function_approximation import RectangularTileCoding
+#     from spectral_dagger.function_approximation import StateActionFeatureExtractor
+#     from spectral_dagger.utils.math import p_sequence
+# 
+#     world_map = np.array([
+#         ['x', 'x', 'x', 'x', 'x', 'x', 'x'],
+#         ['x', 'P', 'P', 'P', 'P', 'G', 'x'],
+#         ['x', 'P', ' ', ' ', ' ', ' ', 'x'],
+#         ['x', 'P', ' ', 'P', ' ', 'P', 'x'],
+#         ['x', 'P', ' ', 'P', ' ', 'P', 'x'],
+#         ['x', 'P', ' ', 'P', ' ', 'P', 'x'],
+#         ['x', 'P', ' ', 'P', ' ', 'P', 'x'],
+#         ['x', 'x', 'x', 'x', 'x', 'x', 'x']])
+#     world_map = np.array([
+#         ['x', 'x', 'x', 'x'],
+#         ['x', ' ', 'G', 'x'],
+#         ['x', ' ', ' ', 'x'],
+#         ['x', ' ', ' ', 'x'],
+#         ['x', ' ', ' ', 'x'],
+#         ['x', ' ', ' ', 'x'],
+#         ['x', ' ', ' ', 'x'],
+#         ['x', 'x', 'x', 'x']])
+# 
+# 
+#     horizon = 400
+#     alpha = p_sequence(start=3.0, p=0.6)
+#     gamma = 0.9
+# 
+#     mdp = ContinuousGridWorld(
+#         world_map, gamma=gamma, speed=0.4,
+#         rewards={'goal': 0, 'default': -1, 'puddle': -5},
+#         terminate_on_goal=True)
+# 
+#     state_feature_extractor = RectangularTileCoding(
+#         n_tilings=2, extent=mdp.world_map.bounds.s,
+#         tile_dims=0.3, intercept=True)
+# 
+#     feature_extractor = StateActionFeatureExtractor(
+#         state_feature_extractor, mdp.n_actions)
+# 
+#     learner = REINFORCE(LinearGibbsPolicy)
+#     policy = learner.fit(
+#         mdp, horizon, feature_extractor, alpha,
+#         n_samples=2, max_steps=200)
+# 
+#     for i in range(10):
+#         mdp.sample_trajectory(policy, horizon, reset=True, display=0.1)
+
 if __name__ == "__main__":
     from spectral_dagger.envs import ContinuousGridWorld
-    from spectral_dagger.envs import GridWorld
     from spectral_dagger.mdp import LinearGibbsPolicy
     from spectral_dagger.function_approximation import RectangularTileCoding
     from spectral_dagger.function_approximation import StateActionFeatureExtractor
@@ -166,8 +325,17 @@ if __name__ == "__main__":
         ['x', 'P', ' ', 'P', ' ', 'P', 'x'],
         ['x', 'P', ' ', 'P', ' ', 'P', 'x'],
         ['x', 'x', 'x', 'x', 'x', 'x', 'x']])
+    world_map = np.array([
+        ['x', 'x', 'x', 'x'],
+        ['x', ' ', 'G', 'x'],
+        ['x', ' ', ' ', 'x'],
+        ['x', ' ', ' ', 'x'],
+        ['x', ' ', ' ', 'x'],
+        ['x', ' ', ' ', 'x'],
+        ['x', ' ', ' ', 'x'],
+        ['x', 'x', 'x', 'x']])
 
-    horizon = 400
+    horizon = 100
     alpha = p_sequence(start=3.0, p=0.6)
     gamma = 0.9
 
@@ -177,16 +345,16 @@ if __name__ == "__main__":
         terminate_on_goal=True)
 
     state_feature_extractor = RectangularTileCoding(
-        n_tilings=2, extent=mdp.world_map.bounds.s,
+        n_tilings=1, extent=mdp.world_map.bounds.s,
         tile_dims=0.3, intercept=True)
 
     feature_extractor = StateActionFeatureExtractor(
         state_feature_extractor, mdp.n_actions)
 
-    learner = REINFORCE(LinearGibbsPolicy)
+    learner = eNAC(LinearGibbsPolicy)
     policy = learner.fit(
         mdp, horizon, feature_extractor, alpha,
-        n_samples=2, max_steps=200)
+        n_samples=int(feature_extractor.n_features/8.0), max_steps=200)
 
     for i in range(10):
         mdp.sample_trajectory(policy, horizon, reset=True, display=0.1)

@@ -1,7 +1,8 @@
 import numpy as np
 from collections import defaultdict
 
-from spectral_dagger.mdp import ValueIteration
+from spectral_dagger.utils.math import p_sequence
+from spectral_dagger.mdp import REINFORCE
 from spectral_dagger.mdp import LinearGibbsPolicy
 from spectral_dagger.envs import ContinuousGridWorld
 from spectral_dagger.function_approximation import RectangularTileCoding
@@ -26,46 +27,30 @@ world_map = np.array([
     ['x', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'x'],
     ['x', ' ', 'x', ' ', 'x', ' ', ' ', ' ', 'x'],
     ['x', ' ', 'x', 'G', 'x', ' ', 'x', ' ', 'x'],
-    ['x', ' ', 'P', ' ', ' ', ' ', ' ', ' ', 'x'],
+    ['x', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'x'],
     ['x', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'x'],
     ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x']])
 
-world_map = np.array([
-    ['x', 'x', 'x', 'x', 'x', 'x', 'x'],
-    ['x', ' ', 'x', 'x', 'x', ' ', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', 'x'],
-    ['x', ' ', 'x', 'x', ' ', ' ', 'x'],
-    ['x', ' ', 'x', 'x', ' ', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'P', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'P', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'P', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'P', ' ', 'x'],
-    ['x', ' ', ' ', 'G', ' ', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'x', ' ', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', 'x'],
-    ['x', ' ', 'P', 'P', 'x', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'x', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'x', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'P', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'P', ' ', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'x', ' ', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', 'x'],
-    ['x', 'P', 'P', 'P', 'x', ' ', 'x'],
-    ['x', 'x', 'x', 'x', 'x', 'x', 'x']])
 mdp = ContinuousGridWorld(
-    world_map, gamma=gamma,
+    world_map, gamma=gamma, speed=0.4,
     rewards={'goal': 0, 'default': -1, 'puddle': -5},
     terminate_on_goal=False)
 
 state_feature_extractor = RectangularTileCoding(
-    n_tilings=1, extent=mdp.world_map.bounds.s, tile_dims=1, intercept=False)
+    n_tilings=2, extent=mdp.world_map.bounds.s, tile_dims=0.3,
+    intercept=True)
 feature_extractor = StateActionFeatureExtractor(
     state_feature_extractor, mdp.n_actions)
 n_features = feature_extractor.n_features
 
 # define expert
-expert = ValueIteration().fit(mdp)
+learner = REINFORCE(LinearGibbsPolicy)
+expert = learner.fit(
+    mdp, horizon=400, feature_extractor=feature_extractor,
+    alpha=p_sequence(start=3.0, p=0.6),
+    n_samples=2, max_steps=200)
+for i in range(10):
+    mdp.sample_trajectory(expert, 30, reset=True, display=0.1)
 
 # sample expert trajectories
 expert_action_data = defaultdict(list)
@@ -86,8 +71,7 @@ for n in range(n_expert_trajectories):
 expert_step_wise_dists = []
 for d in expert_step_wise_states:
     kde = KernelDensity(
-        bandwidth=0.04, metric='haversine',
-        kernel='gaussian', algorithm='ball_tree')
+        bandwidth=0.04, kernel='gaussian', algorithm='ball_tree')
     kde.fit(d)
     expert_step_wise_dists.append(d)
 
@@ -95,6 +79,8 @@ for d in expert_step_wise_states:
 policy = LinearGibbsPolicy(
     mdp.actions, feature_extractor,
     np.random.random(feature_extractor.n_features) - 0.5)
+
+j = 0
 
 alpha = learning_rate.next()
 while alpha > threshold:

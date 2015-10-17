@@ -1,5 +1,5 @@
-from mdp import MDP, Action, MDPPolicy
-import grid_world
+from spectral_dagger.mdp import MDP, Action, MDPPolicy
+from spectral_dagger.envs import grid_world
 
 import numpy as np
 
@@ -20,6 +20,7 @@ class BadExampleMDP(MDP):
         A_1 = BadExampleMDP.actions[1]
 
         self.actions = [A_0, A_1]
+        self.gamma = 1.0
 
         self.state_positions = np.array([
             [0.0, 0.0],

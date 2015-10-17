@@ -48,28 +48,23 @@ class RectangularTileCoding(FeatureExtractor):
         n_tilings: int
             Number of tilings. Offset from origin for each tiling is
             chosen randomly.
-
         extent: 1-D numpy array
             Dimensions of the (hyper-)rectangle that the tilings should
             cover. Number of entries in this array determines the
             dimensionality of the tiling. Must be at least 1 entry.
-
         origin: 1-D numpy array
-            Location of the corner of the (hyper-) rectangular region
-            that the tilings are covering which has the smallest dimensions
-            along every dimension. In 2 dimensions, the bottom-left
-            corner, assuming the positive orthant is in the top-right.
+            Location of the corner of the (hyper-)rectangular region
+            that the tilings are covering which has the smallest value
+            along every dimension. In 2 dimensions, this is the bottom-left
+            corner, assuming up and right are positive.
 
         (NOTE: exactly one of the following two parameters must be supplied)
-
         tile_dims: optional, 1-D numpy array or float
             Dimensions of each tile. If a float is given, the tiles are
             squares with the given side-length.
-
         tile_counts: optional, 1-D numpy array or int
             Number of tiles along each dimension. If an int is given, the
             same number of tiles is used along every dimension.
-
         intercept: boolean
             Whether to include an intercept feature, a feature that always
             has value 1.
