@@ -63,19 +63,19 @@ class POMDP(object):
         states: list
           The state space of the POMDP.
         T: ndarray
-          An |actions| x |states| x |states|  matrix. Entry (a, i, j) gives
+          A |actions| x |states| x |states|  matrix. Entry (a, i, j) gives
           the probability of moving from state i to state j given that action
-          a taken.
+          a was taken.
         O: ndarray
-          An |actions| x |states| x |observations| matrix. Entry (a, i, j)
+          A |actions| x |states| x |observations| matrix. Entry (a, i, j)
           gives the probability of emitting observation j given that the POMDP
           is in state i and the last action was a.
         R: ndarray
           An |actions| x |states| x |states| matrix. Entry (a, i, j) gives the
           reward for transitioning from state i to state j using action a.
         init_dist: ndarray
-          A |states| ndarray specifying the default state initiazation
-          distribution. If none is provided, a uniform distribution is used.
+          A |states| vector specifying the initial state distribution.
+          Defaults to a uniform distribution.
         gamma: float
           Discount factor.
         """
@@ -87,14 +87,16 @@ class POMDP(object):
         self._O = O.copy()
         self._O.flags.writeable = False
 
-        assert all(np.sum(self._O, axis=2))
+        assert all(np.sum(self._O, axis=2) == 1.0)
         assert all(self._O > 0) and all(self._O < 1)
         assert self._O.shape == (len(actions), len(states), len(observations))
 
         if init_dist is None:
             init_dist = np.ones(self.states) / self.states
 
-        self.init_dist = init_dist
+        self.init_dist = init_dist.copy()
+        assert(self.init_dist.size == len(self.states))
+        assert(sum(init_dist) == 1)
 
         self.mdp = MDP(actions, states, T, R, gamma)
 

@@ -19,30 +19,6 @@ gamma = 0.99
 learning_rate = geometric_sequence(0.2, tau=33)
 
 world_map = np.array([
-    ['x', 'x', 'x', 'x', 'x', 'x', 'x'],
-    ['x', ' ', 'x', 'x', 'x', ' ', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', 'x'],
-    ['x', ' ', 'x', 'x', ' ', ' ', 'x'],
-    ['x', ' ', 'x', 'x', ' ', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'P', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'P', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'P', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'P', ' ', 'x'],
-    ['x', ' ', ' ', 'G', ' ', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'x', ' ', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', 'x'],
-    ['x', ' ', 'P', 'P', 'x', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'x', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'x', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'P', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'P', ' ', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', 'x'],
-    ['x', ' ', 'x', 'x', 'x', ' ', 'x'],
-    ['x', ' ', ' ', ' ', ' ', ' ', 'x'],
-    ['x', 'P', 'P', 'P', 'x', ' ', 'x'],
-    ['x', 'x', 'x', 'x', 'x', 'x', 'x']])
-
-world_map = np.array([
     ['x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x'],
     ['x', ' ', ' ', ' ', ' ', ' ', ' ', ' ', 'x'],
     ['x', ' ', 'x', ' ', 'x', ' ', ' ', ' ', 'x'],
@@ -57,7 +33,7 @@ mdp = GridWorld(
     terminate_on_goal=False)
 
 state_feature_extractor = RectangularTileCoding(
-    n_tilings=1, extent=mdp.world_map.bounds.s, tile_dims=1, intercept=False)
+    n_tilings=1, bounds=mdp.world_map.bounds.s, granularity=1, intercept=False)
 feature_extractor = StateActionFeatureExtractor(
     state_feature_extractor, mdp.n_actions)
 
@@ -173,3 +149,5 @@ theta = max(thetas, key=lambda o: o[1])[0]
 linear_mdp = LinearRewardMDP(mdp, feature_extractor, theta)
 theta_policy = ValueIteration().fit(linear_mdp)
 tau = mdp.sample_trajectory(theta_policy, horizon=horizon, display=True)
+
+

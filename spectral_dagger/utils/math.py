@@ -36,6 +36,36 @@ def ndarray_to_string(a):
     return s
 
 
+def normalize(M, ord=2, axis=1, in_place=False):
+    """
+    `axis` is ignored if M has only one dimension.
+    `in_place` has no effect if input is not an nd.array.
+    """
+
+    if not isinstance(M, np.ndarray):
+        M = np.array(M, dtype='f')
+
+    if M.ndim == 1:
+        norm = np.linalg.norm(M, ord)
+        if in_place:
+            M[:] = M / norm
+            return M
+        else:
+            return M / norm
+
+    new_shape = list(M.shape)
+    new_shape[axis] = 1
+    new_shape = tuple(new_shape)
+
+    norm = np.linalg.norm(M, ord, axis).reshape(new_shape)
+
+    if in_place:
+        M[:] = M / norm
+        return M
+    else:
+        return M / norm
+
+
 def laplace_smoothing(alpha, X, data):
     """
     Laplace (or additive) smoothing of categorical data. Here we are

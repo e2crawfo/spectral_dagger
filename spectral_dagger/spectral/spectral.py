@@ -1,15 +1,201 @@
 import numpy as np
-from scipy.sparse import csr_matrix, lil_matrix
+from scipy.sparse import csr_matrix
 
 from sklearn.utils.extmath import randomized_svd
 import heapq
 from collections import defaultdict
-import itertools
 
+from spectral_dagger.spectral import hankel
 from spectral_dagger.learning_algorithm import LearningAlgorithm
 from spectral_dagger.pomdp import POMDPPolicy
 
-VERBOSE = True
+
+class SpectralPSR(object):
+    def __init__(self, observations, max_dim=80):
+        self.n_observations = len(observations)
+        self.observations = observations
+
+        self.B_o = {}
+        self.max_dim = max_dim
+
+    def fit(self, data, n_components):, max_basis_size=np.inf, basis=[]):
+        """
+        Some strange differences between Hsu et al. and Borka's work.
+        HSU uses strings of length 2 for H, but strings of length 3 for
+        H_sigma. So we need to have strings of different length according to that,
+        and the same should work Borja. But...then the probabilities that are stored
+        in the matrices aren't really string probabilities. They are prefix probabilities.
+
+        But Borja MODIFIES the original spectral algorithm to use a different normalization
+        vector in order to deal properly with prefixes.
+
+        data should be a list of lists. Each sublist is a list of
+        observations constituting a single trajectory.
+        basis: optional 
+        """
+
+        print "Generating basis..."
+        # prefix_dict, suffix_dict = top_k_basis(data, max_basis_size)
+        prefix_dict, suffix_dict = fair_basis(data, max_basis_size, len(data[0]))
+
+        print "Estimating hankels..."
+
+        # Note: all matrices returned by construct_hankels are csr_matrices
+        hankels = hankel.construct_hankels(
+            data, prefix_dict, suffix_dict, self.observations)
+
+        hp, hs, hankel_matrix, symbol_hankels = hankels
+        print "HP", hp
+        print "HS", hs
+        print "H", hankel_matrix
+
+        self.hankel = hankel_matrix
+        self.symbol_hankels = symbol_hankels
+
+        n_components = min(n_components, hankel_matrix.shape[0])
+
+        print "Performing SVD..."
+        n_oversamples = 10
+        n_iter = 5
+
+        # H = U S V^T
+        U, S, VT = randomized_svd(
+            hankel_matrix, self.max_dim, n_oversamples, n_iter)
+
+        V = VT.T
+
+        U = U[:, :n_components]
+        V = V[:, :n_components]
+        S = np.diag(S[:n_components])
+
+        # P^+ = (HV)^+ = (US)^+ = S^+ U+ = S^-1 U.T
+        P_plus = csr_matrix((np.linalg.pinv(S)).dot(U.T))
+
+        # S^+ = (V.T)^+ = V
+        S_plus = csr_matrix(V)
+
+        print "Computing operators..."
+        for o in symbol_hankels:
+            symbol_hankel = P_plus.dot(symbol_hankels[o])
+            symbol_hankel = symbol_hankel.dot(S_plus)
+            self.B_o[o] = symbol_hankel.toarray()
+
+        # computing stopping and starting vectors
+
+        # P b_inf = hp => b_inf = P^+ hp
+        self.b_inf = P_plus.dot(hp)
+        self.b_inf = self.b_inf.toarray()[:, 0]
+
+        # See Lemma 6.1.1 in Borja's thesis
+        B = sum(self.B_o.values())
+        self.b_inf = np.linalg.pinv(np.eye(n_components)-B).dot(self.b_inf)
+
+        # b_0 S = hs => b_0 = hs S^+
+        self.b_0 = hs.dot(S_plus)
+        self.b_0 = self.b_0.toarray()[0, :]
+
+        self.reset()
+
+        return self.b_0, self.B_o, self.b_inf
+
+    def update(self, obs):
+        """ Update state upon seeing an observation (i.e. do filtering) """
+        B_o = self.B_o[obs]
+        numer = self.b.dot(B_o)
+        denom = numer.dot(self.b_inf)
+
+        self.b = numer / denom
+
+    def reset(self):
+        self.b = self.b_0.copy()
+
+    def get_prediction(self):
+        """
+        Return the symbol that the model expects next.
+        """
+        predict = lambda o: self.get_obs_prob(o)
+        return max(self.observations, key=predict)
+
+    def get_obs_prob(self, o):
+        """
+        Returns the probablilty of observing o given the current state.
+        """
+        prob = self.b.dot(self.B_o[o]).dot(self.b_inf)
+        return np.clip(prob, np.finfo(float).eps, 1)
+
+    def get_obs_rank(self, o):
+        """
+        Get the rank of the given observation, in terms of probability
+        of being the next observation.
+        """
+        probs = np.array(
+            [self.get_obs_prob(obs) for obs in self.observations])
+
+        return (
+            np.count_nonzero(probs > self.get_obs_prob(o)),
+            np.count_nonzero(probs < self.get_obs_prob(o)))
+
+    def get_seq_prob(self, seq):
+        """Returns the probability of a sequence given current state"""
+
+        state = self.b
+        for o in seq:
+            state = state.dot(self.B_a[o])
+
+        prob = state.dot(self.b_inf)
+
+        return np.clip(prob, np.finfo(float).eps)
+
+    def get_state_for_seq(self, seq, initial_state=None):
+        """Returns the probability of a sequence given current state"""
+
+        state = self.b.T if initial_state is None else initial_state
+
+        for o in seq:
+            state = state.dot(self.B_o[o])
+
+        return state / state.dot(self.b_inf)
+
+    def get_WER(self, test_data):
+        """Returns word error rate for the test data"""
+        errors = 0
+        n_predictions = 0
+
+        for seq in test_data:
+            self.reset()
+
+            for o in seq:
+                prediction = self.get_prediction()
+
+                if prediction != o:
+                    errors += 1
+
+                self.update(o)
+
+                n_predictions += 1
+
+        return errors/float(n_predictions)
+
+    def get_log_likelihood(self, test_data, base=2):
+        """Returns average log likelihood for the test data"""
+        llh = 0
+
+        for seq in test_data:
+            seq_llh = 0
+
+            self.reset()
+
+            for o in seq:
+                if base == 2:
+                    seq_llh += np.log2(self.get_obs_prob(o))
+                else:
+                    seq_llh += np.log(self.get_obs_prob(o))
+
+                self.update(o)
+
+            llh += seq_llh
+
+        return llh / len(test_data)
 
 
 class SpectralPSRWithActions(object):
@@ -22,7 +208,6 @@ class SpectralPSRWithActions(object):
         self.n_observations = len(observations)
         self.observations = observations
 
-        self.buildtime = 0
         self.B_ao = {}
         self.max_dim = max_dim
 
@@ -41,14 +226,14 @@ class SpectralPSRWithActions(object):
         # Note: all matrices returned by construct_hankels are csr_matrices
         if use_naive:
             print "...using naive estimator..."
-            hankels = construct_hankels_with_actions(
+            hankels = hankel.construct_hankels_with_actions(
                 data, prefix_dict, suffix_dict,
                 self.actions, self.observations)
 
             hp, hs, hankel_matrix, symbol_hankels = hankels
         else:
             print "...using robust estimator..."
-            hankels = construct_hankels_with_actions_robust(
+            hankels = hankel.construct_hankels_with_actions_robust(
                 data, prefix_dict, suffix_dict,
                 self.actions, self.observations)
 
@@ -74,7 +259,7 @@ class SpectralPSRWithActions(object):
         S = np.diag(S[:n_components])
 
         # P^+ = (HV)^+ = (US)^+ = S^+ U+ = S^-1 U.T
-        P_plus = csr_matrix((np.linalg.inv(S)).dot(U.T))
+        P_plus = csr_matrix((np.linalg.pinv(S)).dot(U.T))
 
         # S^+ = (V.T)^+ = V
         S_plus = csr_matrix(V)
@@ -94,11 +279,13 @@ class SpectralPSRWithActions(object):
 
         # See Lemma 6.1.1 in Borja's thesis
         B = sum(self.B_ao.values())
-        self.b_inf = np.linalg.inv(np.eye(n_components)-B).dot(self.b_inf)
+        self.b_inf = np.linalg.pinv(np.eye(n_components)-B).dot(self.b_inf)
 
         # b_0 S = hs => b_0 = hs S^+
         self.b_0 = hs.dot(S_plus)
         self.b_0 = self.b_0.toarray()[0, :]
+
+        self.reset()
 
         return self.b_0, self.B_ao, self.b_inf
 
@@ -205,149 +392,9 @@ class SpectralPSRWithActions(object):
         return llh / len(test_data)
 
 
-def construct_hankels_with_actions(
-        data, prefix_dict, suffix_dict, actions,
-        observations, basis_length=100):
-
-    size_P = len(prefix_dict)
-    size_S = len(suffix_dict)
-
-    hankel = lil_matrix((size_P, size_S))
-
-    symbol_hankels = {}
-
-    for pair in itertools.product(actions, observations):
-        symbol_hankels[pair] = lil_matrix((size_P, size_S))
-
-    action_sequence_counts = defaultdict(int)
-
-    for seq in data:
-        action_seq = tuple([pair[0] for pair in seq])
-        action_sequence_counts[action_seq] += 1
-
-    for seq in data:
-        action_seq = tuple([pair[0] for pair in seq])
-        action_seq_count = action_sequence_counts[action_seq]
-
-        # iterating over prefix start positions
-        for i in range(len(seq)+1):
-            if i > basis_length:
-                break
-
-            if len(seq) - i > basis_length:
-                break
-
-            prefix = tuple(seq[:i])
-
-            if i == len(seq):
-                suffix = ()
-            else:
-                suffix = tuple(seq[i:len(seq)])
-
-            if prefix in prefix_dict and suffix in suffix_dict:
-                hankel[
-                    prefix_dict[prefix],
-                    suffix_dict[suffix]] += 1.0 / action_seq_count
-
-            if i < len(seq):
-                a, o = seq[i]
-
-                if i + 1 == len(seq):
-                    suffix = ()
-                else:
-                    suffix = tuple(seq[i+1:len(seq)])
-
-                if prefix in prefix_dict and suffix in suffix_dict:
-                    symbol_hankel = symbol_hankels[(a, o)]
-                    symbol_hankel[
-                        prefix_dict[prefix],
-                        suffix_dict[suffix]] += 1.0 / action_seq_count
-
-    hankel = csr_matrix(hankel)
-
-    for pair in itertools.product(actions, observations):
-        symbol_hankels[pair] = csr_matrix(symbol_hankels[pair])
-
-    return (
-        hankel[:, 0], hankel[0, :], hankel, symbol_hankels)
-
-
-def construct_hankels_with_actions_robust(
-        data, prefix_dict, suffix_dict, actions,
-        observations, basis_length=100):
-
-    size_P = len(prefix_dict)
-    size_S = len(suffix_dict)
-
-    hankel = lil_matrix((size_P, size_S))
-
-    symbol_hankels = {}
-
-    for pair in itertools.product(actions, observations):
-        symbol_hankels[pair] = lil_matrix((size_P, size_S))
-
-    prefix_count = defaultdict(int)
-
-    for seq in data:
-        seq = tuple(seq)
-        for i in range(len(seq)):
-            prefix = seq[:i] + (seq[i][0],)
-            prefix_count[prefix] += 1
-
-            prefix = seq[:i+1]
-            prefix_count[prefix] += 1
-
-    for seq in data:
-        seq = tuple(seq)
-
-        estimate = 1.0
-        for i in range(len(seq)):
-            numer = prefix_count[seq[:i+1]]
-            denom = prefix_count[seq[:i] + (seq[i][0],)]
-            estimate *= float(numer) / denom
-
-        # iterating over prefix start positions
-        for i in range(len(seq)+1):
-            if i > basis_length:
-                break
-
-            if len(seq) - i > basis_length:
-                break
-
-            prefix = tuple(seq[:i])
-
-            if i == len(seq):
-                suffix = ()
-            else:
-                suffix = tuple(seq[i:len(seq)])
-
-            if prefix in prefix_dict and suffix in suffix_dict:
-                hankel[
-                    prefix_dict[prefix],
-                    suffix_dict[suffix]] = estimate
-
-            if i < len(seq):
-                if i + 1 == len(seq):
-                    suffix = ()
-                else:
-                    suffix = tuple(seq[i+1:len(seq)])
-
-                if prefix in prefix_dict and suffix in suffix_dict:
-                    symbol_hankel = symbol_hankels[seq[i]]
-                    symbol_hankel[
-                        prefix_dict[prefix],
-                        suffix_dict[suffix]] = estimate
-
-    hankel = csr_matrix(hankel)
-
-    for pair in itertools.product(actions, observations):
-        symbol_hankels[pair] = csr_matrix(symbol_hankels[pair])
-
-    return (
-        hankel[:, 0], hankel[0, :], hankel, symbol_hankels)
-
-
 def top_k_basis(data, k):
+    """ Returns the top `k` most frequently occuring prefixes and suffixes in the data. """
+
     prefix_count_dict = defaultdict(int)
     suffix_count_dict = defaultdict(int)
 
@@ -556,6 +603,9 @@ class SpectralPolicy(POMDPPolicy):
 
     def get_action(self):
         return self.f(self.psr.b)
+
+
+
 
 
 if __name__ == "__main__":
