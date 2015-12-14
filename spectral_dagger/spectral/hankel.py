@@ -1,13 +1,11 @@
 import itertools
+import heapq
 from scipy.sparse import lil_matrix, csr_matrix
 from collections import defaultdict
 
 
 def construct_hankels(
         data, prefix_dict, suffix_dict, observations, basis_length=100):
-
-    import pdb
-    pdb.set_trace()
 
     size_P = len(prefix_dict)
     size_S = len(suffix_dict)
@@ -22,30 +20,24 @@ def construct_hankels(
     n_samples = len(data)
 
     for seq in data:
-        # iterating over suffix start positions
         for i in range(len(seq)+1):
-            # if i > basis_length:
-            #     break
-
-            # if len(seq) - i > basis_length:
-            #     break
-
-            prefix = tuple(seq[:i])
-            suffix = () if i == len(seq) else tuple(seq[i:])
-
-            if prefix in prefix_dict and suffix in suffix_dict:
-                hankel[
-                    prefix_dict[prefix], suffix_dict[suffix]] += 1.0 / n_samples
-
-            if i < len(seq):
-                o = seq[i]
-                suffix = () if i+1 == len(seq) else tuple(seq[i+1:])
+            for j in range(i, len(seq)+1):
+                prefix = tuple(seq[:i])
+                suffix = tuple(seq[i:j])
 
                 if prefix in prefix_dict and suffix in suffix_dict:
-                    symbol_hankel = symbol_hankels[o]
-                    symbol_hankel[
-                        prefix_dict[prefix],
-                        suffix_dict[suffix]] += 1.0 / n_samples
+                    hankel[
+                        prefix_dict[prefix], suffix_dict[suffix]] += 1.0 / n_samples
+
+                if suffix:
+                    o = suffix[0]
+                    suffix = tuple(list(suffix)[1:])
+
+                    if prefix in prefix_dict and suffix in suffix_dict:
+                        symbol_hankel = symbol_hankels[o]
+                        symbol_hankel[
+                            prefix_dict[prefix],
+                            suffix_dict[suffix]] += 1.0 / n_samples
 
     # csr_matrix is best for manipulating sparse matrices
     hankel = csr_matrix(hankel)
@@ -198,3 +190,108 @@ def construct_hankels_with_actions_robust(
 
     return (
         hankel[:, 0], hankel[0, :], hankel, symbol_hankels)
+
+
+def top_k_basis(data, k):
+    """ Returns the top `k` most frequently occuring prefixes and suffixes in the data. """
+
+    prefix_count_dict = defaultdict(int)
+    suffix_count_dict = defaultdict(int)
+
+    for seq in data:
+        for i in range(0, len(seq)+1):
+            for j in range(i, len(seq)+1):
+                prefix = tuple(seq[:i])
+                suffix = tuple(seq[i:j])
+
+            if prefix:
+                prefix_count_dict[prefix] += 1
+
+            if suffix:
+                suffix_count_dict[suffix] += 1
+    # for seq in data:
+    #     for i in range(0, len(seq)+1):
+    #         prefix = tuple(seq[:i])
+
+    #         if prefix:
+    #             prefix_count_dict[prefix] += 1
+
+    #         if i < len(seq):
+    #             suffix = tuple(seq[i:len(seq)])
+
+    #             if suffix:
+    #                 suffix_count_dict[suffix] += 1
+
+    top_k_prefix = [()]
+    top_k_prefix.extend(
+        heapq.nlargest(k, prefix_count_dict, key=prefix_count_dict.get))
+
+    top_k_suffix = [()]
+    top_k_suffix.extend(
+        heapq.nlargest(k, suffix_count_dict, key=suffix_count_dict.get))
+
+    min_length = min(len(top_k_prefix), len(top_k_suffix))
+    top_k_prefix = top_k_prefix[:min_length]
+    top_k_suffix = top_k_suffix[:min_length]
+
+    prefix_dict = {item: index for (index, item) in enumerate(top_k_prefix)}
+    suffix_dict = {item: index for (index, item) in enumerate(top_k_suffix)}
+
+    return prefix_dict, suffix_dict
+
+
+def fair_basis(data, k, horizon):
+    """Returns a basis with the top k elements at each length.
+    Currently assumes all trajectories are the same length."""
+
+    prefixes = set(())
+    suffixes = set(())
+
+    for i in range(0, horizon+1):
+        prefix_count_dict = defaultdict(int)
+        suffix_count_dict = defaultdict(int)
+
+        for seq in data:
+            prefix = tuple(seq[:i])
+
+            if prefix:
+                prefix_count_dict[prefix] += 1
+
+            if i < len(seq):
+                suffix = tuple(seq[i:horizon])
+
+                if suffix:
+                    suffix_count_dict[suffix] += 1
+
+        best_prefixes = heapq.nlargest(
+            k, prefix_count_dict, key=prefix_count_dict.get)
+
+        for p in best_prefixes:
+            prefixes.add(p)
+
+        best_suffixes = heapq.nlargest(
+            k, suffix_count_dict, key=suffix_count_dict.get)
+
+        for s in best_suffixes:
+            suffixes.add(s)
+
+    while len(prefixes) < len(suffixes):
+        t = np.random.randint(len(data))
+        i = np.random.randint(horizon)
+
+        prefixes.add(tuple(data[t][:i+1]))
+
+    while len(suffixes) < len(prefixes):
+        t = np.random.randint(len(data))
+        i = np.random.randint(horizon)
+
+        prefixes.add(tuple(data[t][i:]))
+
+    prefixes = list(prefixes)
+    suffixes = list(suffixes)
+
+    prefix_dict = {item: index for (index, item) in enumerate(prefixes)}
+    suffix_dict = {item: index for (index, item) in enumerate(suffixes)}
+
+    return prefix_dict, suffix_dict
+

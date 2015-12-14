@@ -2,8 +2,6 @@ import numpy as np
 from scipy.sparse import csr_matrix
 
 from sklearn.utils.extmath import randomized_svd
-import heapq
-from collections import defaultdict
 
 from spectral_dagger.spectral import hankel
 from spectral_dagger.learning_algorithm import LearningAlgorithm
@@ -18,7 +16,7 @@ class SpectralPSR(object):
         self.B_o = {}
         self.max_dim = max_dim
 
-    def fit(self, data, n_components):, max_basis_size=np.inf, basis=[]):
+    def fit(self, data, n_components, max_basis_size=np.inf, basis=None):
         """
         Some strange differences between Hsu et al. and Borka's work.
         HSU uses strings of length 2 for H, but strings of length 3 for
@@ -35,8 +33,8 @@ class SpectralPSR(object):
         """
 
         print "Generating basis..."
-        # prefix_dict, suffix_dict = top_k_basis(data, max_basis_size)
-        prefix_dict, suffix_dict = fair_basis(data, max_basis_size, len(data[0]))
+        prefix_dict, suffix_dict = hankel.top_k_basis(data, max_basis_size)
+        #prefix_dict, suffix_dict = fair_basis(data, max_basis_size, len(data[0]))
 
         print "Estimating hankels..."
 
@@ -47,7 +45,6 @@ class SpectralPSR(object):
         hp, hs, hankel_matrix, symbol_hankels = hankels
         print "HP", hp
         print "HS", hs
-        print "H", hankel_matrix
 
         self.hankel = hankel_matrix
         self.symbol_hankels = symbol_hankels
@@ -87,8 +84,8 @@ class SpectralPSR(object):
         self.b_inf = self.b_inf.toarray()[:, 0]
 
         # See Lemma 6.1.1 in Borja's thesis
-        B = sum(self.B_o.values())
-        self.b_inf = np.linalg.pinv(np.eye(n_components)-B).dot(self.b_inf)
+        # B = sum(self.B_o.values())
+        # self.b_inf = np.linalg.pinv(np.eye(n_components)-B).dot(self.b_inf)
 
         # b_0 S = hs => b_0 = hs S^+
         self.b_0 = hs.dot(S_plus)
@@ -140,11 +137,11 @@ class SpectralPSR(object):
 
         state = self.b
         for o in seq:
-            state = state.dot(self.B_a[o])
+            state = state.dot(self.B_o[o])
 
         prob = state.dot(self.b_inf)
 
-        return np.clip(prob, np.finfo(float).eps)
+        return np.clip(prob, np.finfo(float).eps, 1)
 
     def get_state_for_seq(self, seq, initial_state=None):
         """Returns the probability of a sequence given current state"""
@@ -219,7 +216,7 @@ class SpectralPSRWithActions(object):
         """
 
         print "Generating basis..."
-        prefix_dict, suffix_dict = top_k_basis(data, max_basis_size)
+        prefix_dict, suffix_dict = hankel.top_k_basis(data, max_basis_size)
 
         print "Estimating hankels..."
 
@@ -338,7 +335,7 @@ class SpectralPSRWithActions(object):
 
         prob = state.dot(self.b_inf)
 
-        return np.clip(prob, np.finfo(float).eps)
+        return np.clip(prob, np.finfo(float).eps, 1)
 
     def get_state_for_seq(self, seq, initial_state=None):
         """Returns the probability of a sequence given current state"""
@@ -390,99 +387,6 @@ class SpectralPSRWithActions(object):
             llh += seq_llh
 
         return llh / len(test_data)
-
-
-def top_k_basis(data, k):
-    """ Returns the top `k` most frequently occuring prefixes and suffixes in the data. """
-
-    prefix_count_dict = defaultdict(int)
-    suffix_count_dict = defaultdict(int)
-
-    for seq in data:
-        for i in range(0, len(seq)+1):
-            prefix = tuple(seq[:i])
-
-            if prefix:
-                prefix_count_dict[prefix] += 1
-
-            if i < len(seq):
-                suffix = tuple(seq[i:len(seq)])
-
-                if suffix:
-                    suffix_count_dict[suffix] += 1
-
-    top_k_prefix = [()]
-    top_k_prefix.extend(
-        heapq.nlargest(k, prefix_count_dict, key=prefix_count_dict.get))
-
-    top_k_suffix = [()]
-    top_k_suffix.extend(
-        heapq.nlargest(k, suffix_count_dict, key=suffix_count_dict.get))
-
-    min_length = min(len(top_k_prefix), len(top_k_suffix))
-    top_k_prefix = top_k_prefix[:min_length]
-    top_k_suffix = top_k_suffix[:min_length]
-
-    prefix_dict = {item: index for (index, item) in enumerate(top_k_prefix)}
-    suffix_dict = {item: index for (index, item) in enumerate(top_k_suffix)}
-
-    return prefix_dict, suffix_dict
-
-
-def fair_basis(data, k, horizon):
-    """Returns a basis with the top k elements at each length.
-    Currently assumes all trajectories are the same length."""
-
-    prefixes = set(())
-    suffixes = set(())
-
-    for i in range(0, horizon+1):
-        prefix_count_dict = defaultdict(int)
-        suffix_count_dict = defaultdict(int)
-
-        for seq in data:
-            prefix = tuple(seq[:i])
-
-            if prefix:
-                prefix_count_dict[prefix] += 1
-
-            if i < len(seq):
-                suffix = tuple(seq[i:horizon])
-
-                if suffix:
-                    suffix_count_dict[suffix] += 1
-
-        best_prefixes = heapq.nlargest(
-            k, prefix_count_dict, key=prefix_count_dict.get)
-
-        for p in best_prefixes:
-            prefixes.add(p)
-
-        best_suffixes = heapq.nlargest(
-            k, suffix_count_dict, key=suffix_count_dict.get)
-
-        for s in best_suffixes:
-            suffixes.add(s)
-
-    while len(prefixes) < len(suffixes):
-        t = np.random.randint(len(data))
-        i = np.random.randint(horizon)
-
-        prefixes.add(tuple(data[t][:i+1]))
-
-    while len(suffixes) < len(prefixes):
-        t = np.random.randint(len(data))
-        i = np.random.randint(horizon)
-
-        prefixes.add(tuple(data[t][i:]))
-
-    prefixes = list(prefixes)
-    suffixes = list(suffixes)
-
-    prefix_dict = {item: index for (index, item) in enumerate(prefixes)}
-    suffix_dict = {item: index for (index, item) in enumerate(suffixes)}
-
-    return prefix_dict, suffix_dict
 
 
 class SpectralClassifier(LearningAlgorithm):

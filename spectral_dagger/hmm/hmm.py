@@ -85,11 +85,11 @@ class HMM(object):
         """
         Returns the resulting observation.
         """
-        sample = np.random.multinomial(1, self.T[self.current_state])
-        self._current_state = self.states[np.where(sample > 0)[0][0]]
-
         sample = np.random.multinomial(1, self.O[self.current_state])
         obs = self.observations[np.where(sample > 0)[0][0]]
+
+        sample = np.random.multinomial(1, self.T[self.current_state])
+        self._current_state = self.states[np.where(sample > 0)[0][0]]
 
         return obs
 

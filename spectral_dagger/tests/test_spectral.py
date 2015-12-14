@@ -12,25 +12,30 @@ def test_spectral_hmm():
     observations = range(n_obs)
     states = range(n_states)
 
-    O = normalize([[8, 2], [2, 8]], ord=1)
+    O = normalize([[1, 1], [.1, 1]], ord=1)
     T = normalize([[8, 2], [2, 8]], ord=1)
 
-    init_dist = normalize([0, 1], ord=1)
+    init_dist = normalize([1, 1], ord=1)
 
     hmm = HMM(observations, states, T, O, init_dist)
 
     n_samples = 1000
-    horizon = 3
+    horizon = 2
 
     samples = [hmm.sample_trajectory(horizon) for i in range(n_samples)]
+    print(samples)
     psr = SpectralPSR(observations)
 
-    psr.fit(samples, 100, n_states)
+    psr.fit(samples, n_states, 1000)
 
     print(psr.get_obs_prob(0))
     print(psr.get_obs_prob(1))
 
     print psr.get_prediction()
+    print psr.get_seq_prob([1, 1])
+    print psr.get_seq_prob([1, 0])
+    print psr.get_seq_prob([0, 1])
+    print psr.get_seq_prob([0, 0])
 
 
 if __name__ == "__main__":
