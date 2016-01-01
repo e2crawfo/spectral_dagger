@@ -16,35 +16,41 @@ class SpectralPSR(object):
         self.B_o = {}
         self.max_dim = max_dim
 
-    def fit(self, data, n_components, max_basis_size=np.inf, basis=None):
+    def fit(
+            self, data, n_components, estimator='substring',
+            max_basis_size=np.inf, basis=None):
+        """ Fit a PSR (w/o actions) to the given data.
+
+        data: list of list
+            Each sublist is a list of observations constituting a trajectory.
+        n_components: int
+            Number of dimensions in feature space.
+        estimator: string
+            'string', 'prefix', or 'substring'.
+
         """
-        Some strange differences between Hsu et al. and Borka's work.
-        HSU uses strings of length 2 for H, but strings of length 3 for
-        H_sigma. So we need to have strings of different length according to that,
-        and the same should work Borja. But...then the probabilities that are stored
-        in the matrices aren't really string probabilities. They are prefix probabilities.
-
-        But Borja MODIFIES the original spectral algorithm to use a different normalization
-        vector in order to deal properly with prefixes.
-
-        data should be a list of lists. Each sublist is a list of
-        observations constituting a single trajectory.
-        basis: optional 
-        """
-
         print "Generating basis..."
-        prefix_dict, suffix_dict = hankel.top_k_basis(data, max_basis_size)
-        #prefix_dict, suffix_dict = fair_basis(data, max_basis_size, len(data[0]))
+        prefix_dict, suffix_dict = (
+            hankel.top_k_basis(data, max_basis_size, estimator))
 
-        print "Estimating hankels..."
+        print "Estimating Hankels..."
+        if estimator == 'string':
+            hankels = hankel.construct_string_hankel(
+                data, prefix_dict, suffix_dict, self.observations)
+
+        elif estimator == 'prefix':
+            hankels = hankel.construct_prefix_hankel(
+                data, prefix_dict, suffix_dict, self.observations)
+
+        elif estimator == 'substring':
+            hankels = hankel.construct_substring_hankel(
+                data, prefix_dict, suffix_dict, self.observations)
+
+        else:
+            raise ValueError("Unknown Hankel estimator name: %s." % estimator)
 
         # Note: all matrices returned by construct_hankels are csr_matrices
-        hankels = hankel.construct_hankels(
-            data, prefix_dict, suffix_dict, self.observations)
-
         hp, hs, hankel_matrix, symbol_hankels = hankels
-        print "HP", hp
-        print "HS", hs
 
         self.hankel = hankel_matrix
         self.symbol_hankels = symbol_hankels
@@ -66,40 +72,59 @@ class SpectralPSR(object):
         S = np.diag(S[:n_components])
 
         # P^+ = (HV)^+ = (US)^+ = S^+ U+ = S^-1 U.T
-        P_plus = csr_matrix((np.linalg.pinv(S)).dot(U.T))
+        P_plus = csr_matrix(np.linalg.pinv(S).dot(U.T))
 
         # S^+ = (V.T)^+ = V
         S_plus = csr_matrix(V)
 
+        import pdb
+        pdb.set_trace()
+
         print "Computing operators..."
         for o in symbol_hankels:
-            symbol_hankel = P_plus.dot(symbol_hankels[o])
-            symbol_hankel = symbol_hankel.dot(S_plus)
-            self.B_o[o] = symbol_hankel.toarray()
-
-        # computing stopping and starting vectors
+            B_o = P_plus.dot(symbol_hankels[o]).dot(S_plus)
+            self.B_o[o] = B_o.toarray()
 
         # P b_inf = hp => b_inf = P^+ hp
         self.b_inf = P_plus.dot(hp)
         self.b_inf = self.b_inf.toarray()[:, 0]
 
-        # See Lemma 6.1.1 in Borja's thesis
-        # B = sum(self.B_o.values())
-        # self.b_inf = np.linalg.pinv(np.eye(n_components)-B).dot(self.b_inf)
-
         # b_0 S = hs => b_0 = hs S^+
         self.b_0 = hs.dot(S_plus)
         self.b_0 = self.b_0.toarray()[0, :]
 
-        self.reset()
+        # See Lemma 6.1.1 in Borja Balle's thesis
+        I_minus_B = np.eye(n_components) - sum(self.B_o.values())
+        if estimator != 'substring':
+            I_minus_B_inv = np.linalg.pinv(I_minus_B)
 
-        return self.b_0, self.B_o, self.b_inf
+        if estimator == 'string':
+            self.b_inf_tilde = I_minus_B_inv.dot(self.b_inf)
+
+            self.b_0_tilde = self.b_0.dot(I_minus_B_inv)
+
+        elif estimator == 'prefix':
+            self.b_inf_tilde = self.b_inf
+            self.b_inf = I_minus_B.dot(self.b_inf_tilde)
+
+            self.b_0_tilde = self.b_0.dot(I_minus_B_inv)
+
+        elif estimator == 'substring':
+            self.b_inf_tilde = self.b_inf
+            self.b_inf = I_minus_B.dot(self.b_inf_tilde)
+
+            self.b_0_tilde = self.b_0
+            self.b_0 = self.b_0_tilde.dot(I_minus_B)
+        else:
+            raise ValueError("Unknown Hankel estimator name: %s." % estimator)
+
+        self.reset()
 
     def update(self, obs):
         """ Update state upon seeing an observation (i.e. do filtering) """
         B_o = self.B_o[obs]
         numer = self.b.dot(B_o)
-        denom = numer.dot(self.b_inf)
+        denom = numer.dot(self.b_inf_tilde)
 
         self.b = numer / denom
 
@@ -117,14 +142,11 @@ class SpectralPSR(object):
         """
         Returns the probablilty of observing o given the current state.
         """
-        prob = self.b.dot(self.B_o[o]).dot(self.b_inf)
+        prob = self.b.dot(self.B_o[o]).dot(self.b_inf_tilde)
         return np.clip(prob, np.finfo(float).eps, 1)
 
     def get_obs_rank(self, o):
-        """
-        Get the rank of the given observation, in terms of probability
-        of being the next observation.
-        """
+        """ Get prob. rank of observation `o`. """
         probs = np.array(
             [self.get_obs_prob(obs) for obs in self.observations])
 
@@ -133,25 +155,24 @@ class SpectralPSR(object):
             np.count_nonzero(probs < self.get_obs_prob(o)))
 
     def get_seq_prob(self, seq):
-        """Returns the probability of a sequence given current state"""
+        """ Get probability of observing `seq` from current state. """
 
-        state = self.b
+        b = self.b
         for o in seq:
-            state = state.dot(self.B_o[o])
+            b = b.dot(self.B_o[o])
 
-        prob = state.dot(self.b_inf)
+        prob = b.dot(self.b_inf_tilde)
 
         return np.clip(prob, np.finfo(float).eps, 1)
 
-    def get_state_for_seq(self, seq, initial_state=None):
-        """Returns the probability of a sequence given current state"""
+    def get_seq_state(self, seq, b=None):
+        """ Get state obtained if `seq` observed from state `b`. """
 
-        state = self.b.T if initial_state is None else initial_state
-
+        b = b if b else self.b
         for o in seq:
-            state = state.dot(self.B_o[o])
+            b = b.dot(self.B_o[o])
 
-        return state / state.dot(self.b_inf)
+        return b / b.dot(self.b_inf_tilde)
 
     def get_WER(self, test_data):
         """Returns word error rate for the test data"""
@@ -457,8 +478,7 @@ class SpectralClassifier(LearningAlgorithm):
 
         self.psr = SpectralPSRWithActions(pomdp.actions, pomdp.observations)
 
-        self.b_0, self.B_ao, self.b_inf = self.psr.fit(
-            trajectories, self.max_basis_size, self.n_components)
+        self.psr.fit(trajectories, self.max_basis_size, self.n_components)
 
         psr_states = []
         flat_actions = []

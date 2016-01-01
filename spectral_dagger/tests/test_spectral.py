@@ -1,11 +1,12 @@
-import numpy as np
-
 from spectral_dagger.spectral import SpectralPSR
 from spectral_dagger.hmm import HMM
 from spectral_dagger.utils.math import normalize
 
+import pytest
 
-def test_spectral_hmm():
+
+@pytest.fixture
+def simple_hmm():
     n_obs = 2
     n_states = 2
 
@@ -17,16 +18,20 @@ def test_spectral_hmm():
 
     init_dist = normalize([1, 1], ord=1)
 
-    hmm = HMM(observations, states, T, O, init_dist)
+    return HMM(observations, states, T, O, init_dist)
 
+
+def test_spectral_hmm_string(simple_hmm):
     n_samples = 1000
-    horizon = 2
+    horizon = 3
 
-    samples = [hmm.sample_trajectory(horizon) for i in range(n_samples)]
-    print(samples)
-    psr = SpectralPSR(observations)
+    samples = [simple_hmm.sample_trajectory(horizon) for i in range(n_samples)]
+    psr = SpectralPSR(simple_hmm.observations)
 
-    psr.fit(samples, n_states, 1000)
+    psr.fit(samples, simple_hmm.n_states, 'string')
+
+    for o in simple_hmm.observations:
+        print psr.B_o[o]
 
     print(psr.get_obs_prob(0))
     print(psr.get_obs_prob(1))
@@ -38,5 +43,45 @@ def test_spectral_hmm():
     print psr.get_seq_prob([0, 0])
 
 
+def test_spectral_hmm_prefix(simple_hmm):
+    n_samples = 10000
+    horizon = 2
+
+    samples = [simple_hmm.sample_trajectory(horizon) for i in range(n_samples)]
+    psr = SpectralPSR(simple_hmm.observations)
+
+    psr.fit(samples, simple_hmm.n_states, 'prefix')
+
+    print(psr.get_obs_prob(0))
+    print(psr.get_obs_prob(1))
+
+    print psr.get_prediction()
+    print psr.get_seq_prob([1, 1])
+    print psr.get_seq_prob([1, 0])
+    print psr.get_seq_prob([0, 1])
+    print psr.get_seq_prob([0, 0])
+
+
+def test_spectral_hmm_substring(simple_hmm):
+    n_samples = 10000
+    horizon = 2
+
+    samples = [simple_hmm.sample_trajectory(horizon) for i in range(n_samples)]
+    psr = SpectralPSR(simple_hmm.observations)
+
+    psr.fit(samples, simple_hmm.n_states, 'substring')
+
+    print(psr.get_obs_prob(0))
+    print(psr.get_obs_prob(1))
+
+    print psr.get_prediction()
+    print psr.get_seq_prob([1, 1])
+    print psr.get_seq_prob([1, 0])
+    print psr.get_seq_prob([0, 1])
+    print psr.get_seq_prob([0, 0])
+
 if __name__ == "__main__":
-    test_spectral_hmm()
+    hmm = simple_hmm()
+    test_spectral_hmm_string(hmm)
+    #test_spectral_hmm_prefix(hmm)
+    #test_spectral_hmm_substring(hmm)
