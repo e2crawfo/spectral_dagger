@@ -1,4 +1,6 @@
 from spectral_dagger.spectral import SpectralPSR
+from spectral_dagger.spectral.hankel import single_obs_basis
+from spectral_dagger.spectral.hankel import true_hankel_for_hmm
 from spectral_dagger.hmm import HMM
 from spectral_dagger.utils.math import normalize
 
@@ -21,14 +23,24 @@ def simple_hmm():
     return HMM(observations, states, T, O, init_dist)
 
 
-def test_spectral_hmm_string(simple_hmm):
-    n_samples = 1000
-    horizon = 3
+@pytest.mark.parametrize(
+    'estimator', ['string', 'prefix', 'substring', 'single'])
+def test_spectral_hmm(
+        simple_hmm, estimator, n_samples=100, horizon=3, m=None):
 
+    print "*" * 80
     samples = [simple_hmm.sample_trajectory(horizon) for i in range(n_samples)]
     psr = SpectralPSR(simple_hmm.observations)
 
-    psr.fit(samples, simple_hmm.n_states, 'string')
+    if m is None:
+        m = hmm.n_states
+
+    basis = None
+    if estimator == 'single':
+        basis = single_obs_basis(simple_hmm.observations, True)
+        estimator = 'substring'
+
+    psr.fit(samples, m, estimator, basis=basis)
 
     for o in simple_hmm.observations:
         print psr.B_o[o]
@@ -42,46 +54,31 @@ def test_spectral_hmm_string(simple_hmm):
     print psr.get_seq_prob([0, 1])
     print psr.get_seq_prob([0, 0])
 
+    basis = (psr.prefix_dict, psr.suffix_dict)
 
-def test_spectral_hmm_prefix(simple_hmm):
-    n_samples = 10000
-    horizon = 2
+    print "True"
+    print true_hankel_for_hmm(hmm, basis, length=horizon, estimator=estimator)
 
-    samples = [simple_hmm.sample_trajectory(horizon) for i in range(n_samples)]
-    psr = SpectralPSR(simple_hmm.observations)
+    print "Estimated"
+    print psr.hankel
 
-    psr.fit(samples, simple_hmm.n_states, 'prefix')
-
-    print(psr.get_obs_prob(0))
-    print(psr.get_obs_prob(1))
-
-    print psr.get_prediction()
-    print psr.get_seq_prob([1, 1])
-    print psr.get_seq_prob([1, 0])
-    print psr.get_seq_prob([0, 1])
-    print psr.get_seq_prob([0, 0])
-
-
-def test_spectral_hmm_substring(simple_hmm):
-    n_samples = 10000
-    horizon = 2
-
-    samples = [simple_hmm.sample_trajectory(horizon) for i in range(n_samples)]
-    psr = SpectralPSR(simple_hmm.observations)
-
-    psr.fit(samples, simple_hmm.n_states, 'substring')
-
-    print(psr.get_obs_prob(0))
-    print(psr.get_obs_prob(1))
-
-    print psr.get_prediction()
-    print psr.get_seq_prob([1, 1])
-    print psr.get_seq_prob([1, 0])
-    print psr.get_seq_prob([0, 1])
-    print psr.get_seq_prob([0, 0])
 
 if __name__ == "__main__":
     hmm = simple_hmm()
-    test_spectral_hmm_string(hmm)
-    #test_spectral_hmm_prefix(hmm)
-    #test_spectral_hmm_substring(hmm)
+    dimension = 6
+
+    test_spectral_hmm(hmm, 'string', m=dimension)
+    test_spectral_hmm(hmm, 'prefix', m=dimension)
+    test_spectral_hmm(hmm, 'substring', m=dimension)
+    test_spectral_hmm(hmm, 'single', m=dimension)
+
+    print "HMM" + "*" * 80
+    print(hmm.get_seq_prob([0]))
+    print(hmm.get_seq_prob([1]))
+
+    print hmm.get_seq_prob([1, 1])
+    print hmm.get_seq_prob([1, 0])
+    print hmm.get_seq_prob([0, 1])
+    print hmm.get_seq_prob([0, 0])
+
+    print hmm.get_subsequence_expectation([0, 1], 4)

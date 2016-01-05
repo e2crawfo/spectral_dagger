@@ -90,7 +90,9 @@ class GridAction(Action):
 
     @staticmethod
     def get_all_actions():
-        return [GridAction(s) for s in GridAction.strings]
+        return sorted(
+            [GridAction(s) for s in GridAction.strings],
+            key=lambda a: a.get_id())
 
 
 class WorldMap(object):
@@ -672,7 +674,7 @@ class GridObservation(Observation):
             GridObservation(*(i + (n_values,)))
             for i in itertools.product(d, d, d, d)]
 
-        return observations
+        return sorted(observations, key=lambda o: o.get_id())
 
 
 class EgoGridWorld(POMDP):

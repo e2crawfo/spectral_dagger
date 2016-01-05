@@ -1,6 +1,6 @@
 import numpy as np
 import time
-from spectral_dagger.utils.math import normalize
+from spectral_dagger.utils.math import normalize, sample_multinomial
 
 
 class HMM(object):
@@ -13,15 +13,15 @@ class HMM(object):
         observations: list
           The set of observations available.
         states: list
-          The state space of the POMDP.
+          The state space of the HMM.
         T: ndarray
           A |states| x |states|  matrix. Entry (i, j) gives
           the probability of moving from state i to state j, so each row of
-          T gives a probability distribution.
+          T must be a probability distribution.
         O: ndarray
           A |states| x |observations| matrix. Entry (i, j)
           gives the probability of emitting observation j given that the HMM
-          is in state i.
+          is in state i, so each row of O must be a probablilty distribution.
         init_dist: ndarray
           A |states| vector specifying the initial state distribution.
           Defaults to a uniform distribution.
@@ -63,7 +63,7 @@ class HMM(object):
 
     def reset(self, init_dist=None):
         """
-        Resets the state of the POMDP.
+        Resets the state of the HMM.
 
         Parameters
         ----------
@@ -72,24 +72,22 @@ class HMM(object):
           Otherwise it must be all positive, sum to 1, and have length equal
           to the number of states in the MDP. The state is sampled from the
           induced distribution.
-        """
 
+        """
         if init_dist is not None:
             raise ValueError("`init_dist` parameter must be None for HMMs.")
 
-        sample = np.random.multinomial(1, self.init_dist)
-        self._current_state = self.states[np.where(sample > 0)[0][0]]
-
+        self._current_state = self.states[
+            sample_multinomial(self.init_dist)]
 
     def sample_step(self):
-        """
-        Returns the resulting observation.
-        """
-        sample = np.random.multinomial(1, self.O[self.current_state])
-        obs = self.observations[np.where(sample > 0)[0][0]]
+        """ Returns the resulting observation. """
 
-        sample = np.random.multinomial(1, self.T[self.current_state])
-        self._current_state = self.states[np.where(sample > 0)[0][0]]
+        obs = self.observations[
+            sample_multinomial(self.O[self.current_state])]
+
+        self._current_state = self.states[
+            sample_multinomial(self.T[self.current_state])]
 
         return obs
 
@@ -113,8 +111,71 @@ class HMM(object):
     def O(self):
         return self._O
 
-    def sample_trajectory(
-            self, horizon, reset=True, display=False):
+    def get_obs_prob(self, o):
+        """ Returns the probablilty of observing o given the current state. """
+        return self._O[self._current_state, o]
+
+    def get_seq_prob(self, seq):
+        """ Get probability of observing `seq`.
+
+        Disregards current internal state.
+
+        """
+        if len(seq) == 0:
+            return 1.0
+
+        s = self.init_dist.copy()
+
+        for o in seq:
+            s = s.dot(np.diag(self._O[:, o])).dot(self._T)
+
+        return s.sum()
+
+    def get_state_dist(self, t):
+        """ Get state distribution after `t` steps. """
+        s = self.init_dist.copy()
+
+        for i in range(1, t):
+            s = s.dot(self._T)
+
+        return s
+
+    def get_subsequence_expectation(self, subseq, length):
+        """ Computes expected number of occurences of `subseq` as subsequence.
+
+        Assumes strings are of length `length`.
+
+        Parameters
+        ----------
+        subseq: list/tuple/string
+            Sequence of obervations.
+        length: int > 0
+            The length of sequences to consider.
+
+        """
+        if len(subseq) == 0:
+            return length + 1
+
+        reverse_seq = list(subseq[:-1])
+        reverse_seq.reverse()
+
+        # Compute vector of probability of sequence starting from each state.
+        seq_given_state = self._O[:, subseq[-1]].copy()
+
+        for obs in reverse_seq:
+            seq_given_state = self._T.dot(seq_given_state)
+            seq_given_state *= self._O[:, obs]
+
+        s = self.init_dist.copy()
+
+        prob = 0.0
+        for i in range(length - len(subseq) + 1):
+            prob += s.dot(seq_given_state)
+            s = s.dot(self._T)
+
+        return prob
+
+    def sample_trajectory(self, horizon, reset=True, display=False):
 
         if reset:
             self.reset()

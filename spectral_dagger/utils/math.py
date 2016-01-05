@@ -36,34 +36,40 @@ def ndarray_to_string(a):
     return s
 
 
-def normalize(M, ord=2, axis=1, in_place=False):
+def normalize(M, ord=2, axis=1, in_place=False, conservative=False):
     """
     `axis` is ignored if M has only one dimension.
     `in_place` has no effect if input is not an nd.array.
+    `converative` 
     """
 
     if not isinstance(M, np.ndarray):
         M = np.array(M, dtype='f')
+    else:
+        M = M.astype('f')
 
     if M.ndim == 1:
         norm = np.linalg.norm(M, ord)
-        if in_place:
-            M[:] = M / norm
-            return M
-        else:
-            return M / norm
+    else:
+        new_shape = list(M.shape)
+        new_shape[axis] = 1
+        new_shape = tuple(new_shape)
 
-    new_shape = list(M.shape)
-    new_shape[axis] = 1
-    new_shape = tuple(new_shape)
+        norm = np.linalg.norm(M, ord, axis).reshape(new_shape)
 
-    norm = np.linalg.norm(M, ord, axis).reshape(new_shape)
+    if conservative:
+        norm += 0.000001
 
     if in_place:
         M[:] = M / norm
         return M
     else:
         return M / norm
+
+
+def sample_multinomial(p_vals):
+    sample = np.random.multinomial(1, p_vals)
+    return np.where(sample > 0)[0][0]
 
 
 def laplace_smoothing(alpha, X, data):

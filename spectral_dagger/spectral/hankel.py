@@ -6,19 +6,19 @@ expected number of substring occurences.
 
 When constructing Hankel matrices, scipy.sparse.lil_matrices are used
 because they are most efficient for building-up matrices, and the
-results are returned as scipy.sparse.csv_matrices, as these are most
+results are returned as scipy.sparse.csr_matrices, as these are most
 efficient when manipulating matrices.
 
 """
 
-import itertools
+import numpy as np
+from itertools import product
 import heapq
 from scipy.sparse import lil_matrix, csr_matrix
 from collections import defaultdict
 
 
-def construct_string_hankel(
-        data, prefix_dict, suffix_dict, observations, basis_length=100):
+def construct_string_hankel(data, prefix_dict, suffix_dict, observations):
 
     size_P = len(prefix_dict)
     size_S = len(suffix_dict)
@@ -55,7 +55,6 @@ def construct_string_hankel(
                         prefix_dict[prefix],
                         suffix_dict[suffix]] += 1.0 / n_samples
 
-    # csr_matrix is best for manipulating sparse matrices
     hankel = csr_matrix(hankel)
 
     for obs in observations:
@@ -64,8 +63,7 @@ def construct_string_hankel(
     return hankel[:, 0], hankel[0, :], hankel, symbol_hankels
 
 
-def construct_prefix_hankel(
-        data, prefix_dict, suffix_dict, observations, basis_length=100):
+def construct_prefix_hankel(data, prefix_dict, suffix_dict, observations):
 
     size_P = len(prefix_dict)
     size_S = len(suffix_dict)
@@ -81,9 +79,6 @@ def construct_prefix_hankel(
     for seq in data:
         for i in range(len(seq)+1):
             prefix = tuple(seq[:i])
-
-            if len(prefix) > basis_length:
-                break
 
             if prefix not in prefix_dict:
                 continue
@@ -114,8 +109,7 @@ def construct_prefix_hankel(
     return hankel[:, 0], hankel[0, :], hankel, symbol_hankels
 
 
-def construct_substring_hankel(
-        data, prefix_dict, suffix_dict, observations, basis_length=100):
+def construct_substring_hankel(data, prefix_dict, suffix_dict, observations):
 
     size_P = len(prefix_dict)
     size_S = len(suffix_dict)
@@ -129,21 +123,15 @@ def construct_substring_hankel(
     n_samples = len(data)
 
     for seq in data:
-        for i in range(len(seq)+1):  # iterate over substring start positions
-            for j in range(i, len(seq)+1):  # iterate over suffix start positions
+        for i in range(len(seq)+1):  # substring start positions
+            for j in range(i, len(seq)+1):  # suffix start positions
                 prefix = tuple(seq[i:j])
-
-                if len(prefix) > basis_length:
-                    break
 
                 if prefix not in prefix_dict:
                     continue
 
-                for k in range(j, len(seq)+1):  # iterate over substring end positions
+                for k in range(j, len(seq)+1):  # substring end positions
                     suffix = tuple(seq[j:k])
-
-                    if len(suffix) > basis_length:
-                        break
 
                     if suffix in suffix_dict:
                         hankel[
@@ -160,7 +148,6 @@ def construct_substring_hankel(
                                 prefix_dict[prefix],
                                 suffix_dict[suffix]] += 1.0 / n_samples
 
-    # csr_matrix is best for manipulating sparse matrices
     hankel = csr_matrix(hankel)
 
     for obs in observations:
@@ -171,7 +158,7 @@ def construct_substring_hankel(
 
 def construct_hankels_with_actions(
         data, prefix_dict, suffix_dict, actions,
-        observations, basis_length=100):
+        observations, max_length=100):
     """ Needs to be fixed like the non-action hankel constructors. """
 
     size_P = len(prefix_dict)
@@ -181,7 +168,7 @@ def construct_hankels_with_actions(
 
     symbol_hankels = {}
 
-    for pair in itertools.product(actions, observations):
+    for pair in product(actions, observations):
         symbol_hankels[pair] = lil_matrix((size_P, size_S))
 
     action_sequence_counts = defaultdict(int)
@@ -196,10 +183,10 @@ def construct_hankels_with_actions(
 
         # iterating over prefix start positions
         for i in range(len(seq)+1):
-            if i > basis_length:
+            if i > max_length:
                 break
 
-            if len(seq) - i > basis_length:
+            if len(seq) - i > max_length:
                 break
 
             prefix = tuple(seq[:i])
@@ -230,7 +217,7 @@ def construct_hankels_with_actions(
 
     hankel = csr_matrix(hankel)
 
-    for pair in itertools.product(actions, observations):
+    for pair in product(actions, observations):
         symbol_hankels[pair] = csr_matrix(symbol_hankels[pair])
 
     return (
@@ -239,7 +226,7 @@ def construct_hankels_with_actions(
 
 def construct_hankels_with_actions_robust(
         data, prefix_dict, suffix_dict, actions,
-        observations, basis_length=100):
+        observations, max_length=100):
     """ Needs to be fixed like the non-action hankel constructors.
 
     Uses the robust estimator that accounts for the effects of actions."""
@@ -251,7 +238,7 @@ def construct_hankels_with_actions_robust(
 
     symbol_hankels = {}
 
-    for pair in itertools.product(actions, observations):
+    for pair in product(actions, observations):
         symbol_hankels[pair] = lil_matrix((size_P, size_S))
 
     prefix_count = defaultdict(int)
@@ -276,10 +263,10 @@ def construct_hankels_with_actions_robust(
 
         # iterating over prefix start positions
         for i in range(len(seq)+1):
-            if i > basis_length:
+            if i > max_length:
                 break
 
-            if len(seq) - i > basis_length:
+            if len(seq) - i > max_length:
                 break
 
             prefix = tuple(seq[:i])
@@ -308,14 +295,14 @@ def construct_hankels_with_actions_robust(
 
     hankel = csr_matrix(hankel)
 
-    for pair in itertools.product(actions, observations):
+    for pair in product(actions, observations):
         symbol_hankels[pair] = csr_matrix(symbol_hankels[pair])
 
     return (
         hankel[:, 0], hankel[0, :], hankel, symbol_hankels)
 
 
-def count_strings(data):
+def count_strings(data, max_length):
     prefix_counts = defaultdict(int)
     suffix_counts = defaultdict(int)
 
@@ -324,16 +311,16 @@ def count_strings(data):
             prefix = tuple(seq[:i])
             suffix = tuple(seq[i:])
 
-            if prefix:
+            if prefix and len(prefix) <= max_length:
                 prefix_counts[prefix] += 1
 
-            if suffix:
+            if suffix and len(suffix) <= max_length:
                 suffix_counts[suffix] += 1
 
     return prefix_counts, suffix_counts
 
 
-def count_prefixes(data):
+def count_prefixes(data, max_length):
     prefix_counts = defaultdict(int)
     suffix_counts = defaultdict(int)
 
@@ -343,16 +330,16 @@ def count_prefixes(data):
                 prefix = tuple(seq[:i])
                 suffix = tuple(seq[i:j])
 
-                if prefix:
+                if prefix and len(prefix) <= max_length:
                     prefix_counts[prefix] += 1
 
-                if suffix:
+                if suffix and len(suffix) <= max_length:
                     suffix_counts[suffix] += 1
 
     return prefix_counts, suffix_counts
 
 
-def count_substrings(data):
+def count_substrings(data, max_length):
     prefix_counts = defaultdict(int)
     suffix_counts = defaultdict(int)
 
@@ -362,16 +349,17 @@ def count_substrings(data):
                 prefix = tuple(seq[:i])
                 suffix = tuple(seq[i:j])
 
-                if prefix:
+                if prefix and len(prefix) <= max_length:
                     prefix_counts[prefix] += 1
 
-                if suffix:
+                if suffix and len(suffix) <= max_length:
                     suffix_counts[suffix] += 1
 
     return prefix_counts, suffix_counts
 
 
-def top_k_basis(data, k, estimator='string', square=True):
+def top_k_basis(data, k, estimator='string', square=True, max_length=np.inf):
+
     """ Returns top `k` most frequently occuring prefixes and suffixes.
 
     To be used when estimating hankel matrices for
@@ -386,14 +374,16 @@ def top_k_basis(data, k, estimator='string', square=True):
         One of  'string', 'prefix', 'substring'.
     square: bool
         Whether to use the same number of prefixes and suffixes.
+    max_length: int
+        The maximum length of any single prefix or suffix.
 
     """
     if estimator == 'string':
-        prefix_counts, suffix_counts = count_strings(data)
+        prefix_counts, suffix_counts = count_strings(data, max_length)
     elif estimator == 'prefix':
-        prefix_counts, suffix_counts = count_prefixes(data)
+        prefix_counts, suffix_counts = count_prefixes(data, max_length)
     elif estimator == 'substring':
-        prefix_counts, suffix_counts = count_substrings(data)
+        prefix_counts, suffix_counts = count_substrings(data, max_length)
     else:
         raise ValueError("Unknown Hankel estimator: %s." % estimator)
 
@@ -425,3 +415,89 @@ def top_k_basis(data, k, estimator='string', square=True):
     suffix_dict = {item: index for (index, item) in enumerate(top_k_suffix)}
 
     return prefix_dict, suffix_dict
+
+
+def single_obs_basis(observations, with_empty=False):
+    """ Returns basis consisting of individual observations.  """
+
+    basis = {}
+
+    if with_empty:
+        basis[()] = 0
+
+    for o in observations:
+        basis[(o,)] = len(basis)
+
+    return basis, basis.copy()
+
+
+def _true_probability_for_hmm(hmm, string, estimator, length):
+    if estimator == 'string':
+        prob = (
+            hmm.get_seq_prob(string)
+            if len(string) == length
+            else 0)
+
+    elif estimator == 'prefix':
+        prob = (
+            hmm.get_seq_prob(string)
+            if len(string) <= length
+            else 0)
+
+    elif estimator == 'substring':
+        prob = (
+            hmm.get_subsequence_expectation(string, length)
+            if len(string) <= length
+            else 0)
+    else:
+        raise ValueError(
+            "Unknown Hankel estimator: %s." % estimator)
+
+    return prob
+
+
+def true_hankel_for_hmm(hmm, basis, length, estimator='string', full=False):
+    """ Construct the true Hankel matrix for a given HMM. """
+
+    prefix_dict, suffix_dict = basis
+
+    size_P = len(prefix_dict)
+    size_S = len(suffix_dict)
+
+    hankel = lil_matrix((size_P, size_S))
+
+    probabilities = {}
+
+    for prefix, suffix in product(prefix_dict, suffix_dict):
+        string = prefix + suffix
+
+        prob = probabilities.get(string)
+        if prob is None:
+            prob = _true_probability_for_hmm(hmm, string, estimator, length)
+            probabilities[string] = prob
+
+        hankel[prefix_dict[prefix], suffix_dict[suffix]] = prob
+
+    if full:
+        symbol_hankels = {}
+        for obs in hmm.observations:
+            symbol_hankels[obs] = lil_matrix((size_P, size_S))
+
+        strings = product(prefix_dict, hmm.observations, suffix_dict)
+        for prefix, o, suffix in strings:
+            string = prefix + (o,) + suffix
+
+            prob = probabilities.get(string)
+            if prob is None:
+                prob = _true_probability_for_hmm(
+                    hmm, string, estimator, length)
+                probabilities[string] = prob
+
+            symbol_hankels[o][prefix_dict[prefix], suffix_dict[suffix]] = prob
+
+        for obs in hmm.observations:
+            symbol_hankels[obs] = csr_matrix(symbol_hankels[obs])
+
+        return hankel[:, 0], hankel[0, :], hankel, symbol_hankels
+    else:
+        return csr_matrix(hankel)
