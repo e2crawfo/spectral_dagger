@@ -1,5 +1,4 @@
 from spectral_dagger.spectral import SpectralPSR
-from spectral_dagger.spectral.hankel import single_obs_basis
 from spectral_dagger.spectral.hankel import true_hankel_for_hmm
 from spectral_dagger.hmm import HMM
 from spectral_dagger.utils.math import normalize
@@ -24,7 +23,7 @@ def simple_hmm():
 
 
 @pytest.mark.parametrize(
-    'estimator', ['string', 'prefix', 'substring', 'single'])
+    'estimator', ['string', 'prefix', 'substring'])
 def test_spectral_hmm(
         simple_hmm, estimator, n_samples=100, horizon=3, m=None):
 
@@ -36,10 +35,6 @@ def test_spectral_hmm(
         m = hmm.n_states
 
     basis = None
-    if estimator == 'single':
-        basis = single_obs_basis(simple_hmm.observations, True)
-        estimator = 'substring'
-
     psr.fit(samples, m, estimator, basis=basis)
 
     for o in simple_hmm.observations:
@@ -70,7 +65,6 @@ if __name__ == "__main__":
     test_spectral_hmm(hmm, 'string', m=dimension)
     test_spectral_hmm(hmm, 'prefix', m=dimension)
     test_spectral_hmm(hmm, 'substring', m=dimension)
-    test_spectral_hmm(hmm, 'single', m=dimension)
 
     print "HMM" + "*" * 80
     print(hmm.get_seq_prob([0]))

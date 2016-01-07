@@ -358,7 +358,7 @@ def count_substrings(data, max_length):
     return prefix_counts, suffix_counts
 
 
-def top_k_basis(data, k, estimator='string', square=True, max_length=np.inf):
+def top_k_basis(data, k, estimator='string', max_length=np.inf, square=True):
 
     """ Returns top `k` most frequently occuring prefixes and suffixes.
 
@@ -417,16 +417,26 @@ def top_k_basis(data, k, estimator='string', square=True, max_length=np.inf):
     return prefix_dict, suffix_dict
 
 
-def single_obs_basis(observations, with_empty=False):
-    """ Returns basis consisting of individual observations.  """
+def fixed_length_basis(observations, length, with_empty=True):
+    """ Returns basis consisting of all sequences of a given length.
 
+    Parameters
+    ----------
+    observations: list
+        All possible observations.
+    length: int > 0
+        The length of the sequences in the basis.
+    with_empty: bool
+        Whether to include the empty string in the basis.
+
+    """
     basis = {}
 
     if with_empty:
         basis[()] = 0
 
-    for o in observations:
-        basis[(o,)] = len(basis)
+    for seq in product(*[observations for i in range(length)]):
+        basis[seq] = len(basis)
 
     return basis, basis.copy()
 

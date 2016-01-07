@@ -15,7 +15,7 @@ class HMM(object):
         states: list
           The state space of the HMM.
         T: ndarray
-          A |states| x |states|  matrix. Entry (i, j) gives
+          A |states| x |states| matrix. Entry (i, j) gives
           the probability of moving from state i to state j, so each row of
           T must be a probability distribution.
         O: ndarray
@@ -25,8 +25,8 @@ class HMM(object):
         init_dist: ndarray
           A |states| vector specifying the initial state distribution.
           Defaults to a uniform distribution.
-        """
 
+        """
         self.observations = observations
         self.states = states
 
@@ -140,6 +140,24 @@ class HMM(object):
 
         return s
 
+    def get_delayed_seq_prob(self, seq, t):
+        """ Get probability of observing `seq` at a delay of `t`.
+
+        get_delayed_seq_prob(seq, 0) is equivalent to get_seq_prob(seq).
+
+        Disregards current internal state.
+
+        """
+        s = self.init_dist.copy()
+
+        for i in range(t):
+            s = s.dot(self._T)
+
+        for o in seq:
+            s = s.dot(np.diag(self._O[:, o])).dot(self._T)
+
+        return s.sum()
+
     def get_subsequence_expectation(self, subseq, length):
         """ Computes expected number of occurences of `subseq` as subsequence.
 
@@ -200,6 +218,52 @@ class HMM(object):
             print str(self)
 
         return trajectory
+
+
+def dummy_hmm(n_states):
+    """ Create a degenerate HMM. """
+
+    n_obs = n_states
+
+    observations = range(n_obs)
+    states = range(n_states)
+
+    O = np.eye(n_states)
+    T = np.eye(n_states)
+
+    init_dist = normalize(np.ones(n_states), ord=1, conservative=True)
+
+    hmm = HMM(observations, states, T, O, init_dist)
+
+    return hmm
+
+
+def bernoulli_hmm(n_states, n_obs, rng=None):
+    """ Create an HMM with operators chosen from Bernoulii distributions. """
+
+    if rng is None:
+        rng = np.random.RandomState()
+
+    observations = range(n_obs)
+    states = range(n_states)
+
+    O = rng.binomial(1, 0.5, (n_states, n_obs))
+    for row in O:
+        if sum(row) == 0:
+            row[:] = 1.0
+    O = normalize(O, ord=1, conservative=True)
+
+    T = rng.binomial(1, 0.5, (n_states, n_states))
+    for row in T:
+        if sum(row) == 0:
+            row[:] = 1.0
+    T = normalize(T, ord=1, conservative=True)
+
+    init_dist = normalize(np.ones(n_states), ord=1, conservative=True)
+
+    hmm = HMM(observations, states, T, O, init_dist)
+
+    return hmm
 
 
 def test_hmm():

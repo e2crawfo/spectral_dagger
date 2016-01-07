@@ -1,1 +1,1 @@
-from .hmm import HMM
+from .hmm import HMM, dummy_hmm, bernoulli_hmm

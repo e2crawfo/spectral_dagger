@@ -93,7 +93,7 @@ class SpectralPSR(object):
 
             # H = U S V^T
             U, S, VT = randomized_svd(
-                hankel_matrix, n_components, n_oversamples, n_iter)
+                hankel_matrix, 50, n_oversamples, n_iter)
 
         V = VT.T
 
@@ -212,7 +212,6 @@ class SpectralPSR(object):
         prob = b.dot(self.b_inf_tilde)
 
         return np.clip(prob, np.finfo(float).eps, 1)
-
 
     def get_seq_state(self, seq, b=None):
         """ Get state obtained if `seq` observed from state `b`. """
