@@ -18,7 +18,9 @@ from scipy.sparse import lil_matrix, csr_matrix
 from collections import defaultdict
 
 
-def construct_string_hankel(data, prefix_dict, suffix_dict, observations):
+def construct_string_hankel(data, basis, observations):
+
+    prefix_dict, suffix_dict = basis
 
     size_P = len(prefix_dict)
     size_S = len(suffix_dict)
@@ -63,7 +65,9 @@ def construct_string_hankel(data, prefix_dict, suffix_dict, observations):
     return hankel[:, 0], hankel[0, :], hankel, symbol_hankels
 
 
-def construct_prefix_hankel(data, prefix_dict, suffix_dict, observations):
+def construct_prefix_hankel(data, basis, observations):
+
+    prefix_dict, suffix_dict = basis
 
     size_P = len(prefix_dict)
     size_S = len(suffix_dict)
@@ -109,7 +113,9 @@ def construct_prefix_hankel(data, prefix_dict, suffix_dict, observations):
     return hankel[:, 0], hankel[0, :], hankel, symbol_hankels
 
 
-def construct_substring_hankel(data, prefix_dict, suffix_dict, observations):
+def construct_substring_hankel(data, basis, observations):
+
+    prefix_dict, suffix_dict = basis
 
     size_P = len(prefix_dict)
     size_S = len(suffix_dict)
@@ -157,9 +163,10 @@ def construct_substring_hankel(data, prefix_dict, suffix_dict, observations):
 
 
 def construct_hankels_with_actions(
-        data, prefix_dict, suffix_dict, actions,
-        observations, max_length=100):
+        data, basis, actions, observations, max_length=100):
     """ Needs to be fixed like the non-action hankel constructors. """
+
+    prefix_dict, suffix_dict = basis
 
     size_P = len(prefix_dict)
     size_S = len(suffix_dict)
@@ -225,11 +232,12 @@ def construct_hankels_with_actions(
 
 
 def construct_hankels_with_actions_robust(
-        data, prefix_dict, suffix_dict, actions,
-        observations, max_length=100):
+        data, basis, actions, observations, max_length=100):
     """ Needs to be fixed like the non-action hankel constructors.
 
     Uses the robust estimator that accounts for the effects of actions."""
+
+    prefix_dict, suffix_dict = basis
 
     size_P = len(prefix_dict)
     size_S = len(suffix_dict)

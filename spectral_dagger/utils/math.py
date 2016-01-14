@@ -1,6 +1,14 @@
 import numpy as np
 
 
+def default_rng(rng):
+    if rng is None:
+        rng = np.random.RandomState()
+        rng.set_state(np.random.get_state())
+
+    return rng
+
+
 def rmse(a, b):
     return np.sqrt(np.mean((a - b) ** 2))
 
@@ -67,8 +75,10 @@ def normalize(M, ord=2, axis=1, in_place=False, conservative=False):
         return M / norm
 
 
-def sample_multinomial(p_vals):
-    sample = np.random.multinomial(1, p_vals)
+def sample_multinomial(p_vals, rng=None):
+    rng = default_rng(rng)
+
+    sample = rng.multinomial(1, p_vals)
     return np.where(sample > 0)[0][0]
 
 

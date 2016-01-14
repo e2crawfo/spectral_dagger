@@ -1,12 +1,13 @@
 import numpy as np
 import time
 from spectral_dagger.utils.math import normalize, sample_multinomial
+from spectral_dagger.utils.math import default_rng
 
 
 class HMM(object):
 
     def __init__(
-            self, observations, states, T, O, init_dist=None):
+            self, observations, states, T, O, init_dist=None, rng=None):
         """
         Parameters
         ----------
@@ -51,6 +52,8 @@ class HMM(object):
         assert(self.init_dist.size == len(self.states))
         assert(np.allclose(sum(init_dist), 1.0))
 
+        self.rng = default_rng(rng)
+
         self.reset()
 
     @property
@@ -78,16 +81,16 @@ class HMM(object):
             raise ValueError("`init_dist` parameter must be None for HMMs.")
 
         self._current_state = self.states[
-            sample_multinomial(self.init_dist)]
+            sample_multinomial(self.init_dist, self.rng)]
 
     def sample_step(self):
         """ Returns the resulting observation. """
 
         obs = self.observations[
-            sample_multinomial(self.O[self.current_state])]
+            sample_multinomial(self.O[self.current_state], self.rng)]
 
         self._current_state = self.states[
-            sample_multinomial(self.T[self.current_state])]
+            sample_multinomial(self.T[self.current_state], self.rng)]
 
         return obs
 
@@ -194,7 +197,6 @@ class HMM(object):
         return prob
 
     def sample_trajectory(self, horizon, reset=True, display=False):
-
         if reset:
             self.reset()
 
@@ -238,22 +240,22 @@ def dummy_hmm(n_states):
     return hmm
 
 
-def bernoulli_hmm(n_states, n_obs, rng=None):
+def bernoulli_hmm(n_states, n_obs, model_rng=None):
     """ Create an HMM with operators chosen from Bernoulii distributions. """
 
-    if rng is None:
-        rng = np.random.RandomState()
+    if model_rng is None:
+        model_rng = default_rng(model_rng)
 
     observations = range(n_obs)
     states = range(n_states)
 
-    O = rng.binomial(1, 0.5, (n_states, n_obs))
+    O = model_rng.binomial(1, 0.5, (n_states, n_obs))
     for row in O:
         if sum(row) == 0:
             row[:] = 1.0
     O = normalize(O, ord=1, conservative=True)
 
-    T = rng.binomial(1, 0.5, (n_states, n_states))
+    T = model_rng.binomial(1, 0.5, (n_states, n_states))
     for row in T:
         if sum(row) == 0:
             row[:] = 1.0
