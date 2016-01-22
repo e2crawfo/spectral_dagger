@@ -1,6 +1,6 @@
-from .spectral import SpectralPSR
-from .spectral import SpectralPSRWithActions, SpectralClassifier
-from .spectral import SpectralPolicy
+from .psr import PredictiveStateRep, SpectralPSR, CompressedPSR
+from .psr import SpectralPSRWithActions, SpectralClassifier
+from .psr import SpectralPolicy
 
 from .hankel import estimate_hankels, true_hankel_for_hmm
 

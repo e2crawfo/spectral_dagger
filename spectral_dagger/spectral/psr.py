@@ -11,19 +11,153 @@ from spectral_dagger.pomdp import POMDPPolicy
 logger = logging.getLogger(__name__)
 
 
-class SpectralPSR(object):
-    def __init__(self, observations):
-        self.n_observations = len(observations)
-        self.observations = observations
+class PredictiveStateRep(object):
+    def __init__(self, b_0, b_inf, B_o):
+        self.b_0 = b_0
+        self.b_inf = b_inf
 
-        self.B_o = {}
+        self.B_o = B_o
+
+        self.observations = B_o.keys()
+        self.n_observations = len(self.observations)
+
+    def filter(self, obs):
+        """ Update state upon seeing an observation. """
+        B_o = self.B_o[obs]
+        numer = self.b.dot(B_o)
+        denom = numer.dot(self.b_inf)
+
+        self.b = numer / denom
+
+    def reset(self):
+        self.b = self.b_0.copy()
+
+    def get_obs_prob(self, o):
+        """ Get probability of observation for next time step.  """
+        prob = self.b.dot(self.B_o[o]).dot(self.b_inf)
+        return np.clip(prob, np.finfo(float).eps, 1)
+
+    def get_prediction(self):
+        """ Get observation with highest prob for next time step . """
+        predict = lambda o: self.get_obs_prob(o)
+        return max(self.observations, key=predict)
+
+    def get_obs_rank(self, o):
+        """ Get probability rank of observation for next time step. """
+        probs = np.array(
+            [self.get_obs_prob(obs) for obs in self.observations])
+
+        return (
+            np.count_nonzero(probs > self.get_obs_prob(o)),
+            np.count_nonzero(probs < self.get_obs_prob(o)))
+
+    def get_seq_prob(self, seq):
+        """ Get probability of sequence given current state. """
+
+        b = self.b.copy()
+        for o in seq:
+            b = b.dot(self.B_o[o])
+
+        prob = b.dot(self.b_inf)
+
+        return np.clip(prob, np.finfo(float).eps, 1)
+
+    def get_delayed_seq_prob(self, seq, t):
+        """ Get probability of observing sequence at a delay of ``t``.
+
+        get_delayed_seq_prob(seq, 0) is equivalent to get_seq_prob(seq).
+
+        """
+        b = self.b.copy()
+
+        for i in range(t):
+            b = b.dot(self.B)
+
+        for o in seq:
+            b = b.dot(self.B_o[o])
+
+        prob = b.dot(self.b_inf)
+
+        return np.clip(prob, np.finfo(float).eps, 1)
+
+    def get_seq_state(self, seq, b=None):
+        """ Get state obtained if sequence observed from state `b`. """
+        old_b = self.b
+
+        self.b = b.copy() if b else self.b.copy()
+        for o in seq:
+            self.filter(o)
+
+        new_b = self.b
+        self.b = old_b
+
+        return new_b
+
+    def get_WER(self, test_data):
+        """ Get word error rate for the test data. """
+        errors = 0
+        n_predictions = 0
+
+        for seq in test_data:
+            self.reset()
+
+            for o in seq:
+                prediction = self.get_prediction()
+
+                if prediction != o:
+                    errors += 1
+
+                self.update(o)
+
+                n_predictions += 1
+
+        return errors/float(n_predictions)
+
+    def get_log_likelihood(self, test_data, base=2):
+        """ Get average log likelihood for the test data.
+
+        Done using `get_obs_prob` instead of `get_seq_prob` to avoid
+        problems related to vanishing probabilities.
+
+        """
+        llh = 0.0
+
+        for seq in test_data:
+            seq_llh = 0.0
+
+            self.reset()
+
+            for o in seq:
+                if base == 2:
+                    seq_llh += np.log2(self.get_obs_prob(o))
+                else:
+                    seq_llh += np.log(self.get_obs_prob(o))
+
+                self.update(o)
+
+            llh += seq_llh
+
+        return llh / len(test_data)
+
+    def get_perplexity(self, test_data, base=2):
+        """ Get model perplexity on the test data.  """
+
+        return 2**(-self.get_log_likelihood(test_data, base=base))
+
+
+class SpectralPSR(PredictiveStateRep):
+    def __init__(self, observations):
+        self.b_0 = None
+        self.b_inf = None
+        self.B_o = None
+
+        self.observations = observations
+        self.n_observations = len(self.observations)
 
     def fit(
-            self, data, n_components, estimator='substring',
+            self, data, n_components, estimator='prefix',
             basis=None, svd=None, hankels=None):
-        """ Fit a PSR to the given data.
-
-        Does not use actions. Use a SpectralPSRWithActions if actions required.
+        """ Fit a PSR to the given data using a spectral algorithm.
 
         data: list of list
             Each sublist is a list of observations constituting a trajectory.
@@ -91,17 +225,18 @@ class SpectralPSR(object):
         S_plus = csr_matrix(V)
 
         logger.debug("Computing operators...")
-        for o in symbol_hankels:
+        self.B_o = {}
+        for o in self.observations:
             B_o = P_plus.dot(symbol_hankels[o]).dot(S_plus)
             self.B_o[o] = B_o.toarray()
-
-        # P b_inf = hp => b_inf = P^+ hp
-        self.b_inf = P_plus.dot(hp)
-        self.b_inf = self.b_inf.toarray()[:, 0]
 
         # b_0 S = hs => b_0 = hs S^+
         self.b_0 = hs.dot(S_plus)
         self.b_0 = self.b_0.toarray()[0, :]
+
+        # P b_inf = hp => b_inf = P^+ hp
+        self.b_inf = P_plus.dot(hp)
+        self.b_inf = self.b_inf.toarray()[:, 0]
 
         self.B = sum(self.B_o.values())
 
@@ -111,151 +246,108 @@ class SpectralPSR(object):
             I_minus_B_inv = np.linalg.pinv(I_minus_B)
 
         if estimator == 'string':
-            self.b_inf_tilde = I_minus_B_inv.dot(self.b_inf)
+            self.b_inf_string = self.b_inf
+            self.b_inf = I_minus_B_inv.dot(self.b_inf_string)
 
-            self.b_0_tilde = self.b_0.dot(I_minus_B_inv)
+            self.b_0_substring = self.b_0.dot(I_minus_B_inv)
 
         elif estimator == 'prefix':
-            self.b_inf_tilde = self.b_inf
-            self.b_inf = I_minus_B.dot(self.b_inf_tilde)
+            self.b_inf_string = I_minus_B.dot(self.b_inf)
 
-            self.b_0_tilde = self.b_0.dot(I_minus_B_inv)
+            self.b_0_substring = self.b_0.dot(I_minus_B_inv)
 
         elif estimator == 'substring':
-            self.b_inf_tilde = self.b_inf
-            self.b_inf = I_minus_B.dot(self.b_inf_tilde)
+            self.b_inf_string = I_minus_B.dot(self.b_inf)
 
-            self.b_0_tilde = self.b_0
-            self.b_0 = self.b_0_tilde.dot(I_minus_B)
+            self.b_0_substring = self.b_0
+            self.b_0 = self.b_0_substring.dot(I_minus_B)
 
         else:
             raise ValueError("Unknown Hankel estimator name: %s." % estimator)
 
         self.reset()
 
-    def update(self, obs):
-        """ Update state upon seeing an observation (i.e. do filtering) """
-        B_o = self.B_o[obs]
-        numer = self.b.dot(B_o)
-        denom = numer.dot(self.b_inf_tilde)
 
-        self.b = numer / denom
+class CompressedPSR(PredictiveStateRep):
+    def __init__(self, observations):
+        self.b_0 = None
+        self.b_inf = None
+        self.B_o = None
 
-    def reset(self):
-        self.b = self.b_0.copy()
+        self.observations = observations
+        self.n_observations = len(self.observations)
 
-    def get_prediction(self):
-        """ Get symbol that the model expects next. """
-        predict = lambda o: self.get_obs_prob(o)
-        return max(self.observations, key=predict)
+    def fit(
+            self, data, n_components, rng,
+            basis=None, phi=None, hankels=None):
+        """ Fit a PSR to the given data using a compression algorithm. """
 
-    def get_obs_prob(self, o):
-        """ Get probability of observing obs given the current state.  """
-        prob = self.b.dot(self.B_o[o]).dot(self.b_inf_tilde)
-        return np.clip(prob, np.finfo(float).eps, 1)
+        self.basis = basis
+        self.n_components = n_components
 
-    def get_obs_rank(self, o):
-        """ Get prob. rank of observation `o`. """
-        probs = np.array(
-            [self.get_obs_prob(obs) for obs in self.observations])
+        prefix_dict, suffix_dict = basis
 
-        return (
-            np.count_nonzero(probs > self.get_obs_prob(o)),
-            np.count_nonzero(probs < self.get_obs_prob(o)))
+        if phi is None:
+            phi = rng.randn(len(suffix_dict), n_components)
+            phi *= 1. / np.sqrt(n_components)
 
-    def get_seq_prob(self, seq):
-        """ Get probability of observing `seq` from current state. """
+        self.phi = phi
 
-        b = self.b.copy()
-        for o in seq:
-            b = b.dot(self.B_o[o])
+        hp = np.zeros(len(prefix_dict))
 
-        prob = b.dot(self.b_inf_tilde)
+        proj_hankel = np.zeros((len(prefix_dict), n_components))
+        proj_sym_hankels = {}
+        for obs in self.observations:
+            proj_sym_hankels[obs] = np.zeros((len(prefix_dict), n_components))
 
-        return np.clip(prob, np.finfo(float).eps, 1)
+        self.b_0 = np.zeros(n_components)
 
-    def get_delayed_seq_prob(self, seq, t):
-        """ Get probability of observing `seq` at a delay of `t`.
+        for seq in data:
+            for i in range(len(seq)+1):
+                prefix = tuple(seq[:i])
 
-        get_delayed_seq_prob(seq, 0) is equivalent to get_seq_prob(seq).
+                if prefix in suffix_dict:
+                    self.b_0 += phi[suffix_dict[prefix], :]
 
-        """
-        b = self.b.copy()
+                if prefix not in prefix_dict:
+                    continue
 
-        for i in range(t):
-            b = b.dot(self.B)
+                prefix_idx = prefix_dict[prefix]
+                hp[prefix_idx] += 1.0
 
-        for o in seq:
-            b = b.dot(self.B_o[o])
+                for j in range(i, len(seq)+1):
+                    suffix = tuple(seq[i:j])
 
-        prob = b.dot(self.b_inf_tilde)
+                    if suffix in suffix_dict:
+                        suffix_idx = suffix_dict[suffix]
+                        proj_hankel[prefix_idx, :] += phi[suffix_idx, :]
 
-        return np.clip(prob, np.finfo(float).eps, 1)
+                    if suffix and suffix[1:] in suffix_dict:
+                        o = suffix[0]
+                        suffix_idx = suffix_dict[suffix[1:]]
 
-    def get_seq_state(self, seq, b=None):
-        """ Get state obtained if `seq` observed from state `b`. """
+                        proj_sym_hankel = proj_sym_hankels[o]
+                        proj_sym_hankel[prefix_idx, :] += phi[suffix_idx, :]
 
-        b = b.copy() if b else self.b.copy()
-        for o in seq:
-            b = b.dot(self.B_o[o])
+        n_samples = float(len(data))
 
-        return b / b.dot(self.b_inf_tilde)
+        self.b_0 /= n_samples
+        proj_hankel /= n_samples
+        hp /= n_samples
 
-    def get_WER(self, test_data):
-        """ Get word error rate for the test data"""
-        errors = 0
-        n_predictions = 0
+        inv_proj_hankel = np.linalg.pinv(proj_hankel)
 
-        for seq in test_data:
-            self.reset()
+        self.B_o = {}
+        for o in self.observations:
+            self.B_o[o] = inv_proj_hankel.dot(proj_sym_hankels[o] / n_samples)
 
-            for o in seq:
-                prediction = self.get_prediction()
+        self.b_inf = inv_proj_hankel.dot(hp)
 
-                if prediction != o:
-                    errors += 1
-
-                self.update(o)
-
-                n_predictions += 1
-
-        return errors/float(n_predictions)
-
-    def get_log_likelihood(self, test_data, base=2):
-        """ Get average log likelihood for the test data.
-
-        Done using `get_obs_prob` instead of `get_seq_prob` to avoid
-        problems related to vanishing probabilities.
-
-        """
-        llh = 0.0
-
-        for seq in test_data:
-            seq_llh = 0.0
-
-            self.reset()
-
-            for o in seq:
-                if base == 2:
-                    seq_llh += np.log2(self.get_obs_prob(o))
-                else:
-                    seq_llh += np.log(self.get_obs_prob(o))
-
-                self.update(o)
-
-            llh += seq_llh
-
-        return llh / len(test_data)
-
-    def get_perplexity(self, test_data, base=2):
-        """ Get model perplexity on the test data.  """
-
-        return 2**(-self.get_log_likelihood(test_data, base=base))
+        self.reset()
 
 
 class SpectralPSRWithActions(object):
-    def __init__(
-            self, actions, observations, max_dim=80):
+    def __init__(self, actions, observations, max_dim=80):
 
         self.n_actions = len(actions)
         self.actions = actions

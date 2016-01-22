@@ -78,7 +78,7 @@ def fill_string_hankel(data, basis, hp, hs, hankel, symbol_hankels):
 
             if suffix:
                 o = suffix[0]
-                suffix = tuple(list(suffix)[1:])
+                suffix = tuple(suffix[1:])
 
                 if suffix in suffix_dict:
                     symbol_hankel = symbol_hankels[o]
@@ -114,7 +114,7 @@ def fill_prefix_hankel(data, basis, hp, hs, hankel, symbol_hankels):
 
                 if suffix:
                     o = suffix[0]
-                    suffix = tuple(list(suffix)[1:])
+                    suffix = tuple(suffix[1:])
 
                     if suffix in suffix_dict:
                         symbol_hankel = symbol_hankels[o]
@@ -151,7 +151,7 @@ def fill_substring_hankel(data, basis, hp, hs, hankel, symbol_hankels):
 
                     if suffix:
                         o = suffix[0]
-                        suffix = tuple(list(suffix)[1:])
+                        suffix = tuple(suffix[1:])
 
                         if suffix in suffix_dict:
                             symbol_hankel = symbol_hankels[o]
