@@ -1,8 +1,6 @@
 """
-Contains functions for constructing bases for Hankel matrices, and for
-estimating Hankel matrices. Contains separate functions for estimating
-Hankel matrices for string probabilities, prefix probabilities, and
-expected number of substring occurences.
+Functions for constructing bases for Hankel matrices and
+estimating Hankel matrices from data.
 
 When constructing Hankel matrices, scipy.sparse.lil_matrices are used
 because they are most efficient for building-up matrices, and the
@@ -18,8 +16,7 @@ from scipy.sparse import lil_matrix, csr_matrix
 from collections import defaultdict
 
 
-def construct_string_hankel(data, basis, observations):
-
+def estimate_hankels(data, basis, observations, estimator):
     prefix_dict, suffix_dict = basis
 
     size_P = len(prefix_dict)
@@ -31,9 +28,41 @@ def construct_string_hankel(data, basis, observations):
     for obs in observations:
         symbol_hankels[obs] = lil_matrix((size_P, size_S))
 
+    hp = lil_matrix((size_P, 1))
+    hs = lil_matrix((1, size_S))
+
+    fill_funcs = {
+        "string": fill_string_hankel,
+        "prefix": fill_prefix_hankel,
+        "substring": fill_substring_hankel}
+
+    try:
+        fill_funcs[estimator](
+            data, basis, hp, hs, hankel, symbol_hankels)
+    except KeyError:
+        raise ValueError("Unknown Hankel estimator name: %s." % estimator)
+
+    hankel = csr_matrix(hankel)
+
+    for obs in observations:
+        symbol_hankels[obs] = csr_matrix(symbol_hankels[obs])
+
+    return hp, hs, hankel, symbol_hankels
+
+
+def fill_string_hankel(data, basis, hp, hs, hankel, symbol_hankels):
     n_samples = len(data)
+    prefix_dict, suffix_dict = basis
 
     for seq in data:
+        seq = tuple(seq)
+
+        if seq in prefix_dict:
+            hp[prefix_dict[seq], 0] += 1.0 / n_samples
+
+        if seq in suffix_dict:
+            hs[0, suffix_dict[seq]] += 1.0 / n_samples
+
         for i in range(len(seq)+1):
             prefix = tuple(seq[:i])
 
@@ -57,32 +86,20 @@ def construct_string_hankel(data, basis, observations):
                         prefix_dict[prefix],
                         suffix_dict[suffix]] += 1.0 / n_samples
 
-    hankel = csr_matrix(hankel)
 
-    for obs in observations:
-        symbol_hankels[obs] = csr_matrix(symbol_hankels[obs])
-
-    return hankel[:, 0], hankel[0, :], hankel, symbol_hankels
-
-
-def construct_prefix_hankel(data, basis, observations):
-
-    prefix_dict, suffix_dict = basis
-
-    size_P = len(prefix_dict)
-    size_S = len(suffix_dict)
-
-    hankel = lil_matrix((size_P, size_S))
-
-    symbol_hankels = {}
-    for obs in observations:
-        symbol_hankels[obs] = lil_matrix((size_P, size_S))
-
+def fill_prefix_hankel(data, basis, hp, hs, hankel, symbol_hankels):
     n_samples = len(data)
+    prefix_dict, suffix_dict = basis
 
     for seq in data:
         for i in range(len(seq)+1):
             prefix = tuple(seq[:i])
+
+            if prefix in prefix_dict:
+                hp[prefix_dict[prefix], 0] += 1.0 / n_samples
+
+            if prefix in suffix_dict:
+                hs[0, suffix_dict[prefix]] += 1.0 / n_samples
 
             if prefix not in prefix_dict:
                 continue
@@ -105,33 +122,21 @@ def construct_prefix_hankel(data, basis, observations):
                             prefix_dict[prefix],
                             suffix_dict[suffix]] += 1.0 / n_samples
 
-    hankel = csr_matrix(hankel)
 
-    for obs in observations:
-        symbol_hankels[obs] = csr_matrix(symbol_hankels[obs])
-
-    return hankel[:, 0], hankel[0, :], hankel, symbol_hankels
-
-
-def construct_substring_hankel(data, basis, observations):
-
-    prefix_dict, suffix_dict = basis
-
-    size_P = len(prefix_dict)
-    size_S = len(suffix_dict)
-
-    hankel = lil_matrix((size_P, size_S))
-
-    symbol_hankels = {}
-    for obs in observations:
-        symbol_hankels[obs] = lil_matrix((size_P, size_S))
-
+def fill_substring_hankel(data, basis, hp, hs, hankel, symbol_hankels):
     n_samples = len(data)
+    prefix_dict, suffix_dict = basis
 
     for seq in data:
         for i in range(len(seq)+1):  # substring start positions
             for j in range(i, len(seq)+1):  # suffix start positions
                 prefix = tuple(seq[i:j])
+
+                if prefix in prefix_dict:
+                    hp[prefix_dict[prefix], 0] += 1.0 / n_samples
+
+                if prefix in suffix_dict:
+                    hs[0, suffix_dict[prefix]] += 1.0 / n_samples
 
                 if prefix not in prefix_dict:
                     continue
@@ -153,13 +158,6 @@ def construct_substring_hankel(data, basis, observations):
                             symbol_hankel[
                                 prefix_dict[prefix],
                                 suffix_dict[suffix]] += 1.0 / n_samples
-
-    hankel = csr_matrix(hankel)
-
-    for obs in observations:
-        symbol_hankels[obs] = csr_matrix(symbol_hankels[obs])
-
-    return hankel[:, 0], hankel[0, :], hankel, symbol_hankels
 
 
 def construct_hankels_with_actions(
@@ -496,7 +494,20 @@ def true_hankel_for_hmm(hmm, basis, length, estimator='string', full=False):
 
         hankel[prefix_dict[prefix], suffix_dict[suffix]] = prob
 
-    if full:
+    if not full:
+        return csr_matrix(hankel)
+    else:
+        hp = lil_matrix((size_P, 1))
+        hs = lil_matrix((1, size_S))
+
+        for prefix in prefix_dict:
+            hp[prefix_dict[prefix], 0] = _true_probability_for_hmm(
+                hmm, prefix, estimator, length)
+
+        for suffix in suffix_dict:
+            hs[0, suffix_dict[suffix]] = _true_probability_for_hmm(
+                hmm, suffix, estimator, length)
+
         symbol_hankels = {}
         for obs in hmm.observations:
             symbol_hankels[obs] = lil_matrix((size_P, size_S))
@@ -516,6 +527,4 @@ def true_hankel_for_hmm(hmm, basis, length, estimator='string', full=False):
         for obs in hmm.observations:
             symbol_hankels[obs] = csr_matrix(symbol_hankels[obs])
 
-        return hankel[:, 0], hankel[0, :], hankel, symbol_hankels
-    else:
-        return csr_matrix(hankel)
+        return hp, hs, hankel, symbol_hankels

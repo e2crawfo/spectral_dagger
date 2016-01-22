@@ -2,9 +2,7 @@ from .spectral import SpectralPSR
 from .spectral import SpectralPSRWithActions, SpectralClassifier
 from .spectral import SpectralPolicy
 
-from .hankel import construct_string_hankel
-from .hankel import construct_prefix_hankel
-from .hankel import construct_substring_hankel
+from .hankel import estimate_hankels, true_hankel_for_hmm
 
 from .hankel import top_k_basis, fixed_length_basis
 

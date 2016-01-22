@@ -20,7 +20,7 @@ class SpectralPSR(object):
 
     def fit(
             self, data, n_components, estimator='substring',
-            max_basis_size=np.inf, basis=None, svd=None, hankels=None):
+            basis=None, svd=None, hankels=None):
         """ Fit a PSR to the given data.
 
         Does not use actions. Use a SpectralPSRWithActions if actions required.
@@ -47,37 +47,20 @@ class SpectralPSR(object):
                 raise ValueError(
                     "If `hankels` provided, must also provide a basis.")
 
-            self.prefix_dict, self.suffix_dict = basis
             hp, hs, hankel_matrix, symbol_hankels = hankels
         else:
             if not basis:
                 logger.debug("Generating basis...")
-                prefix_dict, suffix_dict = (
-                    hankel.top_k_basis(data, max_basis_size, estimator))
-            else:
-                prefix_dict, suffix_dict = basis
-
-            self.prefix_dict = prefix_dict
-            self.suffix_dict = suffix_dict
+                basis = hankel.top_k_basis(data, max_basis_size, estimator)
 
             logger.debug("Estimating Hankels...")
-            if estimator == 'string':
-                hankels = hankel.construct_string_hankel(
-                    data, prefix_dict, suffix_dict, self.observations)
-
-            elif estimator == 'prefix':
-                hankels = hankel.construct_prefix_hankel(
-                    data, prefix_dict, suffix_dict, self.observations)
-
-            elif estimator == 'substring':
-                hankels = hankel.construct_substring_hankel(
-                    data, prefix_dict, suffix_dict, self.observations)
-
-            else:
-                raise ValueError("Unknown Hankel estimator name: %s." % estimator)
+            hankels = hankel.estimate_hankels(
+                data, basis, self.observations, estimator)
 
             # Note: all hankels are scipy csr matrices
             hp, hs, hankel_matrix, symbol_hankels = hankels
+
+        self.basis = basis
 
         self.hankel = hankel_matrix
         self.symbol_hankels = symbol_hankels
@@ -162,16 +145,12 @@ class SpectralPSR(object):
         self.b = self.b_0.copy()
 
     def get_prediction(self):
-        """
-        Return the symbol that the model expects next.
-        """
+        """ Get symbol that the model expects next. """
         predict = lambda o: self.get_obs_prob(o)
         return max(self.observations, key=predict)
 
     def get_obs_prob(self, o):
-        """
-        Returns the probablilty of observing o given the current state.
-        """
+        """ Get probability of observing obs given the current state.  """
         prob = self.b.dot(self.B_o[o]).dot(self.b_inf_tilde)
         return np.clip(prob, np.finfo(float).eps, 1)
 
@@ -223,7 +202,7 @@ class SpectralPSR(object):
         return b / b.dot(self.b_inf_tilde)
 
     def get_WER(self, test_data):
-        """Returns word error rate for the test data"""
+        """ Get word error rate for the test data"""
         errors = 0
         n_predictions = 0
 
@@ -243,7 +222,7 @@ class SpectralPSR(object):
         return errors/float(n_predictions)
 
     def get_log_likelihood(self, test_data, base=2):
-        """ Returns average log likelihood for the test data.
+        """ Get average log likelihood for the test data.
 
         Done using `get_obs_prob` instead of `get_seq_prob` to avoid
         problems related to vanishing probabilities.
@@ -269,7 +248,7 @@ class SpectralPSR(object):
         return llh / len(test_data)
 
     def get_perplexity(self, test_data, base=2):
-        """ Returns model perplexity on the test data.  """
+        """ Get model perplexity on the test data.  """
 
         return 2**(-self.get_log_likelihood(test_data, base=base))
 
@@ -289,13 +268,13 @@ class SpectralPSRWithActions(object):
 
     def fit(self, data, max_basis_size, n_components, use_naive=False):
         """
-        data should be a list of lists. Each sublist correspodnds to a
+        data should be a list of lists. Each sublist corresponds to a
         trajectory.  Each entry of the trajectory should be a 2-tuple,
         giving the action followed by the observation.
         """
 
         logger.debug("Generating basis...")
-        prefix_dict, suffix_dict = hankel.top_k_basis(data, max_basis_size)
+        basis = hankel.top_k_basis(data, max_basis_size)
 
         logger.debug("Estimating hankels...")
 
@@ -303,15 +282,13 @@ class SpectralPSRWithActions(object):
         if use_naive:
             logger.debug("...using naive estimator...")
             hankels = hankel.construct_hankels_with_actions(
-                data, prefix_dict, suffix_dict,
-                self.actions, self.observations)
+                data, basis, self.actions, self.observations)
 
             hp, hs, hankel_matrix, symbol_hankels = hankels
         else:
             logger.debug("...using robust estimator...")
             hankels = hankel.construct_hankels_with_actions_robust(
-                data, prefix_dict, suffix_dict,
-                self.actions, self.observations)
+                data, basis, self.actions, self.observations)
 
             hp, hs, hankel_matrix, symbol_hankels = hankels
 

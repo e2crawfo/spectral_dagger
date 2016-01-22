@@ -2,6 +2,7 @@ import numpy as np
 import time
 from spectral_dagger.utils.math import normalize, sample_multinomial
 from spectral_dagger.utils.math import default_rng
+from spectral_dagger.spectral import SpectralPSR, fixed_length_basis
 
 
 class HMM(object):
@@ -115,7 +116,7 @@ class HMM(object):
         return self._O
 
     def get_obs_prob(self, o):
-        """ Returns the probablilty of observing o given the current state. """
+        """ Get probability of observing obs given the current state. """
         return self._O[self._current_state, o]
 
     def get_seq_prob(self, seq):
@@ -162,7 +163,7 @@ class HMM(object):
         return s.sum()
 
     def get_subsequence_expectation(self, subseq, length):
-        """ Computes expected number of occurences of `subseq` as subsequence.
+        """ Get expected number of occurrences of `subseq` as subsequence.
 
         Assumes strings are of length `length`.
 
@@ -220,6 +221,18 @@ class HMM(object):
             print str(self)
 
         return trajectory
+
+    def to_psr(self):
+        psr = SpectralPSR(self.observations[:])
+        psr.basis = fixed_length_basis(self.observations, 1, False)
+
+        for o in self.observations:
+            psr.B_o[o] = self.T.dot(np.diag(self.O[:, o]))
+
+        psr.b_inf_tilde = np.ones(self.n_states)
+        psr.b_0 = self.init_dist
+
+        return psr
 
 
 def dummy_hmm(n_states):
