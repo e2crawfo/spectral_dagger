@@ -5,6 +5,9 @@ def default_rng(rng=None):
     if rng is None:
         rng = np.random.RandomState()
         rng.set_state(np.random.get_state())
+    elif not isinstance(rng, np.random.RandomState):
+        raise ValueError(
+            "``rng`` must be None or an instance of np.random.RandomState")
 
     return rng
 
@@ -52,12 +55,22 @@ def ndarray_to_string(a):
 
 
 def normalize(M, ord=2, axis=1, in_place=False, conservative=False):
-    """
-    `axis` is ignored if M has only one dimension.
-    `in_place` has no effect if input is not an nd.array.
-    `converative` 
-    """
+    """ Normalize an ndarray along an axis.
 
+    Parameters
+    ----------
+    M: ndarray
+        The array to normalize.
+    ord: {non-zero int, inf, -inf, 'fro', 'nuc'} (optional)
+        The order of norm to use.
+    axis: int
+        Axis to normalize along.
+    in_place: bool
+        Whether to perform the normalization in-place, or return a copy.
+    conservative: bool
+        If set to True, will over-estimate the norm of each row/column.
+
+    """
     if not isinstance(M, np.ndarray):
         M = np.array(M, dtype='f')
     else:

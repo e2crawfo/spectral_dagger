@@ -6,7 +6,7 @@ from spectral_dagger.mdp import QLearning, Sarsa, TD
 from spectral_dagger.envs import GridWorld, LinearMarkovChain
 
 from spectral_dagger.envs import ContinuousGridWorld
-from spectral_dagger.mdp import SingleActionMDP, UniformRandomPolicy
+from spectral_dagger.mdp import UniformRandomPolicy
 from spectral_dagger.function_approximation import RectangularTileCoding
 from spectral_dagger.function_approximation import CircularCoarseCoding
 from spectral_dagger.mdp import LinearGradientTD, LinearGradientSarsa

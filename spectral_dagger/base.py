@@ -6,21 +6,44 @@ from spectral_dagger.utils import default_rng
 
 
 class SpectralDaggerObject(object):
-    __shared_rng = default_rng()
-    __rng = __shared_rng
+    _model_rng = default_rng()
+    _simulation_rng = default_rng()
+
+    @property
+    def model_rng(self):
+        return self._model_rng
+
+    @model_rng.setter
+    def model_rng(self, rng):
+        if rng is None:
+            self._model_rng = SpectralDaggerObject._model_rng
+        elif isinstance(rng, np.random.RandomState):
+            self._model_rng = rng
+        else:
+            raise ValueError(
+                "``rng`` must be None or an instance of np.random.RandomState")
 
     @property
     def rng(self):
-        return self.__rng
+        return self._simulation_rng
 
     @rng.setter
     def rng(self, rng):
-        if not (rng is None or isinstance(rng, np.random.RandomState)):
+        if rng is None:
+            self._simulation_rng = SpectralDaggerObject._simulation_rng
+        elif isinstance(rng, np.random.RandomState):
+            self._simulation_rng = rng
+        else:
             raise ValueError(
-                "``rng`` must either be None or "
-                "an instance of np.random.RandomState.")
+                "``rng`` must be None or an instance of np.random.RandomState")
 
-        self.__rng = self.__shared_rng if rng is None else rng
+
+def set_model_rng(rng):
+    SpectralDaggerObject._model_rng = default_rng(rng)
+
+
+def set_sim_rng(rng):
+    SpectralDaggerObject._simulation_rng = default_rng(rng)
 
 
 class Space(object):
@@ -342,7 +365,7 @@ def sample_episode(*args, **kwargs):
 
 def sample_episodes(
         n_eps, env, policy=None, horizon=np.inf,
-        reset_env=True, hook=None, rng=None):
+        reset_env=True, hook=None):
     """ Sample a batch of episodes.
 
     Parameters
@@ -370,9 +393,6 @@ def sample_episodes(
     hook: function (optional)
         A function that is called every time step with the results from that
         time step. Useful e.g. for logging or displaying.
-
-    rng: RandomState instance
-        RNG to use for the episodes.
 
     """
     if policy is None:
@@ -410,10 +430,6 @@ def sample_episodes(
     just_obs = not do_reward and not do_actions
 
     episodes = []
-
-    env.rng = rng
-    for p in policies:
-        p.rng = rng
 
     for ep_idx in range(n_eps):
         if reset_env:

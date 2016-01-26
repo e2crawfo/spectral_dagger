@@ -98,8 +98,8 @@ def do_test_compressed_hmm(
     if basis is None:
         basis = top_k_basis(samples, np.inf, 'prefix')
 
-    rng = np.random.RandomState(10)
-    comp_psr.fit(samples, m, basis=basis, rng=rng)
+    comp_psr.model_rng = np.random.RandomState(10)
+    comp_psr.fit(samples, m, basis=basis)
 
     test_seqs = [[0], [1], [0, 0], [0, 1], [1, 0], [1, 1]]
 

@@ -283,7 +283,7 @@ class CompressedPSR(PredictiveStateRep):
         self.n_observations = len(self.observations)
 
     def fit(
-            self, data, n_components, rng,
+            self, data, n_components,
             basis=None, phi=None, hankels=None):
         """ Fit a PSR to the given data using a compression algorithm. """
 
@@ -293,7 +293,7 @@ class CompressedPSR(PredictiveStateRep):
         prefix_dict, suffix_dict = basis
 
         if phi is None:
-            phi = rng.randn(len(suffix_dict), n_components)
+            phi = self.model_rng.randn(len(suffix_dict), n_components)
             phi *= 1. / np.sqrt(n_components)
 
         self.phi = phi

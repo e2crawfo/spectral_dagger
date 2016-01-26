@@ -100,7 +100,7 @@ class MDP(Environment):
         if init_dist is None:
             init_state = self.rng.choice(self.states)
         else:
-            init_state = self.states[sample_multinomial(self.rng)]
+            init_state = self.states[sample_multinomial(init_dist, self.rng)]
 
         self.current_state = init_state
         return init_state
