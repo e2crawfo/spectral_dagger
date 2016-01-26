@@ -1,16 +1,16 @@
 import numpy as np
 
-from spectral_dagger.td import QLearning, Sarsa, TD
-from spectral_dagger.grid_world import GridWorld
-from spectral_dagger.random_walk import RandomWalk
+from spectral_dagger import sample_episodes
+from spectral_dagger.tests.conftest import make_test_display
+from spectral_dagger.mdp import QLearning, Sarsa, TD
+from spectral_dagger.envs import GridWorld, LinearMarkovChain
 
-from spectral_dagger.cts_grid_world import ContinuousGridWorld
-from spectral_dagger.utils import SingleActionMDP
-from spectral_dagger.mdp import UniformRandomPolicy
+from spectral_dagger.envs import ContinuousGridWorld
+from spectral_dagger.mdp import SingleActionMDP, UniformRandomPolicy
 from spectral_dagger.function_approximation import RectangularTileCoding
 from spectral_dagger.function_approximation import CircularCoarseCoding
-from spectral_dagger.td import LinearGradientTD, LinearGradientSarsa
-from spectral_dagger.utils import geometric_sequence
+from spectral_dagger.mdp import LinearGradientTD, LinearGradientSarsa
+from spectral_dagger.utils.math import geometric_sequence
 
 
 cliff_world = np.array([
@@ -49,19 +49,20 @@ def pytest_generate_tests(metafunc):
 
 
 def test_td_prediction(alpha, lmbda, display=False):
-    env = RandomWalk(10, p=0.5, gamma=1.0)
+    display_hook = make_test_display(display)
+
+    env = LinearMarkovChain(10, p=0.5, gamma=1.0)
 
     policy = TD(
         env, alpha=alpha, L=lmbda,
         V_0=np.random.random(env.n_states))
 
-    env.sample_trajectory(
-        policy, reset=True, display=display)
-    env.sample_trajectory(
-        policy, reset=True, display=display)
+    sample_episodes(2, env, policy, hook=display_hook)
 
 
 def test_linear_gtd(display=False):
+    display_hook = make_test_display(display)
+
     dummy_map = np.array([
         ['x', 'x', 'x', 'x'],
         ['x', ' ', 'G', 'x'],
@@ -73,53 +74,52 @@ def test_linear_gtd(display=False):
     dummy_world = ContinuousGridWorld(
         dummy_map, speed=0.3, rewards={'puddle': -10})
 
-    random_world = SingleActionMDP(
-        dummy_world, UniformRandomPolicy(dummy_world))
+    policies = [UniformRandomPolicy(dummy_world.actions)]
 
     feature_extractor = RectangularTileCoding(
         n_tilings=3, extent=dummy_world.world_map.bounds.s, tile_counts=5)
     linear_gtd = LinearGradientTD(
-        random_world, feature_extractor, geometric_sequence(0.2, 20))
+        dummy_world, feature_extractor, geometric_sequence(0.2, 20))
+    policies.append(linear_gtd)
 
     n_episodes = 10
-    for i in range(n_episodes):
-        random_world.sample_trajectory(
-            policy=linear_gtd, display=display, reset=True)
+    sample_episodes(
+        n_episodes, dummy_world, policies, horizon=10, hook=display_hook)
 
 
 def test_q_learning(alpha, display=False):
+    display_hook = make_test_display(display)
+
     env = GridWorld(cliff_world, noise=noise, gamma=gamma)
 
     policy = QLearning(
         env, alpha=alpha, epsilon=epsilon,
         Q_0=np.random.random((env.n_states, env.n_actions)))
 
-    env.sample_trajectory(
-        policy, reset=True, display=display)
-    env.sample_trajectory(
-        policy, reset=True, display=display)
+    sample_episodes(2, env, policy, hook=display_hook)
 
 
 def test_sarsa(alpha, lmbda, display=False):
+    display_hook = make_test_display(display)
+
     env = GridWorld(cliff_world, noise=noise, gamma=gamma)
 
     policy = Sarsa(
         env, alpha=alpha, L=lmbda, epsilon=epsilon,
         Q_0=np.random.random((env.n_states, env.n_actions)))
 
-    env.sample_trajectory(
-        policy, reset=True, display=display)
-    env.sample_trajectory(
-        policy, reset=True, display=display)
+    sample_episodes(2, env, policy, hook=display_hook)
 
 
 def test_linear_sarsa_gtd(display=False):
+    display_hook = make_test_display(display)
+
     dummy_map = np.array([
         ['x', 'x', 'x', 'x'],
         ['x', ' ', 'G', 'x'],
         ['x', ' ', ' ', 'x'],
         ['x', ' ', ' ', 'x'],
-        ['x', 'S', 'P', 'x'],
+        ['x', 'S', ' ', 'x'],
         ['x', 'x', 'x', 'x']])
 
     dummy_world = ContinuousGridWorld(
@@ -132,6 +132,5 @@ def test_linear_sarsa_gtd(display=False):
         dummy_world, feature_extractor, geometric_sequence(0.2, 20))
 
     n_episodes = 10
-    for i in range(n_episodes):
-        dummy_world.sample_trajectory(
-            policy=linear_gsarsa, display=display, reset=True)
+    sample_episodes(
+        n_episodes, dummy_world, policy=linear_gsarsa, hook=display_hook)

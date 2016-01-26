@@ -1,9 +1,9 @@
-from mdp import MDP, Action, MDPPolicy
-import grid_world
-
 import numpy as np
-
 from sklearn.linear_model import LogisticRegression
+
+from spectral_dagger import sample_episodes, make_print_hook
+from spectral_dagger.mdp import MDP, Action, MDPPolicy
+from spectral_dagger.envs.grid_world import GridState
 
 
 class BadExampleMDP(MDP):
@@ -31,7 +31,7 @@ class BadExampleMDP(MDP):
 
         dimension = len(self.state_positions)
         self.states = [
-            grid_world.GridState(p, i, dimension)
+            GridState(p, i, dimension)
             for i, p in enumerate(self.state_positions)]
 
         self.initial_state = self.states[0]
@@ -55,8 +55,8 @@ class BadExampleMDP(MDP):
     def name(self):
         return "BadExampleMDP"
 
-    def execute_action(self, action):
-        o, r = super(BadExampleMDP, self).execute_action(action)
+    def update(self, action):
+        o, r = super(BadExampleMDP, self).update(action)
         self.current_state = self.states[self.current_state]
         return self.current_state, r
 
@@ -95,7 +95,7 @@ class GoodExampleMDP(MDP):
 
         dimension = len(self.state_positions)
         self.states = [
-            grid_world.GridState(p, i, dimension)
+            GridState(p, i, dimension)
             for i, p in enumerate(self.state_positions)]
 
         self.initial_state = self.states[0]
@@ -119,8 +119,8 @@ class GoodExampleMDP(MDP):
     def name(self):
         return "GoodExampleMDP"
 
-    def execute_action(self, action):
-        o, r = super(GoodExampleMDP, self).execute_action(action)
+    def update(self, action):
+        o, r = super(GoodExampleMDP, self).update(action)
         self.current_state = self.states[self.current_state]
         return self.current_state, r
 
@@ -147,13 +147,13 @@ if __name__ == "__main__":
         good_mapping = {0: 1, 1: 0, 2: 1, 3: 1, 4: 0, 5: 1, 6: 0, 7: 1}
         good_mapping = {
             s: GoodExampleMDP.actions[a] for s, a in good_mapping.iteritems()}
-        expert = MDPPolicy(good_mapping)
+        expert = MDPPolicy(env, good_mapping)
     elif args.type == "bad":
         env = BadExampleMDP(0.1)
         bad_mapping = {0: 1, 1: 0, 2: 1, 3: 0, 4: 1}
         bad_mapping = {
             s: BadExampleMDP.actions[a] for s, a in bad_mapping.iteritems()}
-        expert = MDPPolicy(bad_mapping)
+        expert = MDPPolicy(env, bad_mapping)
     else:
         raise NotImplementedError(
             "Received invalid type: %s. "
@@ -180,9 +180,9 @@ if __name__ == "__main__":
     n_test_trajectories = 0
     test_horizon = 10
 
-    for i in range(n_test_trajectories):
-        trajectory = env.sample_trajectory(
-            policies[-1], test_horizon, True, display=1)
+    sample_episodes(
+        n_test_trajectories, policies[-1], horizon=test_horizon,
+        hook=make_print_hook(0.1))
 
     from utils import ABLine2D
     import matplotlib.pyplot as plt

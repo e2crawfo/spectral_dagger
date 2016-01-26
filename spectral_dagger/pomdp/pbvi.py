@@ -1,7 +1,8 @@
-"""An implementation of point-based value iteration."""
+""" An implementation of point-based value iteration. """
 
 import numpy as np
-from spectral_dagger.learning_algorithm import LearningAlgorithm
+
+from spectral_dagger import LearningAlgorithm
 from spectral_dagger.pomdp import BeliefStatePolicy
 
 
@@ -100,7 +101,7 @@ class PBVI(LearningAlgorithm):
 
             for a in pomdp.actions:
                 pomdp.reset(b)
-                o, r = pomdp.execute_action(a)
+                o, r = pomdp.update(a)
 
                 b_prime = b.dot(T[a]) * O[a, :, o]
                 b_prime /= sum(b_prime)

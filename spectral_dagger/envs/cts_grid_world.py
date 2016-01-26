@@ -1,5 +1,6 @@
 import numpy as np
 
+from spectral_dagger import Space
 from spectral_dagger.envs.grid_world import GridWorld, WorldMap
 from spectral_dagger.envs.grid_world import GridAction, GridState
 from spectral_dagger.utils.geometry import Rectangle, Circle, Position
@@ -112,6 +113,9 @@ class ContinuousGridWorld(GridWorld):
     def name(self):
         return "ContinuousGridWorld"
 
+    def observation_space(self):
+        return Space([(-np.inf, np.inf)] * 2, "CtsObsSpace")
+
     def reset(self, state=None):
         """
         Resets the state of the MDP.
@@ -119,11 +123,11 @@ class ContinuousGridWorld(GridWorld):
         Parameters
         ----------
         state: State or int or or None
-          If state is a State or int, sets the current state accordingly.
-          If None, states are chosen according to the grid world's initial
-          distribution. If self.init_position == None, feasible positions are
-          chosen uniformly at random. Otherwise, the initial position is set
-          equal to self.init_position.
+            If state is a State or int, sets the current state accordingly.
+            If None, states are chosen according to the grid world's initial
+            distribution. If self.init_position == None, feasible positions are
+            chosen uniformly at random. Otherwise, the initial position is set
+            equal to self.init_position.
         """
 
         if isinstance(state, GridState):
@@ -146,6 +150,8 @@ class ContinuousGridWorld(GridWorld):
                     "ContinuousGridWorld.reset expected GridState or "
                     "2-dimensional ndarray or None, received %s" % state)
 
+        return self.current_position
+
     def in_valid_start_state(self):
         return (
             self.world_map.is_valid_position(self.current_position)
@@ -153,7 +159,7 @@ class ContinuousGridWorld(GridWorld):
             and not self.in_puddle_state()
             and not self.in_terminal_state())
 
-    def execute_action(self, action):
+    def update(self, action):
         action = GridAction(action)
 
         if self.world_map.in_pit_state():

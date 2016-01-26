@@ -1,11 +1,15 @@
 import numpy as np
+
+from spectral_dagger import Space, sample_episodes, make_print_hook
 from spectral_dagger.mdp import MDPPolicy
 
 
 class TD(MDPPolicy):
-    """ A prediction policy. Learns the value function of a policy
-    acting on an MDP, but does not execute actions."""
+    """ Learns the value function of a policy in an MDP using TD.
 
+    Cannot execute actions.
+
+    """
     def __init__(self, mdp, alpha, L=0, V_0=None):
         self.actions = mdp.actions
         self.gamma = mdp.gamma
@@ -32,13 +36,17 @@ class TD(MDPPolicy):
 
         self.update_parameters()
 
-    def update_parameters(self):
-        if hasattr(self._alpha, 'next'):
-            try:
-                next_alpha = self._alpha.next()
-                self.alpha = next_alpha
-            except StopIteration:
-                pass
+    @property
+    def action_space(self):
+        return Space({0}, "ActionSpace")
+
+    @property
+    def observation_space(self):
+        return self.mdp.observation_space
+
+    @property
+    def V(self):
+        return self._V
 
     def reset(self, state):
         self.current_state = state
@@ -79,6 +87,14 @@ class TD(MDPPolicy):
     def get_action(self):
         raise NotImplementedError(
             "Cannot get action from TD policy. Not a control policy.")
+
+    def update_parameters(self):
+        if hasattr(self._alpha, 'next'):
+            try:
+                next_alpha = self._alpha.next()
+                self.alpha = next_alpha
+            except StopIteration:
+                pass
 
 
 class LinearGradientTD(TD):
@@ -241,10 +257,10 @@ class ControlTD(TD):
                 pass
 
     def get_action(self):
-        p = np.random.random(1)[0]
+        p = self.rng.rand()
 
         if p < self.epsilon:
-            return np.random.choice(self.actions)
+            return self.rng.choice(self.actions)
         else:
             return max(
                 (a for a in self.actions),
@@ -255,8 +271,7 @@ class ControlTD(TD):
 
 
 class QLearning(ControlTD):
-    def __init__(
-            self, mdp, alpha, epsilon=0.1, Q_0=None):
+    def __init__(self, mdp, alpha, epsilon=0.1, Q_0=None):
 
         self.actions = mdp.actions
         self.gamma = mdp.gamma
@@ -492,9 +507,11 @@ if __name__ == "__main__":
     n_episodes = 1000
     n_steps = []
     rewards = []
-    for i in range(n_episodes):
-        trajectory = dummy_world.sample_trajectory(
-            policy=linear_gtd, display=False, reset=True, horizon=horizon)
+
+    episodes = sample_episodes(
+        n_episodes, dummy_world, policy=linear_gtd, horizon=horizon)
+
+    for trajectory in episodes:
         print "n_steps: ", len(trajectory)
         print "max theta: ", np.max(np.max(linear_gtd.theta))
         print "min theta: ", np.min(np.min(linear_gtd.theta))
@@ -503,10 +520,9 @@ if __name__ == "__main__":
         n_steps.append(len(trajectory))
 
     n_episodes = 0
-    for i in range(n_episodes):
-        trajectory = dummy_world.sample_trajectory(
-            policy=linear_gtd, display=True, reset=True, horizon=horizon)
-        print "n_steps: ", len(trajectory)
+    episodes = sample_episodes(
+        n_episodes, dummy_world, policy=linear_gtd, horizon=horizon,
+        hook=make_print_hook(0.1))
 
     import matplotlib.pyplot as plt
     fig = plt.figure()

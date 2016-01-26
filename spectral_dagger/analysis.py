@@ -1,5 +1,6 @@
 import numpy as np
 
+from spectral_dagger import sample_episode
 from spectral_dagger.pbvi import PBVI
 from spectral_dagger.grid_world import EgoGridWorld
 
@@ -33,10 +34,10 @@ def do_pbvi(do_plot=False):
             alg = PBVI()
             policy = alg.fit(pomdp)
 
-            trajectory = pomdp.sample_trajectory(
-                policy, horizon=20, reset=True, display=True)
+            epsiode = sample_episode(
+                pomdp, policy, horizon=20, reset=True, display=True)
 
-            rewards[-1].append(sum(t[2] for t in trajectory))
+            rewards[-1].append(sum(r for a, s, r in epsiode))
 
             print "Reward using %d colors: %f" % (n_colors, rewards[-1][-1])
 

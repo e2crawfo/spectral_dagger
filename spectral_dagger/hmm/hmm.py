@@ -1,32 +1,33 @@
 import numpy as np
-import time
+
+from spectral_dagger.base import Environment, Space, sample_episodes
 from spectral_dagger.utils.math import normalize, sample_multinomial
 from spectral_dagger.utils.math import default_rng
-from spectral_dagger.spectral import PredictiveStateRep, fixed_length_basis
+from spectral_dagger.spectral import PredictiveStateRep
 
 
-class HMM(object):
+class HMM(Environment):
 
-    def __init__(
-            self, observations, states, T, O, init_dist=None, rng=None):
-        """
+    def __init__(self, observations, states, T, O, init_dist=None):
+        """ A Hidden Markov Model.
+
         Parameters
         ----------
         observations: list
-          The set of observations available.
+            The set of observations available.
         states: list
-          The state space of the HMM.
+            The state space of the HMM.
         T: ndarray
-          A |states| x |states| matrix. Entry (i, j) gives
-          the probability of moving from state i to state j, so each row of
-          T must be a probability distribution.
+            A |states| x |states| matrix. Entry (i, j) gives
+            the probability of moving from state i to state j, so each row of
+            T must be a probability distribution.
         O: ndarray
-          A |states| x |observations| matrix. Entry (i, j)
-          gives the probability of emitting observation j given that the HMM
-          is in state i, so each row of O must be a probablilty distribution.
+            A |states| x |observations| matrix. Entry (i, j)
+            gives the probability of emitting observation j given that the HMM
+            is in state i, so each row of O must be a probablilty distribution.
         init_dist: ndarray
-          A |states| vector specifying the initial state distribution.
-          Defaults to a uniform distribution.
+            A |states| vector specifying the initial state distribution.
+            Defaults to a uniform distribution.
 
         """
         self.observations = observations
@@ -53,8 +54,6 @@ class HMM(object):
         assert(self.init_dist.size == len(self.states))
         assert(np.allclose(sum(init_dist), 1.0))
 
-        self.rng = default_rng(rng)
-
         self.reset()
 
     @property
@@ -65,35 +64,22 @@ class HMM(object):
         return "%s. Current state: %s" % (
             self.name, str(self.current_state))
 
-    def reset(self, init_dist=None):
-        """
-        Resets the state of the HMM.
+    @property
+    def action_space(self):
+        return None
 
-        Parameters
-        ----------
-        state: State or int or ndarray or list
-          If state is a State or int, sets the current state accordingly.
-          Otherwise it must be all positive, sum to 1, and have length equal
-          to the number of states in the MDP. The state is sampled from the
-          induced distribution.
+    @property
+    def observation_space(self):
+        return Space([set(self.observations)], "ObsSpace")
 
-        """
-        if init_dist is not None:
-            raise ValueError("`init_dist` parameter must be None for HMMs.")
+    def has_terminal_states(self):
+        return False
 
-        self._current_state = self.states[
-            sample_multinomial(self.init_dist, self.rng)]
+    def in_terminal_state(self):
+        return False
 
-    def sample_step(self):
-        """ Returns the resulting observation. """
-
-        obs = self.observations[
-            sample_multinomial(self.O[self.current_state], self.rng)]
-
-        self._current_state = self.states[
-            sample_multinomial(self.T[self.current_state], self.rng)]
-
-        return obs
+    def has_reward(self):
+        return False
 
     @property
     def n_observations(self):
@@ -102,6 +88,36 @@ class HMM(object):
     @property
     def n_states(self):
         return len(self.states)
+
+    def reset(self, init_dist=None):
+        """
+        Resets the state of the HMM.
+
+        Parameters
+        ----------
+        init_dist: array-like (optional)
+            A vector giving an initial distribution over hidden states.
+
+        """
+        if init_dist is None:
+            init_dist = self.init_dist
+
+        self._current_state = self.states[
+            sample_multinomial(init_dist, self.rng)]
+
+    def update(self, action=None):
+        """ Returns the resulting observation. """
+
+        if action is not None:
+            raise ValueError("Action must be None for HMM.")
+
+        obs = self.observations[
+            sample_multinomial(self.O[self.current_state], self.rng)]
+
+        self._current_state = self.states[
+            sample_multinomial(self.T[self.current_state], self.rng)]
+
+        return obs
 
     @property
     def current_state(self):
@@ -197,31 +213,6 @@ class HMM(object):
 
         return prob
 
-    def sample_trajectory(self, horizon, reset=True, display=False):
-        if reset:
-            self.reset()
-
-        trajectory = []
-
-        if display:
-            print "*" * 80
-
-        for i in range(horizon):
-            if display:
-                print str(self)
-
-            o = self.sample_step()
-            trajectory.append(o)
-
-            if display:
-                print o
-                time.sleep(0.3)
-
-        if display:
-            print str(self)
-
-        return trajectory
-
     def to_psr(self):
         B_o = {}
         for o in self.observations:
@@ -289,7 +280,7 @@ def test_hmm():
     init_dist = normalize(np.array([0.5, 0.5]), ord=1)
 
     hmm = HMM(observations, states, T, O, init_dist)
-    print(hmm.sample_trajectory(10))
+    print(sample_episodes(10, hmm))
 
 
 if __name__ == "__main__":

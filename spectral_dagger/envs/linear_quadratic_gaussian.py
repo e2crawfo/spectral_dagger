@@ -1,9 +1,11 @@
 import numpy as np
 
-from mdp import MDP, MDPPolicy
+from spectral_dagger import Space
+from spectral_dagger.mdp import MDP, MDPPolicy
 
 
-class LGQ(MDP):
+class LQG(MDP):
+    """ A LinearQuadraticGaussian Environment. """
 
     def __init__(self, A, B, noise, Q, R):
         self.A = A
@@ -25,13 +27,23 @@ class LGQ(MDP):
     def name(self):
         return "LinearQuadraticGaussian"
 
+    def action_space(self):
+        return Space(
+            [(-np.inf, np.inf)] * self.action_dim, "CtsActionSpace")
+
+    def observation_space(self):
+        return Space(
+            [(-np.inf, np.inf)] * self.state_dim, "CtsObsSpace")
+
     def reset(self, state=None):
         if state is None:
             state = np.zeros(self.state_dim)
 
         self.x = state
 
-    def execute_action(self, u):
+        return state
+
+    def update(self, u):
         prev_state = self.x
 
         mean = self.A.dot(self.x) + self.B.dot(u)
@@ -49,14 +61,26 @@ class LGQ(MDP):
 
 
 class GaussianController(MDPPolicy):
-    """
-    Parameterized policy of the form N(theta1 x, theta2)
-    """
+    """ Parameterized policy of the form N(theta1 x, theta2). """
 
-    def __init__(self, lqg):
+    def __init__(self, lqg, theta1=None, theta2=None):
         self.lqg = lqg
-        self.theta1 = np.zeros((lqg.action_dim, lqg.state_dim))
-        self.theta2 = np.eye(lqg.action_dim)
+
+        if theta1 is None:
+            theta1 = np.zeros((lqg.action_dim, lqg.state_dim))
+        self.theta1 = theta1
+
+        if theta2 is None:
+            theta2 = np.eye(lqg.action_dim)
+        self.theta2 = theta2
+
+    def action_space(self):
+        return Space(
+            [(-np.inf, np.inf)] * self.action_dim, "CtsActionSpace")
+
+    def observation_space(self):
+        return Space(
+            [(-np.inf, np.inf)] * self.state_dim, "CtsObsSpace")
 
     def reset(self, x):
         self.x = x

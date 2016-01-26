@@ -3,16 +3,20 @@ from spectral_dagger.mdp import MDP
 import numpy as np
 
 
-class RandomWalk(MDP):
-    """
-    p is probability of transitioning right
-    """
+class LinearMarkovChain(MDP):
+    """ A Linear Markov Chain, where states are connected sequentially.
 
+    Parameters
+    ----------
+    p: float
+        Probability of transitioning right.
+
+    """
     def __init__(
             self, n_states, p=0.5, gamma=0.9,
             left_reward=-1.0, right_reward=1.0):
 
-        assert n_states > 2, "RandomWalk needs at least 3 states"
+        assert n_states > 2, "LinearMarkovChain needs at least 3 states"
 
         self.states = range(n_states)
         self.p = p
@@ -42,16 +46,13 @@ class RandomWalk(MDP):
         self.states = range(n_states)
         self.initial_state = np.floor(n_states / 2.0)
         self.terminal_states = [0, n_states-1]
-        self.gamma = 1.0
+        self.gamma = gamma
 
         self.reset()
 
-    def execute_action(self, action=None):
-        """
-        Ignore the action
-        """
-
-        return super(RandomWalk, self).execute_action(0)
+    def update(self, action=None):
+        """ Ignore the supplied action. """
+        return super(LinearMarkovChain, self).update(0)
 
     def __str__(self):
         return ''.join([

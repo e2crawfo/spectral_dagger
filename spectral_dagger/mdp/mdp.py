@@ -1,132 +1,39 @@
 import numpy as np
-import time
 
-from spectral_dagger.mdp.policy import UniformRandomPolicy
-
-
-class State(object):
-    def __init__(self, id, dimension, name=""):
-        self.id = id
-        self.dimension = dimension
-        self.ndim = 0
-        self.name = name
-
-    def as_vector(self):
-        vec = np.array(np.zeros(self.dimension))
-        vec[self.id] = 1.0
-        return vec
-
-    def get_id(self):
-        return self.id
-
-    def __str__(self):
-        s = "<State id: %d, dim: %d" % (self.get_id(), self.dimension)
-        if self.name:
-            s += ", name: " + self.name
-        return s + ">"
-
-    def __repr__(self):
-        return str(self)
-
-    def __eq__(self, other):
-        """Override the default == behavior"""
-        if isinstance(other, self.__class__):
-            return self.get_id() == other.get_id()
-        elif isinstance(other, int):
-            return self.get_id() == other
-
-        return NotImplemented
-
-    def __ne__(self, other):
-        if isinstance(other, self.__class__) or isinstance(other, int):
-            return not self.__eq__(other)
-
-        return NotImplemented
-
-    def __hash__(self):
-        """Override default behaviour when used as key in dict"""
-        return hash(self.get_id())
-
-    def __index__(self):
-        return self.get_id()
-
-    def __int__(self):
-        return self.get_id()
+from spectral_dagger import Environment, Space
+from spectral_dagger.utils import sample_multinomial
 
 
-class Action(object):
-    def __init__(self, id, name=""):
-        self.id = id
-        self.ndim = 0
-        self.name = name
-
-    def get_id(self):
-        return self.id
-
-    def __str__(self):
-        s = "<Action id: %d" % self.get_id()
-        if self.name:
-            s += ", name: " + self.name
-        return s + ">"
-
-    def __repr__(self):
-        return str(self)
-
-    def __eq__(self, other):
-        """Override the default == behavior"""
-        if isinstance(other, self.__class__):
-            return self.get_id() == other.get_id()
-        elif isinstance(other, int):
-            return self.get_id() == other
-
-        return NotImplemented
-
-    def __ne__(self, other):
-        if isinstance(other, self.__class__) or isinstance(other, int):
-            return not self.__eq__(other)
-
-        return NotImplemented
-
-    def __hash__(self):
-        """Override default behaviour when used as key in dict"""
-        return hash(self.get_id())
-
-    def __index__(self):
-        return self.get_id()
-
-    def __int__(self):
-        return self.get_id()
-
-
-class MDP(object):
+class MDP(Environment):
 
     def __init__(
             self, actions, states, T, R, gamma,
             initial_state=None, terminal_states=None):
-        """
+        """ A Markov Decision Process.
+
         Parameters
         ----------
         actions: list
-          The set of actions available.
+            The list of actions.
         states: list
-          The state space of the MDP.
+            The list of states.
         T: ndarray
-          An |actions| x |states| x |states| matrix. Entry (a, i, j) gives
-          the probability of moving from state i to state j given that action
-          a taken.
+            An |actions| x |states| x |states| matrix. Entry (a, i, j) gives
+            the probability of moving from state i to state j given that action
+            a is taken.
         R: ndarray
-          An |actions| x |states| x |states| matrix. Entry (a, i, j) gives the
-          reward for transitioning from state i to state j using action a.
+            An |actions| x |states| x |states| matrix. Entry (a, i, j) gives
+            the reward for transitioning from state i to state j with action a.
         gamma: float
-          Discount factor.
-        initial_state: State
-          A state in `states` which the MDP will be reset
-          to whenever the `reset` method is called.
+            Discount factor.
+        initial_state: An element of ``states``.
+            A state in `states` which the MDP will be reset
+            to whenever the `reset` method is called.
         terminal_states: list
-          A (possibly empty) subset of the states in states. Episodes are
-          terminated when the agent enters one of these states.
-        """
+            A (possibly empty) subset of the states in states. Episodes are
+            terminated when the agent enters one of these states.
 
+        """
         self.actions = actions
         self.states = states
 
@@ -152,57 +59,6 @@ class MDP(object):
         return "%s. Current state: %s" % (
             self.__class__.__name__, str(self.current_state))
 
-    def reset(self, state=None):
-        """
-        Resets the state of the MDP.
-
-        Parameters
-        ----------
-        state: State or int or or None
-          If state is a State or int, sets the current state accordingly.
-          If None, states are chosen uniformly at random.
-        """
-
-        if state is None and self.initial_state:
-            self.current_state = self.initial_state
-        elif isinstance(state, State):
-            self.current_state = state
-        elif isinstance(state, int):
-            self.current_state = self.states[state]
-        else:
-            self.current_state = np.random.choice(self.states)
-
-    def execute_action(self, action=None):
-        """
-        Play the given action.
-
-        Returns the next state and the reward.
-        """
-
-        if action is None:
-            if self.n_actions > 1:
-                raise ValueError(
-                    "Must supply a valid action to "
-                    "execute_action when n_actions > 1")
-            else:
-                action = 0
-
-        if not isinstance(action, Action) and not isinstance(action, int):
-            raise ValueError(
-                "Action must either be an integer or an instance of the "
-                "Action class. Got object of type %s instead." % type(action))
-
-        if isinstance(action, int):
-            action = self.actions[action]
-
-        prev_state = self.current_state
-        sample = np.random.multinomial(1, self._T[action, self.current_state])
-        self.current_state = self.states[np.where(sample > 0)[0][0]]
-
-        reward = self.get_reward(action, prev_state, self.current_state)
-
-        return self.current_state, reward
-
     @property
     def n_actions(self):
         return len(self.actions)
@@ -211,15 +67,56 @@ class MDP(object):
     def n_states(self):
         return len(self.states)
 
+    @property
+    def action_space(self):
+        return Space([set(self.actions)], "ActionSpace")
+
+    @property
+    def observation_space(self):
+        return Space([set(self.states)], "ObsSpace")
+
+    def has_reward(self):
+        return True
+
+    def has_terminal_states(self):
+        return (
+            hasattr(self, 'terminal_states')
+            and bool(self.terminal_states))
+
     def in_terminal_state(self):
         return (
             self.has_terminal_states()
             and self.current_state in self.terminal_states)
 
-    def has_terminal_states(self):
-        return (
-            hasattr(self, 'terminal_states')
-            and self.terminal_states)
+    def reset(self, init_dist=None):
+        """ Resets the state of the MDP.
+
+        Parameters
+        ----------
+        init_dist: array-like (optional)
+            A distribution to choose the initial state from.
+
+        """
+        if init_dist is None:
+            init_state = self.rng.choice(self.states)
+        else:
+            init_state = self.states[sample_multinomial(self.rng)]
+
+        self.current_state = init_state
+        return init_state
+
+    def update(self, action=None):
+        """ Execute the given action. Returns new state and reward. """
+
+        action = self.action_space.validate(action)
+        prev_state = self.current_state
+
+        dist = self._T[action, self.current_state]
+        self.current_state = self.states[sample_multinomial(dist, self.rng)]
+
+        reward = self.get_reward(action, prev_state, self.current_state)
+
+        return self.current_state, reward
 
     @property
     def T(self):
@@ -238,107 +135,9 @@ class MDP(object):
         else:
             return self.R[a, s, s_prime]
 
-    def is_continuous(self):
-        return False
-
-    def sample_trajectory(
-            self, policy=None, horizon=None, reset=True,
-            init=None, return_reward=True, display=False):
-        """
-        If horizon is None, then trajectory will continue until the episode
-        ends (i.e. a terminal state is reached).
-
-        If the mdp has only one action, then policy's 'get_action' method will
-        not be called.
-
-        display is the number of seconds to wait between steps.
-
-        Not implemented yet:
-        If policy is a tuple, then the first policy will be treated as an
-        exploration policy, and the second will be treated as an estimation
-        policy (i.e. a policy we are trying to learn about).
-        """
-
-        if horizon is None and not self.has_terminal_states():
-            raise ValueError(
-                "Must supply a finite horizon to sample trajectory from an "
-                "MDP that lacks terminal states.")
-
-        if reset:
-            if isinstance(init, np.ndarray) or isinstance(init, list):
-                sample = np.random.multinomial(1, init)
-                init = self.states[np.where(sample > 0)[0][0]]
-
-            self.reset(init)
-
-        if display:
-            display = float(display)
-            assert display > 0.0
-
-        if not policy:
-            policy = UniformRandomPolicy(self)
-
-        if self.n_actions != 1 and not hasattr(policy, 'get_action'):
-            raise ValueError(
-                "Must supply a policy with a get_action method to sample "
-                "a trajectory on an MDP with multiple actions.")
-
-        policy.reset(self.current_state)
-
-        trajectory = []
-
-        if display:
-            print "*" * 80
-
-        terminated = False
-        i = 0
-
-        while not terminated:
-            if display:
-                print str(self)
-
-            s = self.current_state
-
-            if self.n_actions == 1:
-                a = 0
-                s_prime, r = self.execute_action(a)
-            else:
-                a = policy.get_action()
-                s_prime, r = self.execute_action(a)
-
-            if return_reward:
-                trajectory.append((s, a, r))
-            else:
-                trajectory.append((s, a))
-
-            policy.update(a, s_prime, r)
-
-            i += 1
-
-            if display:
-                print "Action:", a
-                print "New state:", s_prime
-                print "Reward:", r
-                time.sleep(display)
-
-            terminated = (
-                self.in_terminal_state()
-                or horizon is not None and i >= horizon)
-
-        a = 0 if self.n_actions == 1 else policy.get_action()
-        policy.update(a, self.current_state)
-
-        if display:
-            print str(self)
-
-        return trajectory
-
 
 class SingleActionMDP(MDP):
-    """
-    Create a single-action mdp (aka a markov chain) by merging
-    a multi-action MDP and a policy.
-    """
+    """ A Markov Chain created by binding an MDP to a policy. """
 
     def __init__(self, mdp, policy):
         self.mdp = mdp
@@ -353,11 +152,12 @@ class SingleActionMDP(MDP):
     def reset(self, state=None):
         self.mdp.reset(state)
         self.policy.reset(self.mdp.current_state)
+        return self.mdp.current_state
 
-    def execute_action(self, action=None):
+    def update(self, action=None):
         """ Ignores the given action, uses the action from the policy. """
         a = self.policy.get_action()
-        s_prime, r = self.mdp.execute_action(a)
+        s_prime, r = self.mdp.update(a)
         self.policy.update(a, s_prime, r)
         return s_prime, r
 
@@ -367,7 +167,7 @@ class SingleActionMDP(MDP):
     def has_terminal_states(self):
         return self.mdp.has_terminal_states()
 
-    # TODO: T and R are not really correct, should take policy into account.
+    # TODO: T and R are not really correct, need to take policy into account.
     @property
     def T(self):
         return self.mdp.T
@@ -382,6 +182,8 @@ class SingleActionMDP(MDP):
 
 
 class AlternateRewardMDP(MDP):
+    """ An MDP created from another MDP, using an alternate reward. """
+
     def __init__(self, mdp, reward_func):
         self.mdp = mdp
         self.get_reward = reward_func
@@ -393,19 +195,22 @@ class AlternateRewardMDP(MDP):
         return str(self.mdp)
 
     @property
-    def states(self):
-        return self.mdp.states
-
-    @property
     def actions(self):
         return self.mdp.actions
 
+    @property
+    def states(self):
+        return self.mdp.states
+
     def reset(self, state=None):
         self.mdp.reset(state)
+        return self.mdp.current_state
 
-    def execute_action(self, action=None):
+    def update(self, action=None):
+        action = self.action_space.validate(action)
+
         prev_state = self.current_state
-        s, _ = self.mdp.execute_action(action)
+        s, _ = self.mdp.update(action)
         r = self.get_reward(action, prev_state, s)
 
         return s, r
@@ -465,10 +270,11 @@ class TimeDependentRewardMDP(AlternateRewardMDP):
     def reset(self, state=None):
         self.mdp.reset(state)
         self.t = 0
+        return self.mdp.current_state
 
-    def execute_action(self, action=None):
+    def update(self, action=None):
         prev_state = self.current_state
-        s, _ = self.mdp.execute_action(action)
+        s, _ = self.mdp.update(action)
         r = self.get_reward(action, prev_state, s, self.t)
 
         self.t += 1

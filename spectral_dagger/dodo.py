@@ -1,12 +1,14 @@
+import matplotlib.pyplot as plt
+import numpy as np
+
+from spectral_dagger import sample_episode, sample_episodes
+
 from td import Sarsa, TD, LinearGradientSarsa
 from grid_world import GridWorld
 from mdp import evaluate_policy
 from utils import geometric_sequence
 from cts_grid_world import ContinuousGridWorld
 from function_approximation import RectangularTileCoding
-
-import matplotlib.pyplot as plt
-import numpy as np
 
 
 # LinearGradientSarsa ************************
@@ -34,12 +36,9 @@ def run_td_gsarsa(
     for j in range(n_trials):
         policy = policy_class(env, **policy_kwargs)
 
-        for i in range(n_episodes):
-            trajectory = env.sample_trajectory(
-                policy, reset=True, display=False, return_reward=True,
-                horizon=horizon)
-
-            rewards.extend([t[2] for t in trajectory])
+        episodes = sample_episodes(n_episodes, env, policy, horizon)
+        for ep in episodes:
+            rewards.extend([r for a, s, r in ep])
 
         max_theta = max(max_theta, np.max(np.max(policy.theta)))
         min_theta = min(min_theta, np.min(np.min(policy.theta)))
@@ -157,9 +156,7 @@ def run_td_prediction(
         policy = policy_class(env, **policy_kwargs)
 
         for i in range(n_episodes):
-            env.sample_trajectory(
-                policy, reset=True, display=False, return_reward=True)
-
+            sample_episode(env, policy)
             errors.append(np.mean((policy.V - true_V)**2))
 
     return {
@@ -263,10 +260,9 @@ def run_td_control(
     for j in range(n_trials):
         policy = policy_class(env, **policy_kwargs)
 
-        for i in range(n_episodes):
-            trajectory = env.sample_trajectory(
-                policy, reset=True, display=False, return_reward=True)
-            rewards[i].append(np.mean([t[2] for t in trajectory]))
+        episodes = sample_episodes(n_episodes, env, policy)
+        for i, ep in enumerate(episodes):
+            rewards[i].append(np.mean([r for a, s, r in ep]))
 
     return {
         'reward': [np.mean(r) for r in rewards],

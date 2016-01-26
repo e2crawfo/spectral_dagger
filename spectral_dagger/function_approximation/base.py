@@ -10,7 +10,7 @@ class FeatureExtractor(object):
         return self._n_features
 
 
-class IdentityFeatureExtractor(FeatureExtractor):
+class Identity(FeatureExtractor):
     def __init__(self, n_features, intercept=True):
         self._n_features = n_features
         self.intercept = intercept
@@ -19,7 +19,7 @@ class IdentityFeatureExtractor(FeatureExtractor):
             self._n_features += 1
 
     def as_vector(self, s):
-        vector = np.array(s)
+        vector = np.array(s, copy=True)
 
         if self.intercept:
             vector = np.concatenate((vector, [1]))
@@ -36,12 +36,30 @@ class IdentityFeatureExtractor(FeatureExtractor):
         return vector
 
 
+class OneHot(FeatureExtractor):
+    def __init__(self, n_features, intercept=True):
+        self._n_features = n_features
+        self.intercept = intercept
+
+        if self.intercept:
+            self._n_features += 1
+
+    def as_vector(self, s):
+        vector = np.zeros(self._n_features)
+
+        if self.intercept:
+            vector[-1] = 1.0
+
+        vector[s] = 1.0
+
+        return vector
+
+
 class RectangularTileCoding(FeatureExtractor):
     def __init__(
             self, n_tilings, extent, origin=None,
             tile_dims=None, tile_counts=None, intercept=True):
-        """
-        Implements axis-aligned rectangluar tile coding.
+        """ Implements axis-aligned rectangluar tile coding.
 
         Parameters
         ----------
@@ -60,7 +78,7 @@ class RectangularTileCoding(FeatureExtractor):
             along every dimension. In 2 dimensions, the bottom-left
             corner, assuming the positive orthant is in the top-right.
 
-        (NOTE: exactly one of the following two parameters must be supplied)
+        (Note: exactly one of the following two parameters must be supplied)
 
         tile_dims: optional, 1-D numpy array or float
             Dimensions of each tile. If a float is given, the tiles are
@@ -73,8 +91,8 @@ class RectangularTileCoding(FeatureExtractor):
         intercept: boolean
             Whether to include an intercept feature, a feature that always
             has value 1.
-        """
 
+        """
         assert n_tilings == int(n_tilings), "'n_tilings' must be an integer."
         self.n_tilings = int(n_tilings)
 
@@ -148,7 +166,7 @@ class RectangularTileCoding(FeatureExtractor):
 
     def as_vector(self, position):
         """
-        Return a feature vector describing `position' using
+        Return a feature vector describing ``position`` using
         axis-aligned tile-coding.
 
         position: 1-D numpy array

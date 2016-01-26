@@ -3,9 +3,8 @@ from scipy.sparse import csr_matrix
 from sklearn.utils.extmath import randomized_svd
 import logging
 
+from spectral_dagger import sample_episodes, LearningAlgorithm, Space, Policy
 from spectral_dagger.spectral import hankel
-from spectral_dagger.learning_algorithm import LearningAlgorithm
-from spectral_dagger.pomdp import POMDPPolicy
 
 
 logger = logging.getLogger(__name__)
@@ -21,16 +20,22 @@ class PredictiveStateRep(object):
         self.observations = B_o.keys()
         self.n_observations = len(self.observations)
 
-    def filter(self, obs):
+    def action_space(self):
+        return None
+
+    def observation_space(self):
+        return Space(set(self.observations), "ObsSpace")
+
+    def reset(self):
+        self.b = self.b_0.copy()
+
+    def update(self, action=None, obs=None):
         """ Update state upon seeing an observation. """
         B_o = self.B_o[obs]
         numer = self.b.dot(B_o)
         denom = numer.dot(self.b_inf)
 
         self.b = numer / denom
-
-    def reset(self):
-        self.b = self.b_0.copy()
 
     def get_obs_prob(self, o):
         """ Get probability of observation for next time step.  """
@@ -358,6 +363,12 @@ class SpectralPSRWithActions(object):
         self.B_ao = {}
         self.max_dim = max_dim
 
+    def action_space(self):
+        return Space(set(self.actions), "ActionSpace")
+
+    def observation_space(self):
+        return Space(set(self.observations), "ObsSpace")
+
     def fit(self, data, max_basis_size, n_components, use_naive=False):
         """
         data should be a list of lists. Each sublist corresponds to a
@@ -547,44 +558,25 @@ class SpectralClassifier(LearningAlgorithm):
 
     Parameters
     ----------
-    classifier_cls: class
-        A classifier class. Instances of this class need to have a method `fit`
-        which takes arguments X giving samples (shape N x p, where p is # of
-        features) and Y giving labels (shape N) (basically the sklearn
-        interface).
-
-    classifier_args: list
-        Positional arguments to instantiate the classifier with.
-
-    classifier_kwargs: dict
-        Keyword arguments to instantiate the classifier with.
+    predictor: any
+        Must implement the sklearn Estimator and Predictor interfaces.
+        http://scikit-learn.org/stable/developers/contributing.html
 
     max_basis_size: int
         The maximum size of the basis for the spectral learner.
 
     n_components: int
         The number of components to use in the spectral learner.
+
     """
-    def __init__(
-            self, classifier_cls, classifier_args=None,
-            classifier_kwargs=None, max_basis_size=500, n_components=50):
+    def __init__(self, predictor, max_basis_size=500, n_components=50):
 
-        self.classifier_cls = classifier_cls
-
-        if classifier_args is None:
-            classifier_args = []
-        self.classifier_args = classifier_args
-
-        if classifier_kwargs is None:
-            classifier_kwargs = {}
-        self.classifier_kwargs = classifier_kwargs
-
+        self.predictor = predictor
         self.max_basis_size = max_basis_size
         self.n_components = n_components
 
     def fit(self, pomdp, trajectories, actions):
-        """
-        Returns a policy trained on the given data.
+        """ Returns a policy trained on the given data.
 
         Parameters
         ----------
@@ -601,8 +593,8 @@ class SpectralClassifier(LearningAlgorithm):
             j-1 action-observation pairs in the i-th trajectory in
             `trajectories`. The actions in this data structure are not
             necessarily the same as the actions in `trajectories`.
-        """
 
+        """
         self.psr = SpectralPSRWithActions(pomdp.actions, pomdp.observations)
 
         self.psr.fit(trajectories, self.max_basis_size, self.n_components)
@@ -619,31 +611,37 @@ class SpectralClassifier(LearningAlgorithm):
 
                 self.psr.update(a, o)
 
-        classifier = self.classifier_cls(
-            *self.classifier_args, **self.classifier_kwargs)
-
         # Most sklearn predictors operate on strings or numbers
         action_lookup = {str(a): a for a in set(flat_actions)}
         str_actions = [str(a) for a in flat_actions]
 
-        classifier.fit(psr_states, str_actions)
+        self.predictor.fit(psr_states, str_actions)
 
         def f(psr_state):
-            action_string = classifier.predict(psr_state)[0]
+            psr_state = psr_state.reshape(1, -1)
+            action_string = self.predictor.predict(psr_state)[0]
             return action_lookup[action_string]
 
         return SpectralPolicy(self.psr, f)
 
 
-class SpectralPolicy(POMDPPolicy):
+class SpectralPolicy(Policy):
     def __init__(self, psr, f):
         self.psr = psr
         self.f = f
 
+    @property
+    def action_space(self):
+        return self.psr.action_space
+
+    @property
+    def observation_space(self):
+        return self.psr.observation_space
+
     def reset(self, init_dist=None):
         if init_dist is not None:
             raise Exception(
-                "Cannot supply initiazation distribution to PSR. "
+                "Cannot supply initialization distribution to PSR. "
                 "Only works with the initialization distribution "
                 "on which it was trained.")
 
@@ -686,12 +684,8 @@ if __name__ == "__main__":
     trajectories = []
 
     print "Sampling trajectories..."
-    for i in xrange(n_trajectories):
-        trajectory = pomdp.sample_trajectory(
-            exploration_policy, horizon, reset=True,
-            return_reward=False, display=False)
-
-        trajectories.append(trajectory)
+    trajectories = sample_episodes(
+        n_trajectories, pomdp, exploration_policy, horizon)
 
     for use_naive in [True, False]:
         print "Training model..."
@@ -728,7 +722,7 @@ if __name__ == "__main__":
 
                 pomdp_string = str(pomdp)
 
-                actual_obs, _ = pomdp.execute_action(action)
+                actual_obs, _ = pomdp.update(action)
 
                 rank = psr.get_obs_rank(action, actual_obs)
 
@@ -759,12 +753,8 @@ if __name__ == "__main__":
         test_trajectories = []
 
         print "Sampling test trajectories for WER..."
-        for i in xrange(n_test_trajectories):
-            trajectory = pomdp.sample_trajectory(
-                exploration_policy, horizon, reset=True,
-                return_reward=False, display=False)
-
-            test_trajectories.append(trajectory)
+        trajectories = sample_episodes(
+            n_test_trajectories, pomdp, exploration_policy, horizon)
 
         print "Word error rate: ", psr.get_WER(test_trajectories)
 

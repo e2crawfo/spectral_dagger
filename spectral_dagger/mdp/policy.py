@@ -1,17 +1,45 @@
 import numpy as np
 
+from spectral_dagger import Policy, Space
+from spectral_dagger.utils import sample_multinomial
 
-class MDPPolicy(object):
-    """
-    The most general MDPPolicy class.
+
+class UniformRandomPolicy(Policy):
+
+    def __init__(self, actions):
+        self.actions = actions
+
+    @property
+    def action_space(self):
+        return Space([set(self.actions)], "ActionSpace")
+
+    @property
+    def observation_space(self):
+        return Space(name="ObsSpace")
+
+    def reset(self, obs=None):
+        pass
+
+    def get_action(self):
+        return self.rng.choice(self.actions)
+
+    def action_distribution(self, s):
+        d = np.ones(len(self.actions))
+        return d / sum(d)
+
+
+class MDPPolicy(Policy):
+    """ A policy that chooses actions as a function of the previous obs.
 
     Parameters
     ----------
+    mdp: MDP instance
+        The MDP that the policy will operate on.
     pi: dict or callable
         A mapping from states to actions.
-    """
 
-    def __init__(self, pi):
+    """
+    def __init__(self, mdp, pi):
         self.is_dict = hasattr(pi, '__getitem__')
 
         if not self.is_dict and not callable(pi):
@@ -19,6 +47,17 @@ class MDPPolicy(object):
                 "pi must be either a dict or a callable.")
 
         self.pi = pi
+
+        self.actions = mdp.actions
+        self.states = mdp.states
+
+    @property
+    def action_space(self):
+        return Space(set(self.actions), "ActionSpace")
+
+    @property
+    def observation_space(self):
+        return Space(set(self.states), "ObsSpace")
 
     def reset(self, state):
         self.current_state = state
@@ -33,30 +72,18 @@ class MDPPolicy(object):
             return self.pi(self.current_state)
 
     def action_distribution(self, s):
-        raise NotImplemented(
-            "No action distribution defined for this policy.")
-
-
-class UniformRandomPolicy(MDPPolicy):
-
-    def __init__(self, mdp):
-        self.actions = mdp.actions
-
-    def get_action(self):
-        return np.random.choice(self.actions)
-
-    def action_distribution(self, s):
-        d = np.ones(len(self.actions))
-        return d / sum(d)
+        raise NotImplemented("No action distribution defined for this policy.")
 
 
 class GreedyPolicy(MDPPolicy):
 
-    def __init__(self, mdp, V):
+    def __init__(self, mdp, V, epsilon=0.0):
         self.T = mdp.T
         self.R = mdp.R
         self.gamma = mdp.gamma
         self.actions = mdp.actions
+        self.states = mdp.states
+        self.epsilon = epsilon
 
         self.V = V.copy()
 
@@ -64,15 +91,19 @@ class GreedyPolicy(MDPPolicy):
         self.V[s] = v
 
     def get_action(self):
-        T_s = self.T[:, self.current_state, :]
-        R_s = self.R[:, self.current_state, :]
+        if self.epsilon > 0 and self.rng.rand() < self.epsilon:
+            return self.rng.choice(self.actions)
+        else:
+            T_s = self.T[:, self.current_state, :]
+            R_s = self.R[:, self.current_state, :]
 
-        return max(
-            self.actions,
-            key=lambda a: T_s[a, :].dot(R_s[a, :] + self.gamma * self.V))
+            return max(
+                self.actions,
+                key=lambda a: T_s[a, :].dot(R_s[a, :] + self.gamma * self.V))
 
 
 class LinearGibbsPolicy(MDPPolicy):
+
     def __init__(self, actions, feature_extractor, theta, temperature=1.0):
         self.actions = actions
         self.feature_extractor = feature_extractor
@@ -80,6 +111,15 @@ class LinearGibbsPolicy(MDPPolicy):
         self.temperature = temperature
 
         assert len(self.theta == self.feature_extractor.n_features)
+
+    @property
+    def action_space(self):
+        return Space(set(self.actions), "CtsActionSpace")
+
+    @property
+    def observation_space(self):
+        return Space(
+            [(-np.inf, np.inf)] * self.state_dim, "CtsObsSpace")
 
     def reset(self, state):
         self.current_state = state
@@ -89,8 +129,7 @@ class LinearGibbsPolicy(MDPPolicy):
 
     def get_action(self):
         probs = self.action_distribution(self.current_state)
-        sample = np.random.multinomial(1, probs)
-        action = np.where(sample > 0)[0][0]
+        action = sample_multinomial(probs, self.rng)
 
         return action
 
@@ -104,6 +143,8 @@ class LinearGibbsPolicy(MDPPolicy):
         return probs
 
     def gradient_log(self, s, a):
+        """ Compute the gradient of log(pi(a | s)) wrt theta. """
+
         feature_vectors = np.array([
             self.feature_extractor.as_vector(s, b)
             for b in self.actions])
@@ -115,22 +156,10 @@ class LinearGibbsPolicy(MDPPolicy):
         return grad_log
 
     def gradient(self, s, a):
-        """
-        Uses the identity:
+        """ Compute the gradient of pi(a | s) wrt theta.
+
+        Uses the following identity:
             grad(pi(a | s)) = pi(a | s) * grad(log pi(a | s))
         """
         grad = self.action_distribution(s)[a] * self.gradient_log(s, a)
         return grad
-
-
-class GridKeyboardPolicy(MDPPolicy):
-    def __init__(self, mapping=None):
-        if mapping is None:
-            mapping = {'w': 0, 'd': 1, 's': 2, 'a': 3}
-
-        self.mapping = mapping
-
-    def get_action(self):
-        x = raw_input()
-        assert len(x) == 1
-        return self.mapping[x]

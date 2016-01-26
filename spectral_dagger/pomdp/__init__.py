@@ -1,2 +1,2 @@
-from .pomdp import POMDP, Observation, POMDPPolicy
-from .pomdp import UniformRandomPolicy, BeliefStatePolicy
+from .pomdp import POMDP, HistoryPolicy, BeliefStatePolicy
+from .pbvi import PBVI

@@ -1,7 +1,7 @@
 import numpy as np
 
+from spectral_dagger import LearningAlgorithm
 from spectral_dagger.mdp import GreedyPolicy, MDPPolicy
-from spectral_dagger.learning_algorithm import LearningAlgorithm
 
 
 class PolicyIteration(LearningAlgorithm):
@@ -13,9 +13,9 @@ class PolicyIteration(LearningAlgorithm):
         if policy is None:
             pi = {}
             for s in mdp.states:
-                pi[s] = mdp.actions[np.random.randint(mdp.n_actions)]
+                pi[s] = mdp.actions[self.rng.randint(mdp.n_actions)]
 
-            policy = MDPPolicy(pi)
+            policy = MDPPolicy(mdp, pi)
 
         V = np.zeros(mdp.n_states)
 
@@ -72,7 +72,6 @@ class ValueIteration(LearningAlgorithm):
         self.threshold = threshold
 
     def fit(self, mdp, V_0=None):
-
         if V_0 is None:
             V_0 = np.ones(mdp.n_states)
 

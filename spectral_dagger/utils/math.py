@@ -1,12 +1,19 @@
 import numpy as np
 
 
-def default_rng(rng):
+def default_rng(rng=None):
     if rng is None:
         rng = np.random.RandomState()
         rng.set_state(np.random.get_state())
 
     return rng
+
+
+def sample_multinomial(p_vals, rng=None):
+    rng = default_rng(rng)
+
+    sample = rng.multinomial(1, p_vals)
+    return np.where(sample > 0)[0][0]
 
 
 def rmse(a, b):
@@ -73,13 +80,6 @@ def normalize(M, ord=2, axis=1, in_place=False, conservative=False):
         return M
     else:
         return M / norm
-
-
-def sample_multinomial(p_vals, rng=None):
-    rng = default_rng(rng)
-
-    sample = rng.multinomial(1, p_vals)
-    return np.where(sample > 0)[0][0]
 
 
 def laplace_smoothing(alpha, X, data):

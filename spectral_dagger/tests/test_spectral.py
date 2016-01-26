@@ -1,11 +1,12 @@
+import numpy as np
+import pytest
+
+from spectral_dagger import sample_episodes
 from spectral_dagger.spectral import SpectralPSR, CompressedPSR
 from spectral_dagger.spectral import top_k_basis
 from spectral_dagger.spectral import fixed_length_basis
 from spectral_dagger.hmm import HMM
 from spectral_dagger.utils.math import normalize
-
-import numpy as np
-import pytest
 
 
 @pytest.fixture
@@ -59,10 +60,10 @@ def reduced_rank_hmm():
 
 @pytest.mark.parametrize(
     'estimator', ['string', 'prefix', 'substring'])
-def test_spectral_hmm(
+def do_test_spectral_hmm(
         simple_hmm, estimator, n_samples=4000, horizon=3, m=None, basis=None):
 
-    samples = [simple_hmm.sample_trajectory(horizon) for i in range(n_samples)]
+    samples = sample_episodes(n_samples, simple_hmm, horizon=horizon)
     psr = SpectralPSR(simple_hmm.observations)
 
     if m is None:
@@ -85,12 +86,10 @@ def test_spectral_hmm(
         assert np.isclose(ground_truth, pred, atol=0.2, rtol=0.0)
 
 
-@pytest.mark.parametrize(
-    'estimator', ['string', 'prefix', 'substring'])
-def test_compressed_hmm(
+def do_test_compressed_hmm(
         simple_hmm, n_samples=100, horizon=3, m=None, basis=None):
 
-    samples = [simple_hmm.sample_trajectory(horizon) for i in range(n_samples)]
+    samples = sample_episodes(n_samples, simple_hmm, horizon=horizon)
     comp_psr = CompressedPSR(simple_hmm.observations)
 
     if m is None:
@@ -107,8 +106,6 @@ def test_compressed_hmm(
     print "*" * 20
     for seq in test_seqs:
         ground_truth = simple_hmm.get_seq_prob(seq)
-        # import pdb
-        # pdb.set_trace()
         pred = comp_psr.get_seq_prob(seq)
         print("Seq: ", seq)
         print("Ground truth: %f" % ground_truth)
@@ -118,50 +115,47 @@ def test_compressed_hmm(
             assert np.isclose(ground_truth, pred, atol=0.2, rtol=0.0)
 
 
-if __name__ == "__main__":
-
+def test_psr():
     # Test SpectralPSR
     hmm = simple_hmm()
     dimension = 6
 
-    test_spectral_hmm(hmm, 'string', m=dimension)
-    test_spectral_hmm(hmm, 'prefix', m=dimension)
-    test_spectral_hmm(hmm, 'substring', m=dimension)
+    do_test_spectral_hmm(hmm, 'string', m=dimension)
+    do_test_spectral_hmm(hmm, 'prefix', m=dimension)
+    do_test_spectral_hmm(hmm, 'substring', m=dimension)
 
     rr_hmm = reduced_rank_hmm()
     dimension = np.linalg.matrix_rank(rr_hmm.T)
 
     basis = fixed_length_basis(rr_hmm.observations, 2, False)
-    test_spectral_hmm(rr_hmm, 'prefix', m=dimension, basis=basis, horizon=5)
+    do_test_spectral_hmm(rr_hmm, 'prefix', m=dimension, basis=basis, horizon=5)
 
     basis = fixed_length_basis(rr_hmm.observations, 1, False)
-    test_spectral_hmm(rr_hmm, 'prefix', m=dimension, basis=basis, horizon=3)
+    do_test_spectral_hmm(rr_hmm, 'prefix', m=dimension, basis=basis, horizon=3)
 
     basis = fixed_length_basis(rr_hmm.observations, 2, True)
-    test_spectral_hmm(rr_hmm, 'prefix', m=dimension, basis=basis, horizon=5)
+    do_test_spectral_hmm(rr_hmm, 'prefix', m=dimension, basis=basis, horizon=5)
 
     basis = fixed_length_basis(rr_hmm.observations, 1, True)
-    test_spectral_hmm(rr_hmm, 'prefix', m=dimension, basis=basis, horizon=3)
+    do_test_spectral_hmm(rr_hmm, 'prefix', m=dimension, basis=basis, horizon=3)
 
     # Test CompressedPSR
     hmm = simple_hmm()
     dimension = 6
 
-    test_compressed_hmm(hmm, m=dimension)
-    test_compressed_hmm(hmm, m=dimension)
-    test_compressed_hmm(hmm, m=dimension)
+    do_test_compressed_hmm(hmm, m=dimension)
 
     rr_hmm = reduced_rank_hmm()
     dimension = np.linalg.matrix_rank(rr_hmm.T)
 
     basis = fixed_length_basis(rr_hmm.observations, 2, False)
-    test_compressed_hmm(rr_hmm, m=dimension, basis=basis, horizon=5)
+    do_test_compressed_hmm(rr_hmm, m=dimension, basis=basis, horizon=5)
 
     basis = fixed_length_basis(rr_hmm.observations, 1, False)
-    test_compressed_hmm(rr_hmm, m=dimension, basis=basis, horizon=3)
+    do_test_compressed_hmm(rr_hmm, m=dimension, basis=basis, horizon=3)
 
     basis = fixed_length_basis(rr_hmm.observations, 2, True)
-    test_compressed_hmm(rr_hmm, m=dimension, basis=basis, horizon=5)
+    do_test_compressed_hmm(rr_hmm, m=dimension, basis=basis, horizon=5)
 
     basis = fixed_length_basis(rr_hmm.observations, 1, True)
-    test_compressed_hmm(rr_hmm, m=dimension, basis=basis, horizon=3)
+    do_test_compressed_hmm(rr_hmm, m=dimension, basis=basis, horizon=3)

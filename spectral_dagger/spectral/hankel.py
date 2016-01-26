@@ -37,10 +37,11 @@ def estimate_hankels(data, basis, observations, estimator):
         "substring": fill_substring_hankel}
 
     try:
-        fill_funcs[estimator](
-            data, basis, hp, hs, hankel, symbol_hankels)
+        fill_func = fill_funcs[estimator]
     except KeyError:
         raise ValueError("Unknown Hankel estimator name: %s." % estimator)
+
+    fill_func(data, basis, hp, hs, hankel, symbol_hankels)
 
     hankel = csr_matrix(hankel)
 

@@ -1,23 +1,20 @@
 import numpy as np
 import logging
 
-from spectral_dagger.mdp import MDPPolicy
+from spectral_dagger import sample_episodes
+from spectral_dagger import LearningAlgorithm
 
 
-class REINFORCE(MDPPolicy):
+class REINFORCE(LearningAlgorithm):
 
     def __init__(self, policy_class, *policy_args, **policy_kwargs):
         self.policy_class = policy_class
         self.policy_args = policy_args
         self.policy_kwargs = policy_kwargs
 
-    def fit(
-            self, mdp, horizon, feature_extractor,
-            alpha, n_samples, max_steps=np.inf, tol=1e-6, theta=None,
-            mu=0.0):
-        """
-        Use the REINFORCE algorithm to find a high-reward agent
-        in the given MDP.
+    def fit(self, mdp, horizon, feature_extractor, alpha, n_samples,
+            max_steps=np.inf, tol=1e-6, theta=None, mu=0.0):
+        """ Use the REINFORCE alg to find a high-reward policy for the given MDP.
 
         Parameters
         ----------
@@ -71,13 +68,9 @@ class REINFORCE(MDPPolicy):
 
         n_steps = 0
         while alpha > tol and n_steps < max_steps:
-            sample_trajectories = [
-                mdp.sample_trajectory(
-                    policy, horizon, reset=True, display=False)
-                for k in range(n_samples)]
+            sample_eps = sample_episodes(n_samples, mdp, policy, reset=True)
 
-            current_gradient, norm = (
-                self.estimate_gradient(sample_trajectories, policy))
+            current_gradient, norm = self.estimate_gradient(sample_eps, policy)
 
             # implement momentum
             gradient = mu * gradient + current_gradient
@@ -97,7 +90,8 @@ class REINFORCE(MDPPolicy):
                     pass
 
             returns = [
-                sum(r for (_, _, r) in tau) for tau in sample_trajectories]
+                sum(obs.reward for (_, obs) in tau) for tau in sample_eps]
+
             for i, r in enumerate(returns):
                 print "Return from iter %d:  %f" % (i, r)
 
@@ -116,19 +110,15 @@ class REINFORCE(MDPPolicy):
         return policy
 
     @staticmethod
-    def estimate_gradient(sample_trajectories, policy):
-        """
-        Estimate gradient direction from sample trajectories.
-
-        Returns: unit vector in gradient direction, gradient norm
-        """
+    def estimate_gradient(samples, policy):
+        """ Estimate gradient direction and norm from sample trajectories. """
 
         cumulative_reward = []
-        horizon = max(len(tau) for tau in sample_trajectories)
+        horizon = max(len(tau) for tau in samples)
 
-        for tau in sample_trajectories:
-            r = [r for (_, _, r) in tau]
-            r.extend([0.0] * (horizon - len(r)))
+        for tau in samples:
+            reward = [r for (a, o, r) in tau]
+            reward.extend([0.0] * (horizon - len(r)))
             cumulative_reward.append(sum(r) - np.cumsum(r))
 
         cumulative_reward = np.array(cumulative_reward)
@@ -138,7 +128,7 @@ class REINFORCE(MDPPolicy):
         # Calculate gradient estimate
         gradient = np.zeros(policy.feature_extractor.n_features)
 
-        for br, tau in zip(baselined_reward, sample_trajectories):
+        for br, tau in zip(baselined_reward, samples):
             for r, (s, a, _) in zip(br, tau):
                 gradient += policy.gradient_log(s, a) * r
 
@@ -150,8 +140,8 @@ class REINFORCE(MDPPolicy):
 
 
 if __name__ == "__main__":
+    from spectral_dagger import make_print_hook
     from spectral_dagger.envs import ContinuousGridWorld
-    from spectral_dagger.envs import GridWorld
     from spectral_dagger.mdp import LinearGibbsPolicy
     from spectral_dagger.function_approximation import RectangularTileCoding
     from spectral_dagger.function_approximation import StateActionFeatureExtractor
@@ -185,8 +175,7 @@ if __name__ == "__main__":
 
     learner = REINFORCE(LinearGibbsPolicy)
     policy = learner.fit(
-        mdp, horizon, feature_extractor, alpha,
-        n_samples=2, max_steps=200)
+        mdp, horizon, feature_extractor, alpha, n_samples=2, max_steps=200)
 
-    for i in range(10):
-        mdp.sample_trajectory(policy, horizon, reset=True, display=0.1)
+    sample_episodes(
+        10, mdp, policy, horizon=horizon, hook=make_print_hook(0.1))

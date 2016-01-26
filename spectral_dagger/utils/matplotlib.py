@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 from matplotlib import animation
 import numpy as np
 
+from spectral_dagger import sample_episode
+
 
 # TODO: fix this up
 def contour_animation(linear_gtd, env, env_bounds):
@@ -21,8 +23,7 @@ def contour_animation(linear_gtd, env, env_bounds):
     # animation function
     def animate(i):
         # cont = plt.contourf(x, y, z, 25)
-        env.sample_trajectory(
-            policy=linear_gtd, display=False, reset=True)
+        sample_episode(env, linear_gtd)
 
         plt.title('Value function. alpha: %f' % linear_gtd.alpha)
 
@@ -35,17 +36,16 @@ def contour_animation(linear_gtd, env, env_bounds):
 
 
 class ABLine2D(plt.Line2D):
+    """ Draw a line based on its normal vector, coefs, and an bias.
 
-    """
-    Draw a line based on its normal vector, coefs, and an bias.
     Uses the equation:
 
     coefs[0] * x + coefs[1] * y + bias = 0
 
     Additional arguments are passed to the <matplotlib.lines.Line2D>
     constructor.
-    """
 
+    """
     def __init__(self, bias, coefs, *args, **kwargs):
 
         assert len(coefs) == 2

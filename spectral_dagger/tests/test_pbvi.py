@@ -1,10 +1,14 @@
 import numpy as np
 
-from spectral_dagger.pbvi import PBVI
-from spectral_dagger.grid_world import EgoGridWorld
+from spectral_dagger import sample_episode
+from spectral_dagger.tests.conftest import make_test_display
+from spectral_dagger.pomdp import PBVI
+from spectral_dagger.envs import EgoGridWorld
 
 
 def test_pbvi(display=False):
+    display_hook = make_test_display(display)
+
     world = np.array([
         ['x', 'x', 'x', 'x', 'x'],
         ['x', ' ', ' ', ' ', 'x'],
@@ -25,6 +29,4 @@ def test_pbvi(display=False):
         alg = PBVI()
         policy = alg.fit(pomdp)
 
-        pomdp.sample_trajectory(
-            policy, horizon=20, reset=True, display=display)
-
+        sample_episode(pomdp, policy, horizon=20, hook=display_hook)

@@ -1,19 +1,18 @@
 import numpy as np
 import itertools
 
-from spectral_dagger.mdp import MDP, State, Action
-from spectral_dagger.pomdp import POMDP, Observation
+from spectral_dagger import Action, Observation, State, Space
+from spectral_dagger.mdp import MDP, MDPPolicy
+from spectral_dagger.pomdp import POMDP
+from spectral_dagger.utils import sample_multinomial, default_rng
 from spectral_dagger.utils.geometry import Position, Rectangle
 
 
 class GridState(State):
-    def __init__(self, position, id, dimension):
+    def __init__(self, position, id):
         self.position = np.array(position, copy=True)
         self.position.flags.writeable = False
-        super(GridState, self).__init__(id, dimension)
-
-    def as_vector(self):
-        return np.array([self.y, self.x])
+        super(GridState, self).__init__(id)
 
     @property
     def y(self):
@@ -24,11 +23,11 @@ class GridState(State):
         return self.position[1]
 
     def __str__(self):
-        return "<GridState id: %s, position: (y: %d, x: %d), dim: %d>" % (
-            self.get_id(), self.position[0], self.position[1], self.dimension)
+        return "<GridState id: %s, position: (y: %d, x: %d)>" % (
+            self.get_id(), self.position[0], self.position[1])
 
-    def __array__(
-            self, dtype=np.float32, copy=True, order='C', subok=True, ndmin=0):
+    def __array__(self, dtype=np.float32, copy=True,
+                  order='C', subok=True, ndmin=0):
         return self.position.copy()
 
 
@@ -131,8 +130,8 @@ class WorldMap(object):
         3. All other remaining characters are considered walls.
         4. The map must be surrounded by walls. Otherwise, agents will try to
            step off the edge of the map, causing errors.
-    """
 
+    """
     START_MARKER = 'S'
     GOAL_MARKER = 'G'
     PIT_MARKER = 'O'
@@ -283,7 +282,7 @@ class WorldMap(object):
 
 
 class ColoredWorldMap(WorldMap):
-    def __init__(self, n_colors, world_map=None):
+    def __init__(self, n_colors, world_map=None, rng=None):
         assert n_colors >= 1
 
         if world_map is None:
@@ -291,13 +290,15 @@ class ColoredWorldMap(WorldMap):
         self.world_map = np.array(world_map, copy=True)
 
         self.n_colors = n_colors
-        self.parse_map()
+        self.parse_map(rng)
 
-    def parse_map(self):
+    def parse_map(self, rng=None):
         n_walls = np.count_nonzero(self.world_map == WorldMap.WALL_MARKER)
         is_wall = self.world_map == WorldMap.WALL_MARKER
+
+        rng = default_rng(rng)
         self.world_map[is_wall] = (
-            np.random.randint(1, self.n_colors+1, n_walls))
+            rng.randint(1, self.n_colors+1, n_walls))
 
         super(ColoredWorldMap, self).parse_map()
 
@@ -358,6 +359,23 @@ class GridWorld(MDP):
     def __str__(self):
         return str(self.world_map)
 
+    def has_terminal_states(self):
+        return self.terminate_on_goal
+
+    def in_terminal_state(self):
+        return (
+            self.has_terminal_states() and self.world_map.in_terminal_state())
+
+    @property
+    def actions(self):
+        return GridAction.get_all_actions()
+
+    @property
+    def states(self):
+        return [
+            GridState(pos, i) for i, pos
+            in enumerate(self.positions)]
+
     def set_rewards(self, rewards):
         if rewards is None:
             rewards = {}
@@ -369,8 +387,7 @@ class GridWorld(MDP):
         self.default_reward = rewards.get('default', GridWorld.DEFAULT_REWARD)
 
     def reset(self, state=None):
-        """
-        Resets the state of the MDP.
+        """ Resets the state of the grid world.
 
         Parameters
         ----------
@@ -380,8 +397,8 @@ class GridWorld(MDP):
           distribution. If self.init_position == None, feasible positions are
           chosen uniformly at random. Otherwise, the initial position is set
           equal to self.init_position.
-        """
 
+        """
         if isinstance(state, GridState):
             self.current_position = Position(state.position)
         elif isinstance(state, int):
@@ -395,8 +412,10 @@ class GridWorld(MDP):
                 locations -= set(self.trap_positions)
                 locations -= set([self.goal_position])
 
-                self.current_position = list(locations)[
-                    np.random.randint(len(locations))]
+                locations = list(locations)
+
+                self.current_position = (
+                    locations[self.rng.randint(len(locations))])
             else:
                 self.current_position = Position(self.init_position)
 
@@ -408,14 +427,20 @@ class GridWorld(MDP):
                     "GridWorld.reset received invalid starting "
                     "state: %s" % state)
 
-    def execute_action(self, action):
-        """
-        With probability 0.8, move in the specified direction. With
-        probability 0.2, move in a randomly chosen perpendicular direction.
-        If there is a wall in the direction selected by this random process,
-        stay in place.
+        return self.pos2state(self.current_position)
 
-        Returns the next state and the reward.
+    def update(self, action):
+        """ Update state of the grid world given that ``action`` was taken.
+
+        With probability 1 - self.noise, move in the specified direction. With
+        probability self.noise, move in a randomly chosen perpendicular
+        direction. If there is a wall in the direction selected by this random
+        process, stay in place.
+
+        Returns
+        -------
+        New state and reward received.
+
         """
         try:
             action = GridAction(action)
@@ -427,14 +452,16 @@ class GridWorld(MDP):
         prev_position = self.current_position
 
         if self.world_map.in_pit_state():
-            sample = np.random.multinomial(1, self.init_dist)
-            self.current_position = self.positions[np.where(sample > 0)[0]]
+            sample = sample_multinomial(self.init_dist, self.rng)
+            self.current_position = self.positions[sample]
+
         elif self.world_map.in_trap_state():
             pass
+
         else:
-            if(np.random.random() < self.noise):
+            if(self.rng.rand() < self.noise):
                 perp_dirs = action.get_perpendicular_directions()
-                action = perp_dirs[np.random.randint(len(perp_dirs))]
+                action = self.rng.choice(perp_dirs)
 
             next_position = action.get_next_position(self.current_position)
 
@@ -460,34 +487,8 @@ class GridWorld(MDP):
                 "type %s." % (pos, type(pos)))
 
     @property
-    def actions(self):
-        return GridAction.get_all_actions()
-
-    @property
-    def states(self):
-        dimension = len(self.positions)
-        return [
-            GridState(pos, i, dimension) for i, pos
-            in enumerate(self.positions)]
-
-    @property
-    def n_actions(self):
-        return len(self.actions)
-
-    @property
-    def n_states(self):
-        return len(self.states)
-
-    @property
     def current_state(self):
         return self.pos2state(self.current_position)
-
-    def has_terminal_states(self):
-        return self.terminate_on_goal
-
-    def in_terminal_state(self):
-        return (
-            self.has_terminal_states() and self.world_map.in_terminal_state())
 
     def in_pit_state(self):
         return self.world_map.is_pit_state(self.current_position)
@@ -496,12 +497,10 @@ class GridWorld(MDP):
         return self.world_map.is_puddle_state(self.current_position)
 
     def make_T(self):
-        """
-        Returns a set of transition matrices, one for each action.
-        For each a, each row of T[a] sums to 1.
-        """
+        """ Make transition operator. """
+
         # local transition probabilities when trying to move straight
-        # see fn execute_action for where this is implemented
+        # see fn update for where this is implemented
         # dict index is (S, R, L), whether the location is blocked by a wall.
         # probabilities are (C, S, R, L), probability of transitioning there.
         # C is current position
@@ -557,9 +556,7 @@ class GridWorld(MDP):
         self._T.flags.writeable = False
 
     def make_R(self):
-        """
-        Returns a |actions| x |states| x |states| reward matrix.
-        """
+        """ Make reward operator. """
 
         R = np.zeros((self.n_actions, self.n_states, self.n_states))
 
@@ -606,8 +603,7 @@ class GridWorld(MDP):
 
     def pos2state(self, position):
         return GridState(
-            position.position, id=self.positions.index(position),
-            dimension=len(self.positions))
+            position.position, id=self.positions.index(position))
 
     def print_value_function(self, V):
         """
@@ -678,17 +674,18 @@ class GridObservation(Observation):
 
 
 class EgoGridWorld(POMDP):
-    """
-    For Egocentric Grid World.
+    """ An Egocentric Grid World.
 
     Takes in a world map where all the walls are either x's or integers from
     1 to n_colors. For each x, randomly replaces it with a number from
     1 to n_colors. The result is a world map that effectively has colored
     walls.
-    """
 
-    def __init__(self, n_colors, world_map=None, gamma=0.9, noise=0.1):
-        self.world_map = ColoredWorldMap(n_colors, world_map)
+    """
+    def __init__(
+            self, n_colors, world_map=None, gamma=0.9, noise=0.1, rng=None):
+
+        self.world_map = ColoredWorldMap(n_colors, world_map, rng=rng)
         self.grid_world = GridWorld(self.world_map, gamma=gamma, noise=noise)
 
         self.make_O()
@@ -702,34 +699,45 @@ class EgoGridWorld(POMDP):
         return str(self.grid_world)
 
     @property
+    def actions(self):
+        return GridAction.get_all_actions()
+
+    @property
+    def observations(self):
+        return GridObservation.get_all_observations(self.world_map.n_colors+1)
+
+    @property
+    def states(self):
+        return self.grid_world.states
+
+    @property
     def mdp(self):
         return self.grid_world
 
     def reset(self, init_dist=None):
-        """
-        Can specify an initial distribution, or supply None to have it use
-        its internal intial distribution.
-        """
+        """ Resets the state of the grid world. """
+
         if init_dist is not None:
             if len(init_dist) != self.n_states:
                 raise ValueError(
                     "Initialization distribution must have number of elements "
                     "equal to the number of states in the POMDP.")
 
-            sample = np.random.multinomial(1, init_dist)
-            self.grid_world.reset(np.where(sample > 0)[0][0])
+            sample = sample_multinomial(init_dist, self.rng)
+            self.grid_world.reset(sample)
 
         else:
             self.grid_world.reset()
 
-    def execute_action(self, action):
-        """
-        Play the given action.
+    def update(self, action):
+        """ Update state of the grid world given that ``action`` was taken.
 
-        Returns the resulting observation and reward.
-        """
+        Returns
+        -------
+        New state and reward received.
 
-        state, reward = self.grid_world.execute_action(action)
+        """
+        state, reward = self.grid_world.update(action)
         obs = self.generate_observation()
 
         return obs, reward
@@ -745,19 +753,9 @@ class EgoGridWorld(POMDP):
         return GridObservation(
             north, east, south, west, self.world_map.n_colors+1)
 
-    @property
-    def actions(self):
-        return GridAction.get_all_actions()
-
-    @property
-    def observations(self):
-        return GridObservation.get_all_observations(self.world_map.n_colors+1)
-
-    @property
-    def states(self):
-        return self.grid_world.states
-
     def make_O(self):
+        """ Make observation operator. """
+
         temp_state = self.current_state
 
         O = np.zeros((
@@ -781,3 +779,23 @@ class EgoGridWorld(POMDP):
     @property
     def init_dist(self):
         return self.grid_world.init_dist
+
+
+class GridKeyboardPolicy(MDPPolicy):
+    """ A policy that accepts input from the keyboard using WASD. """
+
+    def __init__(self, mapping=None):
+        if mapping is None:
+            mapping = {'w': 0, 'd': 1, 's': 2, 'a': 3}
+
+        self.actions = GridAction.get_all_actions()
+        self.mapping = mapping
+
+    @property
+    def observation_space(self):
+        return Space(name="ObsSpace")
+
+    def get_action(self):
+        x = raw_input()
+        assert len(x) == 1
+        return self.mapping[x]

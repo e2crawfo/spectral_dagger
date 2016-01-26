@@ -1,6 +1,7 @@
-from spectral_dagger.mdp import MDP
-
 import numpy as np
+
+from spectral_dagger import sample_episodes
+from spectral_dagger.mdp import MDP
 
 
 class RandomWalk(MDP):
@@ -45,12 +46,12 @@ class RandomWalk(MDP):
 
         self.reset()
 
-    def execute_action(self, action=None):
+    def update(self, action=None):
         """
         Ignore the action
         """
 
-        return super(RandomWalk, self).execute_action(0)
+        return super(RandomWalk, self).update(0)
 
     def __str__(self):
         return ''.join([
@@ -85,8 +86,7 @@ if __name__ == "__main__":
         for n in range(n_iters):
             q = QLearning(c, alpha=alpha, Q_0=np.zeros((n_states, 1)))
 
-            for i in range(n_episodes):
-                t = c.sample_trajectory(q, display=False, reset=True)
+            sample_episodes(n_episodes, c, q)
 
             errors[-1].append(rmse(q.Q, true_Q))
 
