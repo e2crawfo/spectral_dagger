@@ -158,7 +158,7 @@ class SingleActionMDP(MDP):
         """ Ignores the given action, uses the action from the policy. """
         a = self.policy.get_action()
         s_prime, r = self.mdp.update(a)
-        self.policy.update(a, s_prime, r)
+        self.policy.update(s_prime, a, r)
         return s_prime, r
 
     def in_terminal_state(self):

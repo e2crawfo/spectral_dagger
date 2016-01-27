@@ -52,8 +52,8 @@ def dagger(
 
                 next_state, _ = mdp.update(action)
 
-                policy.update(action, next_state)
-                expert.update(action, next_state)
+                policy.update(next_state, action)
+                expert.update(next_state, action)
 
                 state = next_state
 
@@ -113,8 +113,8 @@ def po_dagger(
 
                 obs, _ = pomdp.update(action)
 
-                policy.update(action, obs)
-                expert.update(action, obs)
+                policy.update(obs, action)
+                expert.update(obs, action)
 
                 trajectories[-1].append((action, obs))
 
@@ -223,7 +223,7 @@ class BeliefStateClassifier(LearningAlgorithm):
                 belief_states.append(policy.belief_state)
                 flat_actions.append(response_action)
 
-                policy.update(a, o)
+                policy.update(o, a)
 
         # Most sklearn predictors operate on strings or numbers
         action_lookup = {str(a): a for a in set(flat_actions)}

@@ -57,7 +57,7 @@ class TD(MDPPolicy):
 
         self.update_parameters()
 
-    def update(self, action, state, reward=None):
+    def update(self, state, action, reward=None):
         prev_state = self.current_state
 
         if self.L > 0:
@@ -129,7 +129,7 @@ class LinearGradientTD(TD):
         self.eligibility_trace[:] = 0
         self.update_parameters()
 
-    def update(self, action, state, reward=None):
+    def update(self, state, action, reward=None):
         features = self.feature_extractor.as_vector(self.current_state)
         self.eligibility_trace *= self.gamma * self.L
         self.eligibility_trace += features
@@ -197,7 +197,7 @@ class QTD(TD):
 
         self.update_parameters()
 
-    def update(self, action, state, reward=None):
+    def update(self, state, action, reward=None):
 
         if self.prev_reward is not None:
             if self.L > 0:
@@ -301,7 +301,7 @@ class QLearning(ControlTD):
         self.current_state = state
         self.update_parameters()
 
-    def update(self, action, state, reward=None):
+    def update(self, state, action, reward=None):
         prev_state = self.current_state
 
         if reward is not None:
@@ -364,7 +364,7 @@ class Sarsa(ControlTD):
 
         self.update_parameters()
 
-    def update(self, action, state, reward=None):
+    def update(self, state, action, reward=None):
 
         if self.prev_reward is not None:
             if self.L > 0:
@@ -454,7 +454,7 @@ class LinearGradientSarsa(ControlTD):
         self.current_state = state
         self.update_parameters()
 
-    def update(self, action, state, reward=None):
+    def update(self, state, action, reward=None):
         if self.prev_reward is not None:
 
             features = self.feature_extractor.as_vector(self.prev_state)

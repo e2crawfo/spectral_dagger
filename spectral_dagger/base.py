@@ -46,6 +46,14 @@ def set_sim_rng(rng):
     SpectralDaggerObject._simulation_rng = default_rng(rng)
 
 
+def get_model_rng():
+    return SpectralDaggerObject._model_rng
+
+
+def get_sim_rng():
+    return SpectralDaggerObject._simulation_rng
+
+
 class Space(object):
     """ A space of objects.
 
@@ -345,7 +353,7 @@ class Policy(SpectralDaggerObject):
         """
         raise NotImplementedError()
 
-    def update(self, action=None, obs=None, reward=None):
+    def update(self, obs=None, action=None, reward=None):
         """ Update policy's internal state.
 
         Update any internal state given that ``action`` was executed, the
@@ -462,7 +470,7 @@ def sample_episodes(
                 obs, reward = result, 0.0
 
             for p in policies:
-                p.update(action, obs, reward)
+                p.update(obs, action, reward)
 
             episode.append(
                 obs if just_obs else (action, obs, reward))

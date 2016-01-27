@@ -85,7 +85,7 @@ class GaussianController(MDPPolicy):
     def reset(self, x):
         self.x = x
 
-    def update(self, action, state, reward=None):
+    def update(self, state, action, reward=None):
         pass
 
     def get_action(self):

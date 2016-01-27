@@ -162,7 +162,7 @@ class HistoryPolicy(Policy):
     def reset(self, init_dist=None):
         self.history = []
 
-    def update(self, action, observation, reward=None):
+    def update(self, observation, action, reward=None):
         self.history.append((action, observation, reward))
 
     def get_action(self):
@@ -208,7 +208,7 @@ class BeliefStatePolicy(Policy):
 
         self.b = b
 
-    def update(self, a, o, r=None):
+    def update(self, o, a, r=None):
         b_prime = self.b.dot(self.pomdp.T[a]) * self.pomdp.O[a, :, o]
         b_prime /= sum(b_prime)
         self.b = b_prime

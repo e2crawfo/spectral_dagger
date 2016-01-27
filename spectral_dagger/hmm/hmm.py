@@ -1,8 +1,7 @@
 import numpy as np
 
-from spectral_dagger.base import Environment, Space, sample_episodes
+from spectral_dagger import Environment, Space, sample_episodes, get_model_rng
 from spectral_dagger.utils.math import normalize, sample_multinomial
-from spectral_dagger.utils.math import default_rng
 from spectral_dagger.spectral import PredictiveStateRep
 
 
@@ -245,8 +244,7 @@ def dummy_hmm(n_states):
 def bernoulli_hmm(n_states, n_obs, model_rng=None):
     """ Create an HMM with operators chosen from Bernoulii distributions. """
 
-    if model_rng is None:
-        model_rng = default_rng(model_rng)
+    model_rng = get_model_rng() if model_rng is None else model_rng
 
     observations = range(n_obs)
     states = range(n_states)

@@ -4,6 +4,7 @@ from sklearn.utils.extmath import randomized_svd
 import logging
 
 from spectral_dagger import sample_episodes, LearningAlgorithm, Space, Policy
+from spectral_dagger import get_model_rng
 from spectral_dagger.spectral import hankel
 
 
@@ -29,7 +30,7 @@ class PredictiveStateRep(object):
     def reset(self):
         self.b = self.b_0.copy()
 
-    def update(self, action=None, obs=None):
+    def update(self, obs=None, action=None):
         """ Update state upon seeing an observation. """
         B_o = self.B_o[obs]
         numer = self.b.dot(B_o)
@@ -100,8 +101,8 @@ class PredictiveStateRep(object):
 
     def get_WER(self, test_data):
         """ Get word error rate for the test data. """
-        errors = 0
-        n_predictions = 0
+        errors = 0.0
+        n_predictions = 0.0
 
         for seq in test_data:
             self.reset()
@@ -116,7 +117,7 @@ class PredictiveStateRep(object):
 
                 n_predictions += 1
 
-        return errors/float(n_predictions)
+        return errors/n_predictions
 
     def get_log_likelihood(self, test_data, base=2):
         """ Get average log likelihood for the test data.
@@ -287,13 +288,17 @@ class CompressedPSR(PredictiveStateRep):
             basis=None, phi=None, hankels=None):
         """ Fit a PSR to the given data using a compression algorithm. """
 
+        if not basis:
+            logger.debug("Generating basis...")
+            basis = hankel.top_k_basis(data, np.inf, 'prefix')
+
         self.basis = basis
         self.n_components = n_components
 
         prefix_dict, suffix_dict = basis
 
         if phi is None:
-            phi = self.model_rng.randn(len(suffix_dict), n_components)
+            phi = get_model_rng().randn(len(suffix_dict), n_components)
             phi *= 1. / np.sqrt(n_components)
 
         self.phi = phi
@@ -339,14 +344,20 @@ class CompressedPSR(PredictiveStateRep):
         self.b_0 /= n_samples
         proj_hankel /= n_samples
         hp /= n_samples
+        for o in self.observations:
+            proj_sym_hankels[o] /= n_samples
 
         inv_proj_hankel = np.linalg.pinv(proj_hankel)
 
         self.B_o = {}
         for o in self.observations:
-            self.B_o[o] = inv_proj_hankel.dot(proj_sym_hankels[o] / n_samples)
+            self.B_o[o] = inv_proj_hankel.dot(proj_sym_hankels[o])
 
         self.b_inf = inv_proj_hankel.dot(hp)
+
+        self.proj_sym_hankels = proj_sym_hankels
+        self.proj_hankel = proj_hankel
+        self.hp = hp
 
         self.reset()
 
@@ -445,7 +456,7 @@ class SpectralPSRWithActions(object):
 
         return self.b_0, self.B_ao, self.b_inf
 
-    def update(self, action, obs):
+    def update(self, obs, action):
         """Update state upon seeing an action observation pair"""
         B_ao = self.B_ao[action, obs]
         numer = self.b.dot(B_ao)
@@ -520,7 +531,7 @@ class SpectralPSRWithActions(object):
                 if prediction != o:
                     errors += 1
 
-                self.update(a, o)
+                self.update(o, a)
 
                 n_predictions += 1
 
@@ -541,7 +552,7 @@ class SpectralPSRWithActions(object):
                 else:
                     seq_llh += np.log(self.get_obs_prob(a, o))
 
-                self.update(a, o)
+                self.update(o, a)
 
             llh += seq_llh
 
@@ -609,7 +620,7 @@ class SpectralClassifier(LearningAlgorithm):
                 psr_states.append(self.psr.b)
                 flat_actions.append(response_action)
 
-                self.psr.update(a, o)
+                self.psr.update(o, a)
 
         # Most sklearn predictors operate on strings or numbers
         action_lookup = {str(a): a for a in set(flat_actions)}
@@ -647,8 +658,8 @@ class SpectralPolicy(Policy):
 
         self.psr.reset()
 
-    def update(self, action, observation, reward=None):
-        self.psr.update(action, observation)
+    def update(self, observation, action, reward=None):
+        self.psr.update(observation, action)
 
     def get_action(self):
         return self.f(self.psr.b)
@@ -730,9 +741,8 @@ if __name__ == "__main__":
                 if rank[0] < 3:
                     top_three_count += 1
 
-                psr.update(action, actual_obs)
-
-                exploration_policy.update(action, actual_obs)
+                psr.update(actual_obs, action)
+                exploration_policy.update(actual_obs, action)
 
                 if display:
                     print "\nStep %d" % i

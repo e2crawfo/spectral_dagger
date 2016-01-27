@@ -62,7 +62,7 @@ class MDPPolicy(Policy):
     def reset(self, state):
         self.current_state = state
 
-    def update(self, action, state, reward=None):
+    def update(self, state, action, reward=None):
         self.current_state = state
 
     def get_action(self):
@@ -124,7 +124,7 @@ class LinearGibbsPolicy(MDPPolicy):
     def reset(self, state):
         self.current_state = state
 
-    def update(self, action, state, reward=None):
+    def update(self, state, action, reward=None):
         self.current_state = state
 
     def get_action(self):
