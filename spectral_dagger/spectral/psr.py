@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class PredictiveStateRep(object):
-    def __init__(self, b_0, b_inf, B_o):
+    def __init__(self, b_0, b_inf, B_o, can_terminate=False):
         self.b_0 = b_0
         self.b_inf = b_inf
 
@@ -20,6 +20,7 @@ class PredictiveStateRep(object):
 
         self.observations = B_o.keys()
         self.n_observations = len(self.observations)
+        self.can_terminate = can_terminate
 
     def action_space(self):
         return None
@@ -216,7 +217,7 @@ class SpectralPSR(PredictiveStateRep):
 
             # H = U S V^T
             U, S, VT = randomized_svd(
-                hankel_matrix, 50, n_oversamples, n_iter)
+                hankel_matrix, n_components, n_oversamples, n_iter)
 
         V = VT.T
 

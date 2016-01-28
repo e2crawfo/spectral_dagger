@@ -104,11 +104,8 @@ class HMM(Environment):
         self._current_state = self.states[
             sample_multinomial(init_dist, self.rng)]
 
-    def update(self, action=None):
+    def update(self):
         """ Returns the resulting observation. """
-
-        if action is not None:
-            raise ValueError("Action must be None for HMM.")
 
         obs = self.observations[
             sample_multinomial(self.O[self.current_state], self.rng)]

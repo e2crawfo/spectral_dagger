@@ -372,8 +372,7 @@ def sample_episode(*args, **kwargs):
 
 
 def sample_episodes(
-        n_eps, env, policy=None, horizon=np.inf,
-        reset_env=True, hook=None):
+        n_eps, env, policy=None, horizon=np.inf, reset_env=True, hook=None):
     """ Sample a batch of episodes.
 
     Parameters
@@ -458,11 +457,13 @@ def sample_episodes(
         terminated = False
         t = 0
 
+        terminated = env.in_terminal_state()
         while not terminated:
             if do_actions:
                 action = behaviour_policy.get_action()
-
-            result = env.update(action)
+                result = env.update(action)
+            else:
+                result = env.update()
 
             if do_reward:
                 obs, reward = result

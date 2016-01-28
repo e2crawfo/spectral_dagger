@@ -366,7 +366,6 @@ def count_substrings(data, max_length):
 
 
 def top_k_basis(data, k, estimator='string', max_length=np.inf, square=True):
-
     """ Returns top `k` most frequently occuring prefixes and suffixes.
 
     To be used when estimating hankel matrices for
