@@ -10,17 +10,27 @@ from spectral_dagger.spectral import hankel
 
 logger = logging.getLogger(__name__)
 
+machine_eps = np.finfo(float).eps
+
 
 class PredictiveStateRep(object):
-    def __init__(self, b_0, b_inf, B_o, can_terminate=False):
+    def __init__(self, b_0, b_inf, B_o, estimator, can_terminate=None):
         self.b_0 = b_0
         self.b_inf = b_inf
-
         self.B_o = B_o
 
+        self.estimator = estimator
         self.observations = B_o.keys()
         self.n_observations = len(self.observations)
-        self.can_terminate = can_terminate
+
+        self.compute_start_end_vectors(b_0, b_inf, estimator)
+
+        if can_terminate is None:
+            self.can_terminate = (b_inf != 0).any()
+        else:
+            self.can_terminate = can_terminate
+
+        self.reset()
 
     def action_space(self):
         return None
@@ -42,7 +52,7 @@ class PredictiveStateRep(object):
     def get_obs_prob(self, o):
         """ Get probability of observation for next time step.  """
         prob = self.b.dot(self.B_o[o]).dot(self.b_inf)
-        return np.clip(prob, np.finfo(float).eps, 1)
+        return np.clip(prob, machine_eps, 1)
 
     def get_prediction(self):
         """ Get observation with highest prob for next time step . """
@@ -58,47 +68,79 @@ class PredictiveStateRep(object):
             np.count_nonzero(probs > self.get_obs_prob(o)),
             np.count_nonzero(probs < self.get_obs_prob(o)))
 
-    def get_seq_prob(self, seq):
-        """ Get probability of sequence given current state. """
+    def get_string_prob(self, string, init_state=None):
+        """ Get probability of string. """
 
-        b = self.b.copy()
-        for o in seq:
-            b = b.dot(self.B_o[o])
+        if init_state is None:
+            self.b = self.b_0.copy()
+        else:
+            self.b = init_state
 
-        prob = b.dot(self.b_inf)
+        log_prob = 0.0
 
-        return np.clip(prob, np.finfo(float).eps, 1)
+        for o in string:
+            obs_prob = self.get_obs_prob(o)
+            obs_prob = max(machine_eps, obs_prob)
+            log_prob += np.log2(obs_prob)
+            self.update(o)
 
-    def get_delayed_seq_prob(self, seq, t):
-        """ Get probability of observing sequence at a delay of ``t``.
+        end_prob = self.b.dot(self.b_inf_string)
+        end_prob = max(machine_eps, end_prob)
+        log_prob += np.log2(end_prob)
 
-        get_delayed_seq_prob(seq, 0) is equivalent to get_seq_prob(seq).
+        prob = 2**log_prob
+        return np.clip(prob, machine_eps, 1)
+
+    def get_delayed_string_prob(self, string, t, init_state=None):
+        """ Get probability of observing string at a delay of ``t``.
+
+        get_delayed_string_prob(s, 0) is equivalent to get_string_prob(s).
 
         """
-        b = self.b.copy()
+        if init_state is None:
+            b = self.b_0.copy()
+        else:
+            b = init_state
 
         for i in range(t):
             b = b.dot(self.B)
 
-        for o in seq:
-            b = b.dot(self.B_o[o])
+        return self.get_string_prob(string, init_dist=b)
 
-        prob = b.dot(self.b_inf)
+    def get_prefix_prob(self, prefix, init_state=None):
+        """ Get probability of prefix. """
 
-        return np.clip(prob, np.finfo(float).eps, 1)
+        if init_state is None:
+            self.b = self.b_0.copy()
+        else:
+            self.b = init_state
 
-    def get_seq_state(self, seq, b=None):
-        """ Get state obtained if sequence observed from state `b`. """
-        old_b = self.b
+        log_prob = 0.0
 
-        self.b = b.copy() if b else self.b.copy()
-        for o in seq:
-            self.filter(o)
+        for o in prefix:
+            obs_prob = self.get_obs_prob(o)
+            obs_prob = max(machine_eps, obs_prob)
+            log_prob += np.log2(obs_prob)
+            self.update(o)
 
-        new_b = self.b
-        self.b = old_b
+        prob = 2**log_prob
+        return np.clip(prob, machine_eps, 1)
 
-        return new_b
+    def get_delayed_prefix_prob(self, prefix, t, init_state=None):
+        """ Get probability of observing prefix at a delay of ``t``.
+
+        get_delayed_prefix_prob(p, 0) is equivalent to get_prefix_prob(p).
+
+        """
+        if init_state is None:
+            b = self.b_0.copy()
+        else:
+            b = init_state
+
+        for i in range(t):
+            b = b.dot(self.B)
+
+        return self.get_prefix_prob(prefix, init_dist=b)
 
     def get_WER(self, test_data):
         """ Get word error rate for the test data. """
@@ -110,37 +152,25 @@ class PredictiveStateRep(object):
 
             for o in seq:
                 prediction = self.get_prediction()
+                self.update(o)
 
                 if prediction != o:
                     errors += 1
-
-                self.update(o)
-
                 n_predictions += 1
 
         return errors/n_predictions
 
     def get_log_likelihood(self, test_data, base=2):
-        """ Get average log likelihood for the test data.
-
-        Done using `get_obs_prob` instead of `get_seq_prob` to avoid
-        problems related to vanishing probabilities.
-
-        """
+        """ Get average log likelihood for the test data. """
         llh = 0.0
+        import pdb
+        pdb.set_trace()
 
         for seq in test_data:
-            seq_llh = 0.0
-
-            self.reset()
-
-            for o in seq:
-                if base == 2:
-                    seq_llh += np.log2(self.get_obs_prob(o))
-                else:
-                    seq_llh += np.log(self.get_obs_prob(o))
-
-                self.update(o)
+            if base == 2:
+                seq_llh = np.log2(self.get_string_prob(seq))
+            else:
+                seq_llh = np.log(self.get_string_prob(seq))
 
             llh += seq_llh
 
@@ -150,6 +180,52 @@ class PredictiveStateRep(object):
         """ Get model perplexity on the test data.  """
 
         return 2**(-self.get_log_likelihood(test_data, base=base))
+
+    def compute_start_end_vectors(self, b_0, b_inf, estimator):
+        """ Calculate other start and end vectors for all estimator types.
+
+        Assumes B_o has already been set.
+
+        Parameters
+        ----------
+        b_0: ndarray
+            Start vector.
+        b_inf: ndarray
+            End vector.
+        estimator: string
+            The estimator that was used to calculate b_0 and b_inf.
+
+        """
+        self.B = sum(self.B_o.values())
+
+        # See Lemma 6.1.1 in Borja Balle's thesis
+        I_minus_B = np.eye(self.B.shape[0]) - self.B
+        if estimator != 'substring':
+            I_minus_B_inv = np.linalg.pinv(I_minus_B)
+
+        if estimator == 'string':
+            self.b_inf_string = b_inf
+            self.b_inf = I_minus_B_inv.dot(self.b_inf_string)
+
+            self.b_0 = b_0
+            self.b_0_substring = self.b_0.dot(I_minus_B_inv)
+
+        elif estimator == 'prefix':
+            self.b_inf = b_inf
+            self.b_inf_string = I_minus_B.dot(self.b_inf)
+
+            self.b_0 = b_0
+            self.b_0_substring = self.b_0.dot(I_minus_B_inv)
+
+        elif estimator == 'substring':
+            self.b_inf = b_inf
+            self.b_inf_string = I_minus_B.dot(self.b_inf)
+
+            self.b_0_substring = b_0
+            self.b_0 = self.b_0_substring.dot(I_minus_B)
+
+        else:
+            raise ValueError("Unknown Hankel estimator name: %s." % estimator)
 
 
 class SpectralPSR(PredictiveStateRep):
@@ -240,39 +316,14 @@ class SpectralPSR(PredictiveStateRep):
             self.B_o[o] = B_o.toarray()
 
         # b_0 S = hs => b_0 = hs S^+
-        self.b_0 = hs.dot(S_plus)
-        self.b_0 = self.b_0.toarray()[0, :]
+        b_0 = hs.dot(S_plus)
+        b_0 = b_0.toarray()[0, :]
 
         # P b_inf = hp => b_inf = P^+ hp
-        self.b_inf = P_plus.dot(hp)
-        self.b_inf = self.b_inf.toarray()[:, 0]
+        b_inf = P_plus.dot(hp)
+        b_inf = b_inf.toarray()[:, 0]
 
-        self.B = sum(self.B_o.values())
-
-        # See Lemma 6.1.1 in Borja Balle's thesis
-        I_minus_B = np.eye(n_components) - self.B
-        if estimator != 'substring':
-            I_minus_B_inv = np.linalg.pinv(I_minus_B)
-
-        if estimator == 'string':
-            self.b_inf_string = self.b_inf
-            self.b_inf = I_minus_B_inv.dot(self.b_inf_string)
-
-            self.b_0_substring = self.b_0.dot(I_minus_B_inv)
-
-        elif estimator == 'prefix':
-            self.b_inf_string = I_minus_B.dot(self.b_inf)
-
-            self.b_0_substring = self.b_0.dot(I_minus_B_inv)
-
-        elif estimator == 'substring':
-            self.b_inf_string = I_minus_B.dot(self.b_inf)
-
-            self.b_0_substring = self.b_0
-            self.b_0 = self.b_0_substring.dot(I_minus_B)
-
-        else:
-            raise ValueError("Unknown Hankel estimator name: %s." % estimator)
+        self.compute_start_end_vectors(b_0, b_inf, estimator)
 
         self.reset()
 
@@ -313,14 +364,14 @@ class CompressedPSR(PredictiveStateRep):
         for obs in self.observations:
             proj_sym_hankels[obs] = np.zeros((len(prefix_dict), n_components))
 
-        self.b_0 = np.zeros(n_components)
+        b_0 = np.zeros(n_components)
 
         for seq in data:
             for i in range(len(seq)+1):
                 prefix = tuple(seq[:i])
 
                 if prefix in suffix_dict:
-                    self.b_0 += phi[suffix_dict[prefix], :]
+                    b_0 += phi[suffix_dict[prefix], :]
 
                 if prefix not in prefix_dict:
                     continue
@@ -344,7 +395,7 @@ class CompressedPSR(PredictiveStateRep):
 
         n_samples = float(len(data))
 
-        self.b_0 /= n_samples
+        b_0 /= n_samples
         proj_hankel /= n_samples
         hp /= n_samples
         for o in self.observations:
@@ -356,11 +407,13 @@ class CompressedPSR(PredictiveStateRep):
         for o in self.observations:
             self.B_o[o] = inv_proj_hankel.dot(proj_sym_hankels[o])
 
-        self.b_inf = inv_proj_hankel.dot(hp)
+        b_inf = inv_proj_hankel.dot(hp)
 
         self.proj_sym_hankels = proj_sym_hankels
         self.proj_hankel = proj_hankel
         self.hp = hp
+
+        self.compute_start_end_vectors(b_0, b_inf, estimator='prefix')
 
         self.reset()
 
@@ -481,7 +534,8 @@ class SpectralPSRWithActions(object):
     def get_obs_prob(self, a, o):
         """
         Returns the probablilty of observing o given
-        we take action a in the current state.
+        we take action a in the current state. Interprets `o` as a
+        prefix.
         """
         prob = self.b.dot(self.B_ao[(a, o)]).dot(self.b_inf)
 

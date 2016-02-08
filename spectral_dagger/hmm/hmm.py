@@ -215,7 +215,8 @@ class HMM(Environment):
             B_o[o] = self.T.dot(np.diag(self.O[:, o]))
 
         psr = PredictiveStateRep(
-            b_0=self.init_dist, b_inf=np.ones(self.n_states), B_o=B_o)
+            b_0=self.init_dist, b_inf=np.ones(self.n_states), B_o=B_o,
+            estimator='prefix', can_terminate=False)
 
         return psr
 

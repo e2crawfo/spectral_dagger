@@ -110,8 +110,7 @@ def load_pautomac_model(problem_idx):
 
     assert is_pfa(b_0, b_inf, B_o), "Loaded model is not a PFA."
 
-    return PredictiveStateRep(
-        b_0, b_inf, B_o, can_terminate=sum(b_inf) > 0)
+    return PredictiveStateRep(b_0, b_inf, B_o, estimator='string')
 
 
 def normalize_pfa(b_0, b_inf, B_o):
@@ -175,11 +174,10 @@ def perturb_pfa(pfa, noise=None, rng=None):
         b_prime[b_prime > 0] += noise * rng.randn(np.count_nonzero(b_prime))
         Bo_prime[o] = np.absolute(b_prime)
 
-    b_0, b_inf, Bo_prime = normalize_pfa(pfa.b_0, pfa.b_inf, Bo_prime)
+    b_0, b_inf_string, Bo_prime = normalize_pfa(pfa.b_0, pfa.b_inf_string, Bo_prime)
 
     return PredictiveStateRep(
-        b_0, b_inf, Bo_prime, can_terminate=sum(b_inf) > 0)
-
+        b_0, b_inf_string, Bo_prime, estimator='string')
 
 def load_pautomac_train(problem_idx):
     fname = os.path.join(

@@ -19,12 +19,8 @@ class PAStringGenerator(Environment):
         for o in pa.B_o:
             self.B_o[o] = pa.B_o[o].copy()
 
-        self.b_inf_string = pa.b_inf.copy()
-
-        # Get prefix normalizer
-        self.B = sum(self.B_o.values())
-        I_minus_B_inv = np.linalg.pinv(np.eye(pa.b_0.size) - self.B)
-        self.b_inf_prefix = I_minus_B_inv.dot(self.b_inf_string)
+        self.b_inf_string = pa.b_inf_string.copy()
+        self.b_inf_prefix = pa.b_inf
 
         self.reset()
 
@@ -79,7 +75,8 @@ class PAStringGenerator(Environment):
 
     def to_psr(self):
         psr = PredictiveStateRep(
-            b_0=self.b_0, b_inf=self.b_inf_prefix, B_o=self.B_o)
+            b_0=self.b_0, b_inf=self.b_inf_prefix, B_o=self.B_o,
+            estimator='prefix')
 
         return psr
 

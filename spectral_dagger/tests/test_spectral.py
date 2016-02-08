@@ -79,7 +79,7 @@ def do_test_spectral_hmm(
     print "*" * 20
     for seq in test_seqs:
         ground_truth = simple_hmm.get_seq_prob(seq)
-        pred = psr.get_seq_prob(seq)
+        pred = psr.get_prefix_prob(seq)
         print("Seq: ", seq)
         print("Ground truth: %f" % ground_truth)
         print("Prediction: %f" % pred)
@@ -106,7 +106,7 @@ def do_test_compressed_hmm(
     print "*" * 20
     for seq in test_seqs:
         ground_truth = simple_hmm.get_seq_prob(seq)
-        pred = comp_psr.get_seq_prob(seq)
+        pred = comp_psr.get_prefix_prob(seq)
         print("Seq: ", seq)
         print("Ground truth: %f" % ground_truth)
         print("Prediction: %f" % pred)
