@@ -6,6 +6,7 @@ from collections import defaultdict
 import six
 
 from spectral_dagger.spectral import PredictiveStateRep
+from spectral_dagger.utils import normalize, rmse
 
 PAUTOMAC_PATH = "/data/PAutomaC-competition_sets/"
 
@@ -41,9 +42,9 @@ def int_or_float(x):
 
 
 def is_pfa(b_0, b_inf, B_o):
-    """ Check that b_0, b_inf, B_o are a Probabilistic Finite Automaton. """
+    """ Check that b_0, b_inf, B_o form a Probabilistic Finite Automaton. """
 
-    B = reduce(lambda x, y: x+y, B_o.values())
+    B = sum(B_o.values())
     B_row_sums = B.sum(axis=1)
     return np.allclose(B_row_sums + b_inf, 1)
 
@@ -113,6 +114,73 @@ def load_pautomac_model(problem_idx):
         b_0, b_inf, B_o, can_terminate=sum(b_inf) > 0)
 
 
+def normalize_pfa(b_0, b_inf, B_o):
+    """ Return a version of arguments normalized to be a PFA. """
+
+    assert (b_0 >= 0).all()
+    assert (b_inf >= 0).all()
+
+    for o, B in six.iteritems(B_o):
+        assert (B >= 0).all()
+
+    b_0 = normalize(b_0)
+
+    B = sum(B_o.values())
+    norms = B.sum(axis=1) / (1 - b_inf)
+
+    norms = norms.reshape(-1, 1)
+    new_B_o = {}
+    for o, Bo in six.iteritems(B_o):
+        new_B_o[o] = Bo / norms
+
+    assert is_pfa(b_0, b_inf, new_B_o)
+    return b_0, b_inf, new_B_o
+
+
+def perturb_pautomac(problem_idx, noise=None, rng=None):
+    """ Generate a perturbed version of a Pautomac PFA.
+
+    Parameters
+    ----------
+    problem_idx: int
+        Pautomac problem index.
+    noise: positive float (optional)
+        Standard deviation of perturbation for the operators.
+
+    """
+    pfa = load_pautomac_model(problem_idx)
+    return perturb_pfa(pfa, noise=noise, rng=rng)
+
+
+def perturb_pfa(pfa, noise=None, rng=None):
+    """ Generate a perturbed version of a PFA.
+
+    Parameters
+    ----------
+    pfa: PredictiveStateRep instance
+        The PFA to perturb.
+    noise: positive float (optional)
+        Standard deviation of perturbation for the operators.
+
+    """
+    if noise is None:
+        noise = 1.0 / np.sqrt(pfa.b_0.size)
+
+    rng = rng if rng is not None else np.random.RandomState()
+
+    # Only perturb locations that are already non-zero.
+    Bo_prime = {}
+    for o, b in six.iteritems(pfa.B_o):
+        b_prime = b.copy()
+        b_prime[b_prime > 0] += noise * rng.randn(np.count_nonzero(b_prime))
+        Bo_prime[o] = np.absolute(b_prime)
+
+    b_0, b_inf, Bo_prime = normalize_pfa(pfa.b_0, pfa.b_inf, Bo_prime)
+
+    return PredictiveStateRep(
+        b_0, b_inf, Bo_prime, can_terminate=sum(b_inf) > 0)
+
+
 def load_pautomac_train(problem_idx):
     fname = os.path.join(
         PAUTOMAC_PATH, "%d.pautomac.train" % problem_idx)
@@ -135,7 +203,7 @@ def load_pautomac_file(filename):
 
 
 if __name__ == "__main__":
-    #groundtruth = parse_groundtruth_file(location + ".pautomac_solution.txt")
+    # groundtruth = parse_groundtruth_file(location + ".pautomac_solution.txt")
 
     from spectral_dagger.spectral.dynamical_system import PAStringGenerator
     from spectral_dagger.spectral import top_k_basis, estimate_hankels
@@ -151,6 +219,7 @@ if __name__ == "__main__":
 
     pp = pprint.PrettyPrinter()
 
+    print("Generated from model. " + "=" * 40)
     n_samples = 10000
     episodes = sample_episodes(n_samples, generator)
 
@@ -158,8 +227,37 @@ if __name__ == "__main__":
     hankels = estimate_hankels(
         episodes, basis, generator.observations, 'prefix')
     hankel1 = hankels[2].toarray()
+    pp.pprint(hankel1)
 
-    # pautomac_train = load_pautomac_train(problem_idx)
-    # hankels = estimate_hankels(
-    #     pautomac_train, basis, generator.observations, 'prefix')
-    # hankel2 = hankels[2].toarray()
+    print("True samples. " + "=" * 40)
+    pautomac_train = load_pautomac_train(problem_idx)
+    hankels = estimate_hankels(
+        pautomac_train, basis, generator.observations, 'prefix')
+    hankel2 = hankels[2].toarray()
+    pp.pprint(hankel2)
+
+    print("Perturbed model. " + "=" * 40)
+    pert = perturb_pfa(pa, noise=1.0/pa.b_0.size**0.01)
+    pert_gen = PAStringGenerator(pert)
+
+    n_samples = 10000
+    episodes = sample_episodes(n_samples, pert_gen)
+
+    hankels = estimate_hankels(
+        episodes, basis, generator.observations, 'prefix')
+    hankel3 = hankels[2].toarray()
+    pp.pprint(hankel3)
+
+    print("Generated from model again. " + "=" * 40)
+    n_samples = 10000
+    episodes = sample_episodes(n_samples, generator)
+
+    basis = top_k_basis(episodes, 100, 'prefix')
+    hankels = estimate_hankels(
+        episodes, basis, generator.observations, 'prefix')
+    hankel4 = hankels[2].toarray()
+    pp.pprint(hankel4)
+
+    print("RMSE estimated Hankel: ", rmse(hankel1, hankel2))
+    print("RMSE perturbed Hankel: ", rmse(hankel1, hankel3))
+    print("RMSE re-estimated Hankel: ", rmse(hankel2, hankel4))

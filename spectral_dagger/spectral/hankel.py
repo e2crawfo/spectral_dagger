@@ -14,9 +14,10 @@ from itertools import product
 import heapq
 from scipy.sparse import lil_matrix, csr_matrix
 from collections import defaultdict
+import six
 
 
-def estimate_hankels(data, basis, observations, estimator):
+def estimate_hankels(data, basis, observations, estimator, ret_sparse=True):
     prefix_dict, suffix_dict = basis
 
     size_P = len(prefix_dict)
@@ -48,7 +49,12 @@ def estimate_hankels(data, basis, observations, estimator):
     for obs in observations:
         symbol_hankels[obs] = csr_matrix(symbol_hankels[obs])
 
-    return hp, hs, hankel, symbol_hankels
+    if ret_sparse:
+        return hp, hs, hankel, symbol_hankels
+    else:
+        symbol_hankels = {
+            o: h.toarray() for o, h in six.iteritems(symbol_hankels)}
+        return hp.toarray(), hs.toarray(), hankel.toarray(), symbol_hankels
 
 
 def fill_string_hankel(data, basis, hp, hs, hankel, symbol_hankels):

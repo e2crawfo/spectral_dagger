@@ -71,10 +71,8 @@ def normalize(M, ord=2, axis=1, in_place=False, conservative=False):
         If set to True, will over-estimate the norm of each row/column.
 
     """
-    if not isinstance(M, np.ndarray):
-        M = np.array(M, dtype='f')
-    else:
-        M = M.astype('f')
+    if not isinstance(M, np.ndarray) or 'float' not in M.dtype.name:
+        M = np.array(M, dtype='d')
 
     if M.ndim == 1:
         norm = np.linalg.norm(M, ord)
@@ -92,6 +90,7 @@ def normalize(M, ord=2, axis=1, in_place=False, conservative=False):
         M[:] = M / norm
         return M
     else:
+        M = M.copy()
         return M / norm
 
 

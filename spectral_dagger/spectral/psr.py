@@ -166,6 +166,8 @@ class SpectralPSR(PredictiveStateRep):
             basis=None, svd=None, hankels=None):
         """ Fit a PSR to the given data using a spectral algorithm.
 
+        Parameters
+        ----------
         data: list of list
             Each sublist is a list of observations constituting a trajectory.
         n_components: int
