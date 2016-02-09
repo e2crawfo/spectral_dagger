@@ -174,10 +174,21 @@ def perturb_pfa(pfa, noise=None, rng=None):
         b_prime[b_prime > 0] += noise * rng.randn(np.count_nonzero(b_prime))
         Bo_prime[o] = np.absolute(b_prime)
 
-    b_0, b_inf_string, Bo_prime = normalize_pfa(pfa.b_0, pfa.b_inf_string, Bo_prime)
+    b_0, b_inf_string, Bo_prime = normalize_pfa(
+        pfa.b_0, pfa.b_inf_string, Bo_prime)
 
     return PredictiveStateRep(
         b_0, b_inf_string, Bo_prime, estimator='string')
+
+
+def load_pautomac_ground_truth(problem_idx):
+    fname = os.path.join(
+        PAUTOMAC_PATH, "%d.pautomac_solution.txt" % problem_idx)
+    fp = open(fname, "r")
+    fp.readline()
+    true_probs = [float(line) for line in fp]
+    return true_probs
+
 
 def load_pautomac_train(problem_idx):
     fname = os.path.join(
@@ -200,9 +211,28 @@ def load_pautomac_file(filename):
     return data
 
 
-if __name__ == "__main__":
-    # groundtruth = parse_groundtruth_file(location + ".pautomac_solution.txt")
+def pautomac_score(model, problem_idx):
+    """ Score a model using PAutomaC ground truth. """
 
+    test_data = load_pautomac_test(problem_idx)
+    ground_truth = load_pautomac_ground_truth(problem_idx)
+
+    model_probs = np.array([
+        model.get_string_prob(seq) for seq in test_data])
+
+    # The PAutomaC paper (Verwer et al. 2012) requests that the
+    # submitted probabilities be normalized to sum to 1. The ground
+    # truth probabilities are also normalized in this way.
+    model_probs /= model_probs.sum()
+
+    expected_llh = 0.0
+    for gt, mp in zip(ground_truth, model_probs):
+        expected_llh += gt * np.log2(mp)
+
+    return 2**(-expected_llh)
+
+
+if __name__ == "__main__":
     from spectral_dagger.spectral.dynamical_system import PAStringGenerator
     from spectral_dagger.spectral import top_k_basis, estimate_hankels
     from spectral_dagger import sample_episodes, set_sim_rng
