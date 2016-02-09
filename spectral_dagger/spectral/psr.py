@@ -15,8 +15,7 @@ machine_eps = np.finfo(float).eps
 
 class PredictiveStateRep(object):
     def __init__(self, b_0, b_inf, B_o, estimator, can_terminate=None):
-        self.b_0 = b_0
-        self.b_inf = b_inf
+
         self.B_o = B_o
 
         self.estimator = estimator
@@ -43,8 +42,7 @@ class PredictiveStateRep(object):
 
     def update(self, obs=None, action=None):
         """ Update state upon seeing an observation. """
-        B_o = self.B_o[obs]
-        numer = self.b.dot(B_o)
+        numer = self.b.dot(self.B_o[obs])
         denom = numer.dot(self.b_inf)
 
         self.b = numer / denom
@@ -81,14 +79,14 @@ class PredictiveStateRep(object):
         for o in string:
             obs_prob = self.get_obs_prob(o)
             obs_prob = max(machine_eps, obs_prob)
-            log_prob += np.log2(obs_prob)
+            log_prob += np.log(obs_prob)
             self.update(o)
 
         end_prob = self.b.dot(self.b_inf_string)
         end_prob = max(machine_eps, end_prob)
-        log_prob += np.log2(end_prob)
+        log_prob += np.log(end_prob)
 
-        prob = 2**log_prob
+        prob = np.e**log_prob
         return np.clip(prob, machine_eps, 1)
 
     def get_delayed_string_prob(self, string, t, init_state=None):
@@ -158,13 +156,11 @@ class PredictiveStateRep(object):
                     errors += 1
                 n_predictions += 1
 
-        return errors/n_predictions
+        return errors / n_predictions
 
     def get_log_likelihood(self, test_data, base=2):
         """ Get average log likelihood for the test data. """
         llh = 0.0
-        import pdb
-        pdb.set_trace()
 
         for seq in test_data:
             if base == 2:
@@ -196,6 +192,9 @@ class PredictiveStateRep(object):
             The estimator that was used to calculate b_0 and b_inf.
 
         """
+        b_0 = b_0.copy()
+        b_inf = b_inf.copy()
+
         self.B = sum(self.B_o.values())
 
         # See Lemma 6.1.1 in Borja Balle's thesis

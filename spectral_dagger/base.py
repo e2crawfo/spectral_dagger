@@ -273,7 +273,7 @@ class Environment(SpectralDaggerObject):
             An initial state or initial dist to start the episode from.
 
         """
-        return self.reset()
+        return self.reset(initial)
 
     @abc.abstractmethod
     def update(self, action=None):

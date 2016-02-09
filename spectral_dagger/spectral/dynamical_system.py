@@ -20,7 +20,7 @@ class PAStringGenerator(Environment):
             self.B_o[o] = pa.B_o[o].copy()
 
         self.b_inf_string = pa.b_inf_string.copy()
-        self.b_inf_prefix = pa.b_inf
+        self.b_inf_prefix = pa.b_inf.copy()
 
         self.reset()
 
@@ -42,17 +42,15 @@ class PAStringGenerator(Environment):
         return False
 
     def lookahead(self):
-        probs = []
-        for o in self.observations:
-            prob = self.b.dot(self.B_o[o]).dot(self.b_inf_prefix)
-            probs.append(prob)
+        terminal_prob = self.b.dot(self.b_inf_string)
+        self.terminal = self.rng.rand() < terminal_prob
 
-        p = sum(probs)
-        self.terminal = self.rng.rand() > p
+        probs = np.array([
+            self.b.dot(self.B_o[o]).dot(self.b_inf_prefix)
+            for o in self.observations])
 
-        # Normalize probs since we've already sampled
-        # whether to terminate.
-        self.probs = np.array(probs) / p
+        # Normalize probs since we've already sampled whether to terminate.
+        self.probs = probs / probs.sum()
 
     def reset(self, initial=None):
         self.b = self.b_0.copy()
@@ -62,7 +60,7 @@ class PAStringGenerator(Environment):
         if self.terminal:
             return None
 
-        sample = sample_multinomial(np.array(self.probs), self.rng)
+        sample = sample_multinomial(self.probs, self.rng)
         obs = self.observations[sample]
 
         numer = self.b.dot(self.B_o[obs])

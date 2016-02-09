@@ -109,8 +109,6 @@ def test_spectral_dagger(display=False):
         pomdp, expert, learning_alg, beta,
         n_iterations=2, n_samples_per_iter=1000,
         horizon=3)
-    import pdb
-    pdb.set_trace()
 
     print "Testing final policy returned by DAgger..."
     sample_episodes(10, pomdp, policies[-1], horizon=3, hook=display_hook)
