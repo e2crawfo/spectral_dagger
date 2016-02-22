@@ -32,6 +32,10 @@ class PAStringGenerator(Environment):
     def observation_space(self):
         return Space(set(self.observations), "ObsSpace")
 
+    @property
+    def size(self):
+        return self.b_0.size
+
     def in_terminal_state(self):
         return self.terminal
 

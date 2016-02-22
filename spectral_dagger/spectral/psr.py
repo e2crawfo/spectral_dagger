@@ -37,6 +37,10 @@ class PredictiveStateRep(object):
     def observation_space(self):
         return Space(set(self.observations), "ObsSpace")
 
+    @property
+    def size(self):
+        return self.b_0.size
+
     def reset(self):
         self.b = self.b_0.copy()
 
@@ -176,6 +180,20 @@ class PredictiveStateRep(object):
         """ Get model perplexity on the test data.  """
 
         return 2**(-self.get_log_likelihood(test_data, base=base))
+
+    def get_1norm_error(self, test_data):
+        error = 0.0
+        n_predictions = 0.0
+
+        for seq in test_data:
+            self.reset()
+
+            for o in seq:
+                error += 1 - self.get_obs_prob(o)
+                self.update(o)
+                n_predictions += 1
+
+        return 2. * error / n_predictions
 
     def compute_start_end_vectors(self, b_0, b_inf, estimator):
         """ Calculate other start and end vectors for all estimator types.
