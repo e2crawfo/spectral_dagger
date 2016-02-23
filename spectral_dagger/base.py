@@ -70,7 +70,6 @@ class Space(object):
         A list of dimension specifications. None corresponds to the space
         containing everything. An empty list correspods to the empty space.
         Can also supply value for a single dimension, not in a list.
-
     name: string
         A name for the space.
 

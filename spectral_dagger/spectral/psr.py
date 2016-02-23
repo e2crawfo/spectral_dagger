@@ -435,6 +435,230 @@ class CompressedPSR(PredictiveStateRep):
         self.reset()
 
 
+class KernelPSR(PredictiveStateRep):
+    """
+    Parameters
+    ----------
+    B_o: list of ndarray
+        Contains operators for each of the kernel centers. It is a list
+        wherein the order must be the same as the "kernel centers" list.
+    lmbda: float
+        Bandwidth parameter.
+    kernel_centers: n x d ndarray
+        Kernel centers (d is the dimension of each observation).
+
+    """
+    def __init__(
+            self, b_0, b_inf, B_o, kernel, kernel_centers,
+            lmbda, estimator, can_terminate=None):
+        self.b_0 = b_0
+        self.b_inf = b_inf
+        self.B_o = B_o
+
+        self.kernel = kernel
+        self.kernel_centers = kernel_centers
+        self.obs_dim = kernel_centers.shape[1]
+        self.lmbda = lmbda
+
+        self.estimator = estimator
+
+        if can_terminate is None:
+            self.can_terminate = (b_inf != 0).any()
+        else:
+            self.can_terminate = can_terminate
+
+        self.reset()
+
+    def observation_space(self):
+        return Space([-np.inf, np.inf] * self.obs_dim, "ObsSpace")
+
+    def compute_operator(self, obs):
+        B = np.zeros((self.size, self.size))
+        for b, c in zip(self.B_o, self.kernel_centers):
+            sigma = self.kernel((obs - c) / self.lmbda)
+            B += sigma * b
+
+        return B
+
+    def update(self, obs=None, action=None):
+        """ Update state upon seeing an observation. """
+        B = self.compute_operator(obs)
+        numer = self.b.dot(B)
+        denom = numer.dot(self.b_inf)
+        self.b = numer / denom
+
+    def get_obs_prob(self, o):
+        """ Get probability of observation for next time step.  """
+        B_o = self.compute_operator(o)
+        prob = self.b.dot(B_o).dot(self.b_inf)
+        return np.clip(prob, machine_eps, 1)
+
+    def get_prediction(self):
+        """ Get observation with highest prob for next time step . """
+        raise NotImplementedError(
+            "Cannot get most likely observation since the "
+            "observation space is continuous.")
+
+    def get_obs_rank(self, o):
+        """ Get probability rank of observation for next time step. """
+        raise NotImplementedError(
+            "Cannot get most likely observation since the "
+            "observation space is continuous.")
+
+    def get_string_prob(self, string, init_state=None):
+        """ Get probability of string. """
+        raise NotImplementedError(
+            "Cannot compute string probabilities with KernelPSR.""")
+
+    def get_delayed_string_prob(self, string, t, init_state=None):
+        """ Get probability of observing string at a delay of ``t``.
+
+        get_delayed_string_prob(s, 0) is equivalent to get_string_prob(s).
+
+        """
+        raise NotImplementedError(
+            "Cannot compute string probabilities with KernelPSR.""")
+
+    def get_prefix_prob(self, prefix, init_state=None):
+        """ Get probability of prefix. """
+
+        if init_state is None:
+            self.b = self.b_0.copy()
+        else:
+            self.b = init_state
+
+        log_prob = 0.0
+
+        for o in prefix:
+            obs_prob = self.get_obs_prob(o)
+            obs_prob = max(machine_eps, obs_prob)
+            log_prob += np.log2(obs_prob)
+            self.update(o)
+
+        prob = 2**log_prob
+        return np.clip(prob, machine_eps, 1)
+
+    def get_delayed_prefix_prob(self, prefix, t, init_state=None):
+        """ Get probability of observing prefix at a delay of ``t``.
+
+        get_delayed_prefix_prob(p, 0) is equivalent to get_prefix_prob(p).
+
+        """
+        raise NotImplementedError(
+            "Cannot compute delayed probabilities with KernelPSR.""")
+
+    def get_WER(self, test_data):
+        """ Get word error rate for the test data. """
+        raise NotImplementedError(
+            "Cannot compute WER for KernelPSR because the most likely "
+            "observation cannot be computed for continuous spaces.")
+
+    def get_log_likelihood(self, test_data, base=2):
+        """ Get average log likelihood for the test data. """
+        llh = 0.0
+
+        for seq in test_data:
+            if base == 2:
+                seq_llh = np.log2(self.get_string_prob(seq))
+            else:
+                seq_llh = np.log(self.get_string_prob(seq))
+
+            llh += seq_llh
+
+        return llh / len(test_data)
+
+    def get_perplexity(self, test_data, base=2):
+        """ Get model perplexity on the test data.  """
+
+        return 2**(-self.get_log_likelihood(test_data, base=base))
+
+    def get_1norm_error(self, test_data):
+        error = 0.0
+        n_predictions = 0.0
+
+        for seq in test_data:
+            self.reset()
+
+            for o in seq:
+                error += 1 - self.get_obs_prob(o)
+                self.update(o)
+                n_predictions += 1
+
+        return 2. * error / n_predictions
+
+
+class SpectralKernelPSR(PredictiveStateRep):
+    def __init__(self, kernel, kernel_centers, lmbda):
+        self.b_0 = None
+        self.b_inf = None
+        self.B_o = None
+
+        self.kernel = kernel
+        self.kernel_centers = kernel_centers
+        self.obs_dim = kernel_centers.shape[1]
+        self.lmbda = lmbda
+
+        self.estimator = "prefix"
+        self.can_terminate = False
+
+        self.reset()
+
+    def fit(self, data, n_components):
+        """ Fit a KernelPSR to the given data using a spectral algorithm.
+
+        Parameters
+        ----------
+        data: list of list
+            Each sublist is a list of observations constituting a trajectory.
+        n_components: int
+            Number of dimensions in feature space.
+
+        """
+        logger.debug("Estimating Hankels...")
+        hankels = hankel.estimate_kernel_hankels(
+            data, self.kernel, self.kernel_centers, self.lmbda, self.estimator)
+
+        hp, hankel_matrix, symbol_hankels = hankels
+
+        self.hankel = hankel_matrix
+        self.symbol_hankels = symbol_hankels
+
+        n_components = min(n_components, hankel_matrix.shape[0])
+
+        logger.debug("Performing SVD...")
+        n_oversamples = 10
+        n_iter = 5
+
+        # H = U S V^T
+        U, S, VT = randomized_svd(
+            hankel_matrix, n_components, n_oversamples, n_iter)
+
+        V = VT.T
+
+        U = U[:, :n_components]
+        V = V[:, :n_components]
+        S = np.diag(S[:n_components])
+
+        # P^+ = (HV)^+ = (US)^+ = S^+ U+ = S^-1 U.T
+        P_plus = csr_matrix(np.linalg.pinv(S).dot(U.T))
+
+        # S^+ = (V.T)^+ = V
+        S_plus = csr_matrix(V)
+
+        logger.debug("Computing operators...")
+        self.B_o = [P_plus.dot(Ho).dot(S_plus) for Ho in symbol_hankels]
+
+        # b_0 S = hs => b_0 = hs S^+
+        self.b_0 = hp.dot(S)
+        self.b_0 = self.b_0.toarray()[0, :]
+
+        # P b_inf = hp => b_inf = P^+ hp
+        self.b_inf = P_plus.dot(hp)
+        self.b_inf = self.b_inf.toarray()[:, 0]
+
+        self.reset()
+
+
 class SpectralPSRWithActions(object):
     def __init__(self, actions, observations, max_dim=80):
 

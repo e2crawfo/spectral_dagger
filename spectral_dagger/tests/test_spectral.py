@@ -1,28 +1,23 @@
-import numpy as np
 import pytest
+import numpy as np
+from scipy import stats
 
 from spectral_dagger import sample_episodes
 from spectral_dagger.spectral import SpectralPSR, CompressedPSR
 from spectral_dagger.spectral import top_k_basis
 from spectral_dagger.spectral import fixed_length_basis
-from spectral_dagger.hmm import HMM
+from spectral_dagger.hmm import HMM, ContinuousHMM
 from spectral_dagger.utils.math import normalize
 
 
 @pytest.fixture
 def simple_hmm():
-    n_obs = 2
-    n_states = 2
-
-    observations = range(n_obs)
-    states = range(n_states)
-
     O = normalize([[1, 1], [.1, 1]], ord=1)
     T = normalize([[8, 2], [2, 8]], ord=1)
 
     init_dist = normalize([1, 1], ord=1)
 
-    return HMM(observations, states, T, O, init_dist)
+    return HMM(T, O, init_dist)
 
 
 @pytest.fixture
@@ -50,12 +45,7 @@ def reduced_rank_hmm():
     n_states = n
     n_obs = n
 
-    observations = range(n_obs)
-    states = range(n_states)
-
-    return HMM(
-        observations, states, T, O,
-        init_dist=normalize(np.ones(n), ord=1))
+    return HMM(T, O, init_dist=normalize(np.ones(n), ord=1))
 
 
 @pytest.mark.parametrize(
@@ -159,3 +149,18 @@ def test_psr():
 
     basis = fixed_length_basis(rr_hmm.observations, 1, True)
     do_test_compressed_hmm(rr_hmm, m=dimension, basis=basis, horizon=3)
+
+
+def test_cts_psr():
+    T = normalize([[8, 2], [2, 8]], ord=1)
+    O = [
+        stats.multivariate_normal(np.ones(2)),
+        stats.multivariate_normal(-np.ones(2))]
+
+    init_dist = normalize([1, 1], ord=1)
+    cts_hmm = ContinuousHMM(T, O, init_dist)
+    eps = sample_episodes(10, cts_hmm, horizon=4)
+    print eps
+
+if __name__ == "__main__":
+    test_cts_psr()

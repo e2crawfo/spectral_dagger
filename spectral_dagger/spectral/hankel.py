@@ -49,6 +49,9 @@ def estimate_hankels(data, basis, observations, estimator, ret_sparse=True):
     for obs in observations:
         symbol_hankels[obs] = csr_matrix(symbol_hankels[obs])
 
+    hp = csr_matrix(hp)
+    hs = csr_matrix(hs)
+
     if ret_sparse:
         return hp, hs, hankel, symbol_hankels
     else:
@@ -165,6 +168,69 @@ def fill_substring_hankel(data, basis, hp, hs, hankel, symbol_hankels):
                             symbol_hankel[
                                 prefix_dict[prefix],
                                 suffix_dict[suffix]] += 1.0 / n_samples
+
+
+def estimate_kernel_hankels(data, kernel, kernel_centers, lmbda, estimator):
+    n_centers = len(kernel_centers)
+
+    hankel = np.zeros((n_centers, n_centers))
+    symbol_hankels = [np.zeros((n_centers, n_centers)) for c in kernel_centers]
+
+    hp = np.zeros((n_centers, 1))
+
+    fill_funcs = {"prefix": fill_prefix_kernel_hankel}
+
+    try:
+        fill_func = fill_funcs[estimator]
+    except KeyError:
+        raise ValueError("Unknown Hankel estimator name: %s." % estimator)
+
+    fill_func(data, kernel, kernel_centers, lmbda,
+              hp, hankel, symbol_hankels)
+
+    return hp, hankel, symbol_hankels
+
+
+def eval_kernel(kernel, kernel_centers, x, normalize=False, lmbda=1.0):
+    k = np.array([kernel(x - c) for c in kernel_centers])
+    k = k / sum(k)
+    return k
+
+
+def fill_prefix_kernel_hankel(
+        data, kernel, kernel_centers, lmbda, hp, hankel, symbol_hankels):
+
+    for seq in data:
+        for i in range(len(seq)+1):
+            prefix = tuple(seq[:i])
+            k_prefix = eval_kernel(
+                kernel, kernel_centers, prefix, normalize=True)
+            hp += k_prefix
+
+            for j in range(i, len(seq)+1):
+                suffix = tuple(seq[i:j])
+                k_suffix = eval_kernel(
+                    kernel, kernel_centers, suffix, normalize=True)
+
+                hankel += np.outer(k_prefix, k_suffix)
+
+                if suffix:
+                    obs = suffix[0]
+                    suffix = tuple(suffix[1:])
+
+                    k_obs = eval_kernel(kernel, kernel_centers, [obs],
+                                        normalize=False, lmbda=lmbda)
+
+                    X = np.outer(k_prefix, k_suffix)
+
+                    for i, ko in enumerate(k_obs):
+                        symbol_hankels[i] += ko * X
+
+    n_samples = len(data)
+
+    hp /= n_samples
+    hankel /= n_samples
+    symbol_hankels = [sh/n_samples for sh in symbol_hankels]
 
 
 def construct_hankels_with_actions(
