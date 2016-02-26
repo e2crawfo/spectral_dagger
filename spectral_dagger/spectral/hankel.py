@@ -170,13 +170,20 @@ def fill_substring_hankel(data, basis, hp, hs, hankel, symbol_hankels):
                                 suffix_dict[suffix]] += 1.0 / n_samples
 
 
-def estimate_kernel_hankels(data, kernel, kernel_centers, lmbda, estimator):
-    n_centers = len(kernel_centers)
+def estimate_kernel_hankels(data, kernel_info, estimator):
+    """
+    kernel_info: A KernelInfo instance.
 
-    hankel = np.zeros((n_centers, n_centers))
-    symbol_hankels = [np.zeros((n_centers, n_centers)) for c in kernel_centers]
+    """
+    n_prefix_centers = kernel_info.n_prefix_centers
+    n_suffix_centers = kernel_info.n_suffix_centers
 
-    hp = np.zeros((n_centers, 1))
+    hankel = np.zeros((n_prefix_centers, n_suffix_centers))
+    symbol_hankels = [
+        np.zeros((n_prefix_centers, n_suffix_centers))
+        for i in range(kernel_info.n_obs_centers)]
+
+    hp = np.zeros(n_prefix_centers)
 
     fill_funcs = {"prefix": fill_prefix_kernel_hankel}
 
@@ -185,46 +192,45 @@ def estimate_kernel_hankels(data, kernel, kernel_centers, lmbda, estimator):
     except KeyError:
         raise ValueError("Unknown Hankel estimator name: %s." % estimator)
 
-    fill_func(data, kernel, kernel_centers, lmbda,
-              hp, hankel, symbol_hankels)
+    fill_func(data, kernel_info, hp, hankel, symbol_hankels)
 
     return hp, hankel, symbol_hankels
 
 
-def eval_kernel(kernel, kernel_centers, x, normalize=False, lmbda=1.0):
-    k = np.array([kernel(x - c) for c in kernel_centers])
-    k = k / sum(k)
-    return k
-
-
 def fill_prefix_kernel_hankel(
-        data, kernel, kernel_centers, lmbda, hp, hankel, symbol_hankels):
+        data, kernel_info, hp, hankel, symbol_hankels):
 
     for seq in data:
+        seq = np.array(seq)
+
         for i in range(len(seq)+1):
-            prefix = tuple(seq[:i])
-            k_prefix = eval_kernel(
-                kernel, kernel_centers, prefix, normalize=True)
+            prefix = seq[:i]
+            k_prefix = kernel_info.eval_prefix_kernel(prefix)
+
+            if k_prefix is None:
+                continue
+
             hp += k_prefix
 
             for j in range(i, len(seq)+1):
-                suffix = tuple(seq[i:j])
-                k_suffix = eval_kernel(
-                    kernel, kernel_centers, suffix, normalize=True)
+                suffix = seq[i:j]
+                k_suffix = kernel_info.eval_suffix_kernel(suffix)
 
-                hankel += np.outer(k_prefix, k_suffix)
+                if k_suffix is not None:
+                    hankel += np.outer(k_prefix, k_suffix)
 
-                if suffix:
+                if suffix.shape[0] > 0:
                     obs = suffix[0]
-                    suffix = tuple(suffix[1:])
+                    k_obs = kernel_info.eval_obs_kernel(obs)
 
-                    k_obs = eval_kernel(kernel, kernel_centers, [obs],
-                                        normalize=False, lmbda=lmbda)
+                    suffix = suffix[1:]
+                    k_suffix = kernel_info.eval_suffix_kernel(suffix)
 
-                    X = np.outer(k_prefix, k_suffix)
+                    if k_obs is not None and k_suffix is not None:
+                        X = np.outer(k_prefix, k_suffix)
 
-                    for i, ko in enumerate(k_obs):
-                        symbol_hankels[i] += ko * X
+                        for i, ko in enumerate(k_obs):
+                            symbol_hankels[i] += ko * X
 
     n_samples = len(data)
 

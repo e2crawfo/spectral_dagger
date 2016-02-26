@@ -4,6 +4,7 @@ import sys
 import numpy as np
 from collections import defaultdict
 import six
+from pprint import PrettyPrinter
 
 from spectral_dagger.spectral import PredictiveStateRep
 from spectral_dagger.utils import normalize, rmse
@@ -32,6 +33,15 @@ def problem_indices():
             problem_indices.append(idx)
 
     return sorted(problem_indices)
+
+
+def all_models():
+    return [load_pautomac_model(idx) for idx in problem_indices()]
+
+
+def print_models():
+    pp = PrettyPrinter(depth=3)
+    pp.pprint(all_models())
 
 
 def int_or_float(x):
@@ -136,43 +146,88 @@ def normalize_pfa(b_0, b_inf, B_o):
     return b_0, b_inf, new_B_o
 
 
-def perturb_pautomac(problem_idx, noise=None, rng=None):
-    """ Generate a perturbed version of a Pautomac PFA.
+def perturb_pfa_additive(pfa, std, rng=None):
+    """ Generate a perturbed version of a PFA using additive noise.
 
-    Parameters
-    ----------
-    problem_idx: int
-        Pautomac problem index.
-    noise: positive float (optional)
-        Standard deviation of perturbation for the operators.
-
-    """
-    pfa = load_pautomac_model(problem_idx)
-    return perturb_pfa(pfa, noise=noise, rng=rng)
-
-
-def perturb_pfa(pfa, noise=None, rng=None):
-    """ Generate a perturbed version of a PFA.
+    Noise takes the form of a one-sided Gaussian.
 
     Parameters
     ----------
     pfa: PredictiveStateRep instance
         The PFA to perturb.
-    noise: positive float (optional)
+    std: positive float
         Standard deviation of perturbation for the operators.
 
     """
-    if noise is None:
-        noise = 1.0 / np.sqrt(pfa.b_0.size)
-
     rng = rng if rng is not None else np.random.RandomState()
 
     # Only perturb locations that are already non-zero.
     Bo_prime = {}
     for o, b in six.iteritems(pfa.B_o):
         b_prime = b.copy()
-        b_prime[b_prime > 0] += noise * rng.randn(np.count_nonzero(b_prime))
+        b_prime[b_prime > 0] += np.absolute(
+            std * rng.randn(np.count_nonzero(b_prime)))
+        Bo_prime[o] = b_prime
+
+    b_0, b_inf_string, Bo_prime = normalize_pfa(
+        pfa.b_0, pfa.b_inf_string, Bo_prime)
+
+    return PredictiveStateRep(
+        b_0, b_inf_string, Bo_prime, estimator='string')
+
+
+def perturb_pfa_multiplicative(pfa, std, rng=None):
+    """ Generate a perturbed version of a PFA.
+
+    Multiply each non-zero element by (1 + epsilon), where epsilon
+    is Gaussian distributed.
+
+    Parameters
+    ----------
+    pfa: PredictiveStateRep instance
+        The PFA to perturb.
+    std: positive float
+        Standard deviation of perturbation for the operators.
+
+    """
+    rng = rng if rng is not None else np.random.RandomState()
+
+    # Only perturb locations that are already non-zero.
+    Bo_prime = {}
+    for o, b in six.iteritems(pfa.B_o):
+        b_prime = b.copy()
+        b_prime[b_prime > 0] *= 1 + std * rng.randn(np.count_nonzero(b_prime))
         Bo_prime[o] = np.absolute(b_prime)
+
+    b_0, b_inf_string, Bo_prime = normalize_pfa(
+        pfa.b_0, pfa.b_inf_string, Bo_prime)
+
+    return PredictiveStateRep(
+        b_0, b_inf_string, Bo_prime, estimator='string')
+
+
+def perturb_pfa_bernoulli(pfa, p, increment=None, rng=None):
+    """ Generate a perturbed version of a PFA using additive bernoulli noise.
+
+    Parameters
+    ----------
+    pfa: PredictiveStateRep instance
+        The PFA to perturb.
+    p: positive float
+        Probability parameter for Bernoulli's.
+    increment: float
+        The amount to increment when the Bernoulli is non-zero.
+
+    """
+    rng = rng if rng is not None else np.random.RandomState()
+
+    # Only perturb locations that are already non-zero.
+    Bo_prime = {}
+    for o, b in six.iteritems(pfa.B_o):
+        b_prime = b.copy()
+        inc = np.mean(b_prime[b_prime > 0]) if increment is None else increment
+        b_prime += np.abs(inc * rng.binomial(1, p, size=b_prime.shape))
+        Bo_prime[o] = b_prime
 
     b_0, b_inf_string, Bo_prime = normalize_pfa(
         pfa.b_0, pfa.b_inf_string, Bo_prime)
@@ -265,7 +320,7 @@ if __name__ == "__main__":
     pp.pprint(hankel2)
 
     print("Perturbed model. " + "=" * 40)
-    pert = perturb_pfa(pa, noise=1.0/pa.b_0.size**0.01)
+    pert = perturb_pfa_additive(pa, noise=1.0/pa.b_0.size**0.01)
     pert_gen = PAStringGenerator(pert)
 
     n_samples = 10000

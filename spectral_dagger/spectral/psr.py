@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.sparse import csr_matrix
+from scipy.optimize import minimize
 from sklearn.utils.extmath import randomized_svd
 import logging
 
@@ -17,6 +18,7 @@ class PredictiveStateRep(object):
     def __init__(self, b_0, b_inf, B_o, estimator, can_terminate=None):
 
         self.B_o = B_o
+        self.B = sum(self.B_o.values())
 
         self.estimator = estimator
         self.observations = B_o.keys()
@@ -31,9 +33,18 @@ class PredictiveStateRep(object):
 
         self.reset()
 
+    def __str__(self):
+        return ("<PredictiveStateRep. "
+                "n_obs: %d, n_states: %d>" % (self.n_observations, self.size))
+
+    def __repr__(self):
+        return str(self)
+
+    @property
     def action_space(self):
         return None
 
+    @property
     def observation_space(self):
         return Space(set(self.observations), "ObsSpace")
 
@@ -44,22 +55,24 @@ class PredictiveStateRep(object):
     def reset(self):
         self.b = self.b_0.copy()
 
-    def update(self, obs=None, action=None):
+    def operator(self, o):
+        return self.B_o[o]
+
+    def update(self, o=None, a=None):
         """ Update state upon seeing an observation. """
-        numer = self.b.dot(self.B_o[obs])
+        numer = self.b.dot(self.operator(o))
         denom = numer.dot(self.b_inf)
 
         self.b = numer / denom
 
     def get_obs_prob(self, o):
         """ Get probability of observation for next time step.  """
-        prob = self.b.dot(self.B_o[o]).dot(self.b_inf)
+        prob = self.b.dot(self.operator(o)).dot(self.b_inf)
         return np.clip(prob, machine_eps, 1)
 
-    def get_prediction(self):
-        """ Get observation with highest prob for next time step . """
-        predict = lambda o: self.get_obs_prob(o)
-        return max(self.observations, key=predict)
+    def predict(self):
+        """ Get observation with highest prob for next time step. """
+        return max(self.observations, key=self.get_obs_prob)
 
     def get_obs_rank(self, o):
         """ Get probability rank of observation for next time step. """
@@ -153,7 +166,7 @@ class PredictiveStateRep(object):
             self.reset()
 
             for o in seq:
-                prediction = self.get_prediction()
+                prediction = self.predict()
                 self.update(o)
 
                 if prediction != o:
@@ -198,7 +211,7 @@ class PredictiveStateRep(object):
     def compute_start_end_vectors(self, b_0, b_inf, estimator):
         """ Calculate other start and end vectors for all estimator types.
 
-        Assumes B_o has already been set.
+        Assumes self.B_o and self.B have already been set.
 
         Parameters
         ----------
@@ -212,8 +225,6 @@ class PredictiveStateRep(object):
         """
         b_0 = b_0.copy()
         b_inf = b_inf.copy()
-
-        self.B = sum(self.B_o.values())
 
         # See Lemma 6.1.1 in Borja Balle's thesis
         I_minus_B = np.eye(self.B.shape[0]) - self.B
@@ -270,8 +281,8 @@ class SpectralPSR(PredictiveStateRep):
         basis: length-2 tuple
             Contains prefix and suffix dictionaries.
         svd: length-3 tuple
-            Contains U, S, V^T, the SVD of a Hankel matrix. If provided, then
-            computing the SVD of the estimated Hankel matrix is skipped.
+            Contains U, Sigma, V^T, the SVD of a Hankel matrix. If provided,
+            then computing the SVD of the estimated Hankel matrix is skipped.
         hankels: length-4 tuple
             Contains hp, hs, hankel, symbol_hankels. If provided, then
             estimating the Hankel matrices is skipped. If provided, then
@@ -304,24 +315,24 @@ class SpectralPSR(PredictiveStateRep):
         n_components = min(n_components, hankel_matrix.shape[0])
 
         if svd:
-            U, S, VT = svd
+            U, Sigma, VT = svd
         else:
             logger.debug("Performing SVD...")
             n_oversamples = 10
             n_iter = 5
 
-            # H = U S V^T
-            U, S, VT = randomized_svd(
+            # H = U Sigma V^T
+            U, Sigma, VT = randomized_svd(
                 hankel_matrix, n_components, n_oversamples, n_iter)
 
         V = VT.T
 
         U = U[:, :n_components]
         V = V[:, :n_components]
-        S = np.diag(S[:n_components])
+        Sigma = np.diag(Sigma[:n_components])
 
-        # P^+ = (HV)^+ = (US)^+ = S^+ U+ = S^-1 U.T
-        P_plus = csr_matrix(np.linalg.pinv(S).dot(U.T))
+        # P^+ = (HV)^+ = (U Sigma)^+ = Sigma^+ U+ = Sigma^-1 U.T
+        P_plus = csr_matrix(np.linalg.pinv(Sigma).dot(U.T))
 
         # S^+ = (V.T)^+ = V
         S_plus = csr_matrix(V)
@@ -331,6 +342,8 @@ class SpectralPSR(PredictiveStateRep):
         for o in self.observations:
             B_o = P_plus.dot(symbol_hankels[o]).dot(S_plus)
             self.B_o[o] = B_o.toarray()
+
+        self.B = sum(self.B_o.values())
 
         # b_0 S = hs => b_0 = hs S^+
         b_0 = hs.dot(S_plus)
@@ -424,6 +437,8 @@ class CompressedPSR(PredictiveStateRep):
         for o in self.observations:
             self.B_o[o] = inv_proj_hankel.dot(proj_sym_hankels[o])
 
+        self.B = sum(self.B_o.values())
+
         b_inf = inv_proj_hankel.dot(hp)
 
         self.proj_sym_hankels = proj_sym_hankels
@@ -435,6 +450,105 @@ class CompressedPSR(PredictiveStateRep):
         self.reset()
 
 
+class KernelInfo(object):
+    """ Stores kernel information for a KernelPSR.
+
+    Parameters
+    ----------
+    obs_kernel: function
+        Kernel function for individual observations.
+    obs_centers: (n_obs_centers, obs_dim) ndarray
+        Kernel centers for individual observations.
+    obs_kernel_grad: function
+        Function which returns the gradient of the kernel.
+    lmbda: positive float
+        Bandwidth parameter. Only used for observations.
+
+    prefix_kernel: function (optional)
+        Kernel for prefixes. If not supplied, obs_kernel is used.
+    prefix_centers: (n_prefix_centers, prefix_length * obs_dim) ndarray
+        Kernel centers for prefixes. If not supplied, obs_centers is used.
+
+    suffix_kernel: function (optional)
+        Kernel for suffixes. If not supplied, obs_kernel is used.
+    suffix_centers: (n_suffix_centers, suffix_length * obs_dim) ndarray
+        Kernel centers for suffixes. If not supplied, obs_centers is used.
+
+    """
+    def __init__(self, obs_kernel, obs_centers, obs_kernel_grad, lmbda=1.0,
+                 prefix_kernel=None, prefix_centers=None,
+                 suffix_kernel=None, suffix_centers=None):
+
+        self.obs_kernel = obs_kernel
+        self.obs_centers = obs_centers
+        self.obs_kernel_grad = obs_kernel_grad
+
+        self.lmbda = lmbda
+
+        self.prefix_kernel = (
+            obs_kernel if prefix_kernel is None else prefix_kernel)
+        self.prefix_centers = (
+            obs_centers if prefix_centers is None else prefix_centers)
+
+        self.suffix_kernel = (
+            obs_kernel if suffix_kernel is None else suffix_kernel)
+        self.suffix_centers = (
+            obs_centers if suffix_centers is None else suffix_centers)
+
+    @property
+    def n_obs_centers(self):
+        return len(self.obs_centers)
+
+    @property
+    def n_prefix_centers(self):
+        return len(self.prefix_centers)
+
+    @property
+    def n_suffix_centers(self):
+        return len(self.suffix_centers)
+
+    @property
+    def obs_dim(self):
+        return self.obs_centers.shape[1] if self.obs_centers.ndim > 1 else 1
+
+    @staticmethod
+    def _eval_kernel(kernel, kernel_centers, o, normalize, lmbda):
+        # Shape of kernel_centers: (n_centers, obs_dim)
+        # Shape of o: (obs_dim,)
+        obs_dim = kernel_centers.shape[1]
+
+        if o.shape[0] != obs_dim:
+            return None
+
+        k = np.array([kernel((o - c) / lmbda) for c in kernel_centers])
+        if normalize:
+            ksum = k.sum()
+            if ksum > 0:
+                k = k / k.sum()
+
+        return k
+
+    def eval_obs_kernel(self, o, normalize=True):
+        return self._eval_kernel(
+            self.obs_kernel, self.obs_centers, o, normalize, self.lmbda)
+
+    def eval_prefix_kernel(self, o, normalize=True):
+        return self._eval_kernel(
+            self.prefix_kernel, self.prefix_centers,
+            o.flatten(), normalize, 1.0)
+
+    def eval_suffix_kernel(self, o, normalize=True):
+        return self._eval_kernel(
+            self.suffix_kernel, self.suffix_centers,
+            o.flatten(), normalize, 1.0)
+
+    def obs_jacobian(self, o):
+        jac = np.array([
+            self.obs_kernel_grad((o - c) / self.lmbda)
+            for c in self.obs_centers])
+        return jac
+
+
 class KernelPSR(PredictiveStateRep):
     """
     Parameters
@@ -442,23 +556,16 @@ class KernelPSR(PredictiveStateRep):
     B_o: list of ndarray
         Contains operators for each of the kernel centers. It is a list
         wherein the order must be the same as the "kernel centers" list.
-    lmbda: float
-        Bandwidth parameter.
-    kernel_centers: n x d ndarray
-        Kernel centers (d is the dimension of each observation).
 
     """
     def __init__(
-            self, b_0, b_inf, B_o, kernel, kernel_centers,
-            lmbda, estimator, can_terminate=None):
+            self, b_0, b_inf, B_o, kernel_info, estimator, can_terminate=None):
+
+        self.kernel_info = kernel_info
+
         self.b_0 = b_0
         self.b_inf = b_inf
         self.B_o = B_o
-
-        self.kernel = kernel
-        self.kernel_centers = kernel_centers
-        self.obs_dim = kernel_centers.shape[1]
-        self.lmbda = lmbda
 
         self.estimator = estimator
 
@@ -467,141 +574,97 @@ class KernelPSR(PredictiveStateRep):
         else:
             self.can_terminate = can_terminate
 
+        self.compute_start_end_vectors(b_0, b_inf, estimator)
+
+        self._prediction_vec = None
+        self.prediction_mat = np.array([
+            bo.dot(self.b_inf) for bo in self.B_o]).T
+
         self.reset()
 
+    @property
     def observation_space(self):
         return Space([-np.inf, np.inf] * self.obs_dim, "ObsSpace")
 
-    def compute_operator(self, obs):
-        B = np.zeros((self.size, self.size))
-        for b, c in zip(self.B_o, self.kernel_centers):
-            sigma = self.kernel((obs - c) / self.lmbda)
-            B += sigma * b
-
+    def operator(self, o):
+        sigma = self.kernel_info.eval_obs_kernel(o)
+        B = sum([s * b for s, b in zip(sigma, self.B_o)])
         return B
 
-    def update(self, obs=None, action=None):
+    @property
+    def obs_dim(self):
+        return self.kernel_info.obs_dim
+
+    def B(self):
+        if not hasattr(self, "_B") or self._B is None:
+            self._B = (
+                self.kernel_info.obs_kernel(np.zeros(self.obs_dim))
+                * sum(self.B_o))
+
+        return self._B
+
+    def update(self, o=None, a=None):
         """ Update state upon seeing an observation. """
-        B = self.compute_operator(obs)
-        numer = self.b.dot(B)
-        denom = numer.dot(self.b_inf)
-        self.b = numer / denom
+        self._prediction_vec = None
+        super(KernelPSR, self).update(o, a)
 
-    def get_obs_prob(self, o):
-        """ Get probability of observation for next time step.  """
-        B_o = self.compute_operator(o)
-        prob = self.b.dot(B_o).dot(self.b_inf)
-        return np.clip(prob, machine_eps, 1)
+    @property
+    def prediction_vec(self):
+        if self._prediction_vec is None:
+            self._prediction_vec = self.b.dot(self.prediction_mat)
+        return self._prediction_vec
 
-    def get_prediction(self):
-        """ Get observation with highest prob for next time step . """
-        raise NotImplementedError(
-            "Cannot get most likely observation since the "
-            "observation space is continuous.")
+    def prediction_objective(self, o):
+        """ Function to optimize to make predictions. """
+        k = self.kernel_info.eval_obs_kernel(o)
+        return self.prediction_vec.dot(k)
+
+    def prediction_gradient(self, o):
+        """ Gradient of the prediction function. """
+        k = self.kernel_info.eval_obs_kernel(o, normalize=False)
+        Z = k.sum()
+
+        di_k = self.kernel_info.obs_jacobian(o).T
+        di_Z = di_k.sum(axis=1) * (1/self.kernel_info.lmbda)
+
+        n_centers = self.kernel_info.n_obs_centers
+
+        term1 = di_k.dot(self.prediction_vec/(self.kernel_info.lmbda * Z))
+        di_Z_diag_k = np.tile(di_Z, (n_centers, 1)).T * k
+        term2 = di_Z_diag_k.dot(self.prediction_vec/(Z**2))
+        return term1 - term2
+
+    def predict(self):
+        """ Get observation with highest prob for next time step. """
+        def f(o):
+            return -self.prediction_objective(o)
+
+        # jac=False, so using numerical differentiation for now
+        result = minimize(
+            f, np.zeros(self.obs_dim), jac=False, method='Nelder-Mead')
+
+        if not result.success:
+            raise Exception(
+                "Optimization for prediction failed. Output:\n %s" % result)
+
+        return result.x
 
     def get_obs_rank(self, o):
         """ Get probability rank of observation for next time step. """
         raise NotImplementedError(
-            "Cannot get most likely observation since the "
-            "observation space is continuous.")
-
-    def get_string_prob(self, string, init_state=None):
-        """ Get probability of string. """
-        raise NotImplementedError(
-            "Cannot compute string probabilities with KernelPSR.""")
-
-    def get_delayed_string_prob(self, string, t, init_state=None):
-        """ Get probability of observing string at a delay of ``t``.
-
-        get_delayed_string_prob(s, 0) is equivalent to get_string_prob(s).
-
-        """
-        raise NotImplementedError(
-            "Cannot compute string probabilities with KernelPSR.""")
-
-    def get_prefix_prob(self, prefix, init_state=None):
-        """ Get probability of prefix. """
-
-        if init_state is None:
-            self.b = self.b_0.copy()
-        else:
-            self.b = init_state
-
-        log_prob = 0.0
-
-        for o in prefix:
-            obs_prob = self.get_obs_prob(o)
-            obs_prob = max(machine_eps, obs_prob)
-            log_prob += np.log2(obs_prob)
-            self.update(o)
-
-        prob = 2**log_prob
-        return np.clip(prob, machine_eps, 1)
-
-    def get_delayed_prefix_prob(self, prefix, t, init_state=None):
-        """ Get probability of observing prefix at a delay of ``t``.
-
-        get_delayed_prefix_prob(p, 0) is equivalent to get_prefix_prob(p).
-
-        """
-        raise NotImplementedError(
-            "Cannot compute delayed probabilities with KernelPSR.""")
-
-    def get_WER(self, test_data):
-        """ Get word error rate for the test data. """
-        raise NotImplementedError(
-            "Cannot compute WER for KernelPSR because the most likely "
-            "observation cannot be computed for continuous spaces.")
-
-    def get_log_likelihood(self, test_data, base=2):
-        """ Get average log likelihood for the test data. """
-        llh = 0.0
-
-        for seq in test_data:
-            if base == 2:
-                seq_llh = np.log2(self.get_string_prob(seq))
-            else:
-                seq_llh = np.log(self.get_string_prob(seq))
-
-            llh += seq_llh
-
-        return llh / len(test_data)
-
-    def get_perplexity(self, test_data, base=2):
-        """ Get model perplexity on the test data.  """
-
-        return 2**(-self.get_log_likelihood(test_data, base=base))
-
-    def get_1norm_error(self, test_data):
-        error = 0.0
-        n_predictions = 0.0
-
-        for seq in test_data:
-            self.reset()
-
-            for o in seq:
-                error += 1 - self.get_obs_prob(o)
-                self.update(o)
-                n_predictions += 1
-
-        return 2. * error / n_predictions
+            "Cannot rank observations when observation space is cts.")
 
 
-class SpectralKernelPSR(PredictiveStateRep):
-    def __init__(self, kernel, kernel_centers, lmbda):
+class SpectralKernelPSR(KernelPSR):
+    def __init__(self, kernel_info):
         self.b_0 = None
         self.b_inf = None
         self.B_o = None
 
-        self.kernel = kernel
-        self.kernel_centers = kernel_centers
-        self.obs_dim = kernel_centers.shape[1]
-        self.lmbda = lmbda
+        self.kernel_info = kernel_info
 
         self.estimator = "prefix"
         self.can_terminate = False
-
-        self.reset()
 
     def fit(self, data, n_components):
         """ Fit a KernelPSR to the given data using a spectral algorithm.
@@ -616,7 +679,7 @@ class SpectralKernelPSR(PredictiveStateRep):
         """
         logger.debug("Estimating Hankels...")
         hankels = hankel.estimate_kernel_hankels(
-            data, self.kernel, self.kernel_centers, self.lmbda, self.estimator)
+            data, self.kernel_info, self.estimator)
 
         hp, hankel_matrix, symbol_hankels = hankels
 
@@ -629,32 +692,39 @@ class SpectralKernelPSR(PredictiveStateRep):
         n_oversamples = 10
         n_iter = 5
 
-        # H = U S V^T
-        U, S, VT = randomized_svd(
+        # H = U Sigma V^T
+        U, Sigma, VT = randomized_svd(
             hankel_matrix, n_components, n_oversamples, n_iter)
 
         V = VT.T
 
         U = U[:, :n_components]
         V = V[:, :n_components]
-        S = np.diag(S[:n_components])
+        Sigma = np.diag(Sigma[:n_components])
 
-        # P^+ = (HV)^+ = (US)^+ = S^+ U+ = S^-1 U.T
-        P_plus = csr_matrix(np.linalg.pinv(S).dot(U.T))
+        # P^+ = (HV)^+ = (USigma)^+ = Sigma^+ U+ = Sigma^-1 U.T
+        P_plus = np.linalg.pinv(Sigma).dot(U.T)
 
         # S^+ = (V.T)^+ = V
-        S_plus = csr_matrix(V)
+        S_plus = V
 
         logger.debug("Computing operators...")
         self.B_o = [P_plus.dot(Ho).dot(S_plus) for Ho in symbol_hankels]
+        self.B = (
+            self.kernel_info.obs_kernel(np.zeros(self.obs_dim))
+            * sum(self.B_o))
 
         # b_0 S = hs => b_0 = hs S^+
-        self.b_0 = hp.dot(S)
-        self.b_0 = self.b_0.toarray()[0, :]
+        b_0 = hp.dot(V)
 
         # P b_inf = hp => b_inf = P^+ hp
-        self.b_inf = P_plus.dot(hp)
-        self.b_inf = self.b_inf.toarray()[:, 0]
+        b_inf = P_plus.dot(hp)
+
+        self.compute_start_end_vectors(b_0, b_inf, self.estimator)
+
+        self._prediction_vec = None
+        self.prediction_mat = np.array([
+            bo.dot(self.b_inf) for bo in self.B_o]).T
 
         self.reset()
 
@@ -671,9 +741,11 @@ class SpectralPSRWithActions(object):
         self.B_ao = {}
         self.max_dim = max_dim
 
+    @property
     def action_space(self):
         return Space(set(self.actions), "ActionSpace")
 
+    @property
     def observation_space(self):
         return Space(set(self.observations), "ObsSpace")
 
@@ -764,7 +836,7 @@ class SpectralPSRWithActions(object):
     def reset(self):
         self.b = self.b_0.copy()
 
-    def get_prediction(self, action):
+    def predict(self, action):
         """
         Return the symbol that the model expects next,
         given that action is executed.
@@ -824,7 +896,7 @@ class SpectralPSRWithActions(object):
             self.reset()
 
             for a, o in seq:
-                prediction = self.get_prediction(a)
+                prediction = self.predict(a)
 
                 if prediction != o:
                     errors += 1
@@ -964,7 +1036,8 @@ class SpectralPolicy(Policy):
 
 
 if __name__ == "__main__":
-    import grid_world
+    from spectral_dagger.envs import EgoGridWorld
+    from spectral_dagger.mdp import UniformRandomPolicy
 
     # Sample a bunch of trajectories, run the learning algorithm on them
     n_trajectories = 20000
@@ -985,11 +1058,9 @@ if __name__ == "__main__":
 
     n_colors = 2
 
-    pomdp = grid_world.EgoGridWorld(n_colors, world)
+    pomdp = EgoGridWorld(n_colors, world)
 
-    exploration_policy = POMDPPolicy()
-    exploration_policy.fit(pomdp)
-
+    exploration_policy = UniformRandomPolicy(pomdp.actions)
     trajectories = []
 
     print "Sampling trajectories..."
@@ -1027,7 +1098,7 @@ if __name__ == "__main__":
 
             for i in range(test_length):
                 action = exploration_policy.get_action()
-                predicted_obs = psr.get_prediction(action)
+                predicted_obs = psr.predict(action)
 
                 pomdp_string = str(pomdp)
 

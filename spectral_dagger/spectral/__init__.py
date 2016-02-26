@@ -1,4 +1,5 @@
 from .psr import PredictiveStateRep, SpectralPSR, CompressedPSR
+from .psr import KernelPSR, SpectralKernelPSR, KernelInfo
 from .psr import SpectralPSRWithActions, SpectralClassifier
 from .psr import SpectralPolicy
 

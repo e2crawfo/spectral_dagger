@@ -85,6 +85,10 @@ class HMM(Environment):
         return False
 
     @property
+    def size(self):
+        return self.n_states
+
+    @property
     def n_observations(self):
         return len(self.observations)
 
@@ -142,6 +146,10 @@ class HMM(Environment):
     def get_obs_probs(self, o):
         """ Get vector containing probs of observing obs given each state. """
         return self._O[:, o]
+
+    def predict(self):
+        """ Get observation with highest prob for next time step. """
+        return max(self.observations, key=self.get_obs_prob)
 
     def get_seq_prob(self, seq):
         """ Get probability of observing `seq`.
@@ -291,6 +299,10 @@ class ContinuousHMM(HMM):
     @property
     def observation_space(self):
         return Space([-np.inf, np.inf] * len(self.O), "ObsSpace")
+
+    @property
+    def obs_dim(self):
+        return self.O[0].rvs().size
 
     def update(self):
         """ Returns the resulting observation. """

@@ -4,6 +4,7 @@ from scipy import stats
 
 from spectral_dagger import sample_episodes
 from spectral_dagger.spectral import SpectralPSR, CompressedPSR
+from spectral_dagger.spectral import SpectralKernelPSR, KernelInfo
 from spectral_dagger.spectral import top_k_basis
 from spectral_dagger.spectral import fixed_length_basis
 from spectral_dagger.hmm import HMM, ContinuousHMM
@@ -41,9 +42,6 @@ def reduced_rank_hmm():
     assert rank <= r
 
     O = np.eye(n)
-
-    n_states = n
-    n_obs = n
 
     return HMM(T, O, init_dist=normalize(np.ones(n), ord=1))
 
@@ -152,15 +150,41 @@ def test_psr():
 
 
 def test_cts_psr():
-    T = normalize([[8, 2], [2, 8]], ord=1)
-    O = [
-        stats.multivariate_normal(np.ones(2)),
-        stats.multivariate_normal(-np.ones(2))]
+    T = normalize(10 * np.eye(4) + np.ones((4, 4)), ord=1)
+    O = [stats.multivariate_normal(np.ones(2), cov=0.1*np.eye(2)),
+         stats.multivariate_normal(-np.ones(2), cov=0.1*np.eye(2)),
+         stats.multivariate_normal(np.array([1, -1]), cov=0.1*np.eye(2)),
+         stats.multivariate_normal(np.array([-1, 1]), cov=0.1*np.eye(2))]
 
-    init_dist = normalize([1, 1], ord=1)
+    rng = np.random.RandomState(10)
+
+    init_dist = normalize([10, 1, 1, 1], ord=1)
     cts_hmm = ContinuousHMM(T, O, init_dist)
-    eps = sample_episodes(10, cts_hmm, horizon=4)
-    print eps
+
+    n_train_samples = 1000
+    horizon = 10
+
+    eps = sample_episodes(n_train_samples, cts_hmm, horizon=horizon)
+    all_data = np.array([s for t in eps for s in t])
+
+    n_centers = 100
+    cov = np.eye(cts_hmm.obs_dim)
+    cov_inv = np.linalg.inv(cov)
+    normal = stats.multivariate_normal(mean=np.zeros(cts_hmm.obs_dim), cov=cov)
+
+    kernel = lambda x: normal.pdf(x)
+    kernel_gradient = lambda x: cov_inv.dot(-x)
+    kernel_centers = all_data[
+        rng.choice(len(all_data), size=n_centers, replace=False), :]
+    lmbda = 0.5
+
+    kernel_info = KernelInfo(kernel, kernel_centers, kernel_gradient, lmbda)
+    psr = SpectralKernelPSR(kernel_info)
+    psr.fit(eps, n_components=cts_hmm.size)
+    psr.reset()
+    prediction = psr.predict()
+    return psr, prediction
+
 
 if __name__ == "__main__":
-    test_cts_psr()
+    psr, prediction = test_cts_psr()
