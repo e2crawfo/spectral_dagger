@@ -4,7 +4,7 @@ from scipy.optimize import minimize
 from sklearn.utils.extmath import randomized_svd
 import logging
 
-from spectral_dagger import sample_episodes, LearningAlgorithm, Space, Policy
+from spectral_dagger import LearningAlgorithm, Space, Policy
 from spectral_dagger import get_model_rng
 from spectral_dagger.spectral import hankel
 
@@ -1064,8 +1064,8 @@ if __name__ == "__main__":
     trajectories = []
 
     print "Sampling trajectories..."
-    trajectories = sample_episodes(
-        n_trajectories, pomdp, exploration_policy, horizon)
+    trajectories = pomdp.sample_episodes(
+        n_trajectories, exploration_policy, horizon)
 
     for use_naive in [True, False]:
         print "Training model..."
@@ -1132,8 +1132,8 @@ if __name__ == "__main__":
         test_trajectories = []
 
         print "Sampling test trajectories for WER..."
-        trajectories = sample_episodes(
-            n_test_trajectories, pomdp, exploration_policy, horizon)
+        trajectories = pomdp.sample_episodes(
+            n_test_trajectories, exploration_policy, horizon)
 
         print "Word error rate: ", psr.get_WER(test_trajectories)
 

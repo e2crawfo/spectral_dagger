@@ -1,8 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-from spectral_dagger import sample_episode, sample_episodes
-
 from td import Sarsa, TD, LinearGradientSarsa
 from grid_world import GridWorld
 from mdp import evaluate_policy
@@ -36,7 +34,7 @@ def run_td_gsarsa(
     for j in range(n_trials):
         policy = policy_class(env, **policy_kwargs)
 
-        episodes = sample_episodes(n_episodes, env, policy, horizon)
+        episodes = env.sample_episodes(n_episodes, policy, horizon)
         for ep in episodes:
             rewards.extend([r for a, s, r in ep])
 
@@ -156,7 +154,7 @@ def run_td_prediction(
         policy = policy_class(env, **policy_kwargs)
 
         for i in range(n_episodes):
-            sample_episode(env, policy)
+            env.sample_episode(policy)
             errors.append(np.mean((policy.V - true_V)**2))
 
     return {
@@ -260,7 +258,7 @@ def run_td_control(
     for j in range(n_trials):
         policy = policy_class(env, **policy_kwargs)
 
-        episodes = sample_episodes(n_episodes, env, policy)
+        episodes = env.sample_episodes(n_episodes, policy)
         for i, ep in enumerate(episodes):
             rewards[i].append(np.mean([r for a, s, r in ep]))
 

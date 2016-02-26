@@ -1,6 +1,5 @@
 import numpy as np
 
-from spectral_dagger import sample_episodes
 from spectral_dagger.tests.conftest import make_test_display
 from spectral_dagger.mdp import QLearning, Sarsa, TD
 from spectral_dagger.envs import GridWorld, LinearMarkovChain
@@ -57,7 +56,7 @@ def test_td_prediction(alpha, lmbda, display=False):
         env, alpha=alpha, L=lmbda,
         V_0=np.random.random(env.n_states))
 
-    sample_episodes(2, env, policy, hook=display_hook)
+    env.sample_episodes(2, policy, hook=display_hook)
 
 
 def test_linear_gtd(display=False):
@@ -83,8 +82,8 @@ def test_linear_gtd(display=False):
     policies.append(linear_gtd)
 
     n_episodes = 10
-    sample_episodes(
-        n_episodes, dummy_world, policies, horizon=10, hook=display_hook)
+    dummy_world.sample_episodes(
+        n_episodes, policies, horizon=10, hook=display_hook)
 
 
 def test_q_learning(alpha, display=False):
@@ -96,7 +95,7 @@ def test_q_learning(alpha, display=False):
         env, alpha=alpha, epsilon=epsilon,
         Q_0=np.random.random((env.n_states, env.n_actions)))
 
-    sample_episodes(2, env, policy, hook=display_hook)
+    env.sample_episodes(2, policy, hook=display_hook)
 
 
 def test_sarsa(alpha, lmbda, display=False):
@@ -108,7 +107,7 @@ def test_sarsa(alpha, lmbda, display=False):
         env, alpha=alpha, L=lmbda, epsilon=epsilon,
         Q_0=np.random.random((env.n_states, env.n_actions)))
 
-    sample_episodes(2, env, policy, hook=display_hook)
+    env.sample_episodes(2, policy, hook=display_hook)
 
 
 def test_linear_sarsa_gtd(display=False):
@@ -132,5 +131,5 @@ def test_linear_sarsa_gtd(display=False):
         dummy_world, feature_extractor, geometric_sequence(0.2, 20))
 
     n_episodes = 10
-    sample_episodes(
-        n_episodes, dummy_world, policy=linear_gsarsa, hook=display_hook)
+    dummy_world.sample_episodes(
+        n_episodes, policy=linear_gsarsa, hook=display_hook)

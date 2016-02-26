@@ -290,7 +290,7 @@ def pautomac_score(model, problem_idx):
 if __name__ == "__main__":
     from spectral_dagger.spectral.dynamical_system import PAStringGenerator
     from spectral_dagger.spectral import top_k_basis, estimate_hankels
-    from spectral_dagger import sample_episodes, set_sim_rng
+    from spectral_dagger import set_sim_rng
     import pprint
 
     set_sim_rng(np.random.RandomState(1))
@@ -304,7 +304,7 @@ if __name__ == "__main__":
 
     print("Generated from model. " + "=" * 40)
     n_samples = 10000
-    episodes = sample_episodes(n_samples, generator)
+    episodes = generator.sample_episodes(n_samples)
 
     basis = top_k_basis(episodes, 100, 'prefix')
     hankels = estimate_hankels(
@@ -324,7 +324,7 @@ if __name__ == "__main__":
     pert_gen = PAStringGenerator(pert)
 
     n_samples = 10000
-    episodes = sample_episodes(n_samples, pert_gen)
+    episodes = pert_gen.sample_episodes(n_samples)
 
     hankels = estimate_hankels(
         episodes, basis, generator.observations, 'prefix')
@@ -333,7 +333,7 @@ if __name__ == "__main__":
 
     print("Generated from model again. " + "=" * 40)
     n_samples = 10000
-    episodes = sample_episodes(n_samples, generator)
+    episodes = generator.sample_episodes(n_samples)
 
     basis = top_k_basis(episodes, 100, 'prefix')
     hankels = estimate_hankels(

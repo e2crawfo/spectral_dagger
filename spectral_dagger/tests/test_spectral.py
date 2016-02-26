@@ -2,7 +2,6 @@ import pytest
 import numpy as np
 from scipy import stats
 
-from spectral_dagger import sample_episodes
 from spectral_dagger.spectral import SpectralPSR, CompressedPSR
 from spectral_dagger.spectral import SpectralKernelPSR, KernelInfo
 from spectral_dagger.spectral import top_k_basis
@@ -51,7 +50,7 @@ def reduced_rank_hmm():
 def do_test_spectral_hmm(
         simple_hmm, estimator, n_samples=4000, horizon=3, m=None, basis=None):
 
-    samples = sample_episodes(n_samples, simple_hmm, horizon=horizon)
+    samples = simple_hmm.sample_episodes(n_samples, horizon=horizon)
     psr = SpectralPSR(simple_hmm.observations)
 
     if m is None:
@@ -77,7 +76,7 @@ def do_test_spectral_hmm(
 def do_test_compressed_hmm(
         simple_hmm, n_samples=100, horizon=3, m=None, basis=None):
 
-    samples = sample_episodes(n_samples, simple_hmm, horizon=horizon)
+    samples = simple_hmm.sample_episodes(n_samples, horizon=horizon)
     comp_psr = CompressedPSR(simple_hmm.observations)
 
     if m is None:
@@ -164,7 +163,7 @@ def test_cts_psr():
     n_train_samples = 1000
     horizon = 10
 
-    eps = sample_episodes(n_train_samples, cts_hmm, horizon=horizon)
+    eps = cts_hmm.sample_episodes(n_train_samples, horizon=horizon)
     all_data = np.array([s for t in eps for s in t])
 
     n_centers = 100
@@ -172,8 +171,12 @@ def test_cts_psr():
     cov_inv = np.linalg.inv(cov)
     normal = stats.multivariate_normal(mean=np.zeros(cts_hmm.obs_dim), cov=cov)
 
-    kernel = lambda x: normal.pdf(x)
-    kernel_gradient = lambda x: cov_inv.dot(-x)
+    def kernel(x):
+        return normal.pdf(x)
+
+    def kernel_gradient(x):
+        return cov_inv.dot(-x)
+
     kernel_centers = all_data[
         rng.choice(len(all_data), size=n_centers, replace=False), :]
     lmbda = 0.5

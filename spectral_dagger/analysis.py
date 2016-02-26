@@ -1,6 +1,5 @@
 import numpy as np
 
-from spectral_dagger import sample_episode
 from spectral_dagger.pbvi import PBVI
 from spectral_dagger.grid_world import EgoGridWorld
 
@@ -34,8 +33,8 @@ def do_pbvi(do_plot=False):
             alg = PBVI()
             policy = alg.fit(pomdp)
 
-            epsiode = sample_episode(
-                pomdp, policy, horizon=20, reset=True, display=True)
+            epsiode = pomdp.sample_episode(
+                policy, horizon=20, reset=True, display=True)
 
             rewards[-1].append(sum(r for a, s, r in epsiode))
 

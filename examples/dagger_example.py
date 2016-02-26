@@ -1,7 +1,7 @@
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 
-from spectral_dagger import sample_episodes, make_print_hook
+from spectral_dagger import make_print_hook
 from spectral_dagger.mdp import MDP, Action, MDPPolicy
 from spectral_dagger.envs.grid_world import GridState
 
@@ -180,7 +180,7 @@ if __name__ == "__main__":
     n_test_trajectories = 0
     test_horizon = 10
 
-    sample_episodes(
+    env.sample_episodes(
         n_test_trajectories, policies[-1], horizon=test_horizon,
         hook=make_print_hook(0.1))
 

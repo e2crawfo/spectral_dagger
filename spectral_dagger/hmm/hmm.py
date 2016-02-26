@@ -1,6 +1,6 @@
 import numpy as np
 
-from spectral_dagger import Environment, Space, sample_episodes, get_model_rng
+from spectral_dagger import Environment, Space, get_model_rng
 from spectral_dagger.utils.math import normalize, sample_multinomial
 from spectral_dagger.spectral import PredictiveStateRep
 
@@ -371,7 +371,7 @@ def test_hmm():
     init_dist = normalize(np.array([0.5, 0.5]), ord=1)
 
     hmm = HMM(T, O, init_dist)
-    print(sample_episodes(10, hmm))
+    print(hmm.sample_episodes(10))
 
 
 if __name__ == "__main__":

@@ -134,9 +134,9 @@ class Space(object):
             for d, d_prime in zip(self.dimensions, other.dimensions):
                 if isinstance(d, tuple):
                     eq = (
-                        isinstance(d_prime, tuple)
-                        and np.isclose(d[0], d_prime[0])
-                        and np.isclose(d[1], d_prime[1]))
+                        isinstance(d_prime, tuple) and
+                        np.isclose(d[0], d_prime[0]) and
+                        np.isclose(d[1], d_prime[1]))
 
                     if not eq:
                         return False
@@ -293,6 +293,130 @@ class Environment(SpectralDaggerObject):
     def end_episode(self):
         pass
 
+    def sample_episode(self, *args, **kwargs):
+        return self.sample_episodes(1, *args, **kwargs)[0]
+
+    def sample_episodes(
+            self, n_eps, policy=None, horizon=np.inf,
+            reset_env=True, hook=None):
+        """ Sample a batch of episodes.
+
+        Parameters
+        ----------
+        n_eps: int
+            The number of episodes to sample.
+
+        policy: Policy instance or list of Policy instances
+            Policy or policies that will learn from the episodes, with
+            ``update`` called on them each time step. If the env requires
+            actions, then the first policy is the behaviour policy, and is
+            used to select actions using the ``get_action`` method (in
+            addition to the ``update``).
+        horizon: positive int or np.inf
+            The maximum length of the episodes. Episodes may terminate
+            earlier if the env has terminal states. Cannot be infinite if the
+            env lacks terminal states.
+        reset_env: bool
+            Whether to call ``reset`` on the env at the beginning of each
+            episode.
+        hook: function (optional)
+            A function that is called every time step with the results from
+            that time step. Useful e.g. for logging or displaying.
+
+        """
+        if policy is None:
+            policies = []
+        elif hasattr(policy, "__iter__"):
+            policies = list(policy)
+        else:
+            policies = [policy]
+
+        do_actions = not (
+            self.action_space is None or self.action_space.is_degenerate())
+
+        behaviour_policy = None
+        if do_actions:
+            if not policies:
+                raise ValueError(
+                    "Environment requires actions, "
+                    "but no policy was provided.")
+
+            behaviour_policy = policies[0]
+
+            if not self.action_space == behaviour_policy.action_space:
+                raise ValueError(
+                    "Policy and environment must operate "
+                    "on the same action space.")
+
+        if horizon is np.inf and not self.has_terminal_states():
+            raise ValueError(
+                "Must supply a finite horizon to sample with "
+                "an environment that lacks terminal states.")
+
+        if horizon < 1:
+            raise ValueError("``horizon`` must be a positive number.")
+
+        do_reward = self.has_reward()
+        just_obs = not do_reward and not do_actions
+
+        episodes = []
+
+        for ep_idx in range(n_eps):
+            if reset_env:
+                init = None if reset_env is True else reset_env
+
+                # Handle possibility of an initial observation.
+                obs = self.start_episode(init)
+
+            for p in policies:
+                p.start_episode(obs)
+
+            if obs is None:
+                episode = []
+            else:
+                episode = [obs] if just_obs else [(None, obs, 0.0)]
+
+            action = None
+            terminated = False
+            t = 0
+
+            terminated = self.in_terminal_state()
+            while not terminated:
+                if do_actions:
+                    action = behaviour_policy.get_action()
+                    result = self.update(action)
+                else:
+                    result = self.update()
+
+                if do_reward:
+                    obs, reward = result
+                else:
+                    obs, reward = result, 0.0
+
+                for p in policies:
+                    p.update(obs, action, reward)
+
+                episode.append(
+                    obs if just_obs else (action, obs, reward))
+
+                terminal = self.in_terminal_state()
+                terminated = terminal or horizon and t >= horizon
+
+                if hook:
+                    hook(env=self, policies=policies, action=action,
+                         obs=obs, terminal=terminal, t=t)
+
+                t += 1
+
+            for p in policies:
+                p.end_episode()
+
+            self.end_episode()
+
+            episodes.append(episode)
+
+        return episodes
+
 
 class Policy(SpectralDaggerObject):
     __metaclass__ = abc.ABCMeta
@@ -364,134 +488,6 @@ class Policy(SpectralDaggerObject):
 
     def end_episode(self):
         pass
-
-
-def sample_episode(*args, **kwargs):
-    return sample_episodes(1, *args, **kwargs)
-
-
-def sample_episodes(
-        n_eps, env, policy=None, horizon=np.inf, reset_env=True, hook=None):
-    """ Sample a batch of episodes.
-
-    Parameters
-    ----------
-    n_eps: int
-        The number of episodes to sample.
-
-    env: Environment instance
-        The environment to sample episodes from.
-
-    policy: Policy instance or list of Policy instances
-        Policy or policies that will learn from the episodes, with ``update``
-        called on them each time step. If the env requires actions, then the
-        first policy is the behaviour policy, and is used to select actions
-        using the ``get_action`` method (in addition to the ``update``).
-
-    horizon: positive int or np.inf
-        The maximum length of the episodes. Episodes may terminate earlier if
-        the env has terminal states. Cannot be infinite if the env lacks
-        terminal states.
-
-    reset_env: bool
-        Whether to call ``reset`` on the env at the beginning of each episode.
-
-    hook: function (optional)
-        A function that is called every time step with the results from that
-        time step. Useful e.g. for logging or displaying.
-
-    """
-    if policy is None:
-        policies = []
-    elif hasattr(policy, "__iter__"):
-        policies = list(policy)
-    else:
-        policies = [policy]
-
-    do_actions = not (
-        env.action_space is None or env.action_space.is_degenerate())
-
-    behaviour_policy = None
-    if do_actions:
-        if not policies:
-            raise ValueError(
-                "Environment requires actions, but no policy was provided.")
-
-        behaviour_policy = policies[0]
-
-        if not env.action_space == behaviour_policy.action_space:
-            raise ValueError(
-                "Policy and environment must operate "
-                "on the same action space.")
-
-    if horizon is np.inf and not env.has_terminal_states():
-        raise ValueError(
-            "Must supply a finite horizon to sample with "
-            "an environment that lacks terminal states.")
-
-    if horizon < 1:
-        raise ValueError("``horizon`` must be a positive number.")
-
-    do_reward = env.has_reward()
-    just_obs = not do_reward and not do_actions
-
-    episodes = []
-
-    for ep_idx in range(n_eps):
-        if reset_env:
-            init = None if reset_env is True else reset_env
-
-            # Handle possibility of an initial observation.
-            obs = env.start_episode(init)
-
-        for p in policies:
-            p.start_episode(obs)
-
-        if obs is None:
-            episode = []
-        else:
-            episode = [obs] if just_obs else [(None, obs, 0.0)]
-
-        action = None
-        terminated = False
-        t = 0
-
-        terminated = env.in_terminal_state()
-        while not terminated:
-            if do_actions:
-                action = behaviour_policy.get_action()
-                result = env.update(action)
-            else:
-                result = env.update()
-
-            if do_reward:
-                obs, reward = result
-            else:
-                obs, reward = result, 0.0
-
-            for p in policies:
-                p.update(obs, action, reward)
-
-            episode.append(
-                obs if just_obs else (action, obs, reward))
-
-            terminal = env.in_terminal_state()
-            terminated = terminal or horizon and t >= horizon
-
-            if hook:
-                hook(env=env, policies=policies, action=action,
-                     obs=obs, terminal=terminal, t=t)
-
-            t += 1
-
-        for p in policies:
-            p.end_episode()
-
-        env.end_episode()
-
-        episodes.append(episode)
-
-    return episodes
 
 
 def make_print_hook(delay=0.0):

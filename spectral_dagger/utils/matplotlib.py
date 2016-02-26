@@ -4,8 +4,6 @@ import matplotlib.pyplot as plt
 from matplotlib import animation
 import numpy as np
 
-from spectral_dagger import sample_episode
-
 
 # TODO: fix this up
 def contour_animation(linear_gtd, env, env_bounds):
@@ -23,7 +21,7 @@ def contour_animation(linear_gtd, env, env_bounds):
     # animation function
     def animate(i):
         # cont = plt.contourf(x, y, z, 25)
-        sample_episode(env, linear_gtd)
+        env.sample_episode(linear_gtd)
 
         plt.title('Value function. alpha: %f' % linear_gtd.alpha)
 

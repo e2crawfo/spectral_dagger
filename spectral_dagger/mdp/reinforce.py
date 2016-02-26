@@ -1,7 +1,6 @@
 import numpy as np
 import logging
 
-from spectral_dagger import sample_episodes
 from spectral_dagger import LearningAlgorithm
 
 
@@ -68,7 +67,7 @@ class REINFORCE(LearningAlgorithm):
 
         n_steps = 0
         while alpha > tol and n_steps < max_steps:
-            sample_eps = sample_episodes(n_samples, mdp, policy, reset=True)
+            sample_eps = mdp.sample_episodes(n_samples, policy, reset=True)
 
             current_gradient, norm = self.estimate_gradient(sample_eps, policy)
 
@@ -177,5 +176,4 @@ if __name__ == "__main__":
     policy = learner.fit(
         mdp, horizon, feature_extractor, alpha, n_samples=2, max_steps=200)
 
-    sample_episodes(
-        10, mdp, policy, horizon=horizon, hook=make_print_hook(0.1))
+    mdp.sample_episodes(10, policy, horizon=horizon, hook=make_print_hook(0.1))

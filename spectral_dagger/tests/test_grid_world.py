@@ -1,6 +1,5 @@
 import numpy as np
 
-from spectral_dagger import sample_episode
 from spectral_dagger.tests.conftest import make_test_display
 from spectral_dagger.envs import GridWorld, EgoGridWorld
 from spectral_dagger.envs import ContinuousGridWorld
@@ -76,7 +75,7 @@ def test_grid_world(display=False):
     env = GridWorld()
     policy = UniformRandomPolicy(env.actions)
 
-    sample_episode(env, policy, horizon=10, hook=display_hook)
+    env.sample_episode(policy, horizon=10, hook=display_hook)
 
 
 def test_cliff_world(display=False):
@@ -94,10 +93,10 @@ def test_cliff_world(display=False):
 
     alg = ValueIteration()
     policy = alg.fit(env)
-    sample_episode(env, policy, horizon=50, hook=display_hook)
+    env.sample_episode(policy, horizon=50, hook=display_hook)
 
-    sample_episode(
-        env, UniformRandomPolicy(env.actions), horizon=50, hook=display_hook)
+    env.sample_episode(
+        UniformRandomPolicy(env.actions), horizon=50, hook=display_hook)
 
 
 def test_ego_grid_world(display=False):
@@ -106,7 +105,7 @@ def test_ego_grid_world(display=False):
     env = EgoGridWorld(2)
     policy = UniformRandomPolicy(env.actions)
 
-    sample_episode(env, policy, horizon=10, hook=display_hook)
+    env.sample_episode(policy, horizon=10, hook=display_hook)
 
 
 def test_cts_grid_world(display=False):

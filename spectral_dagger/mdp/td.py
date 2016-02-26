@@ -1,6 +1,6 @@
 import numpy as np
 
-from spectral_dagger import Space, sample_episodes, make_print_hook
+from spectral_dagger import Space, make_print_hook
 from spectral_dagger.mdp import MDPPolicy
 
 
@@ -508,8 +508,8 @@ if __name__ == "__main__":
     n_steps = []
     rewards = []
 
-    episodes = sample_episodes(
-        n_episodes, dummy_world, policy=linear_gtd, horizon=horizon)
+    episodes = dummy_world.sample_episodes(
+        n_episodes, policy=linear_gtd, horizon=horizon)
 
     for trajectory in episodes:
         print "n_steps: ", len(trajectory)
@@ -520,8 +520,8 @@ if __name__ == "__main__":
         n_steps.append(len(trajectory))
 
     n_episodes = 0
-    episodes = sample_episodes(
-        n_episodes, dummy_world, policy=linear_gtd, horizon=horizon,
+    episodes = dummy_world.sample_episodes(
+        n_episodes, policy=linear_gtd, horizon=horizon,
         hook=make_print_hook(0.1))
 
     import matplotlib.pyplot as plt

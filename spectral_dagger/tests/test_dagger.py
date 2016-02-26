@@ -3,11 +3,10 @@ import itertools
 from sklearn.svm import SVC
 import pytest
 
-from spectral_dagger import sample_episode, sample_episodes
 from spectral_dagger.tests.conftest import make_test_display
 from spectral_dagger.function_approximation import Identity
-from spectral_dagger.dagger import dagger, StateClassifier
-from spectral_dagger.dagger import po_dagger, BeliefStateClassifier
+from spectral_dagger.imitation_learning import dagger, StateClassifier
+from spectral_dagger.imitation_learning import po_dagger, BeliefStateClassifier
 from spectral_dagger.spectral import SpectralClassifier
 from spectral_dagger.mdp import ValueIteration
 from spectral_dagger.envs import GridWorld, EgoGridWorld
@@ -32,7 +31,7 @@ def test_dagger(display=False):
     alg = ValueIteration()
     expert = alg.fit(mdp)
 
-    sample_episode(mdp, expert, horizon=5, hook=display_hook)
+    mdp.sample_episode(expert, horizon=5, hook=display_hook)
 
     predictor = SVC()
     learning_alg = StateClassifier(predictor, Identity(2))
@@ -44,7 +43,7 @@ def test_dagger(display=False):
         n_iterations=5, n_samples_per_iter=500, horizon=5)
 
     print "Testing final policy returned by DAgger..."
-    sample_episodes(10, mdp, policies[-1], horizon=10, hook=display_hook)
+    mdp.sample_episodes(10, policies[-1], horizon=10, hook=display_hook)
 
 
 def test_po_dagger(display=False):
@@ -64,7 +63,7 @@ def test_po_dagger(display=False):
     print "Computing expert policy..."
     alg = PBVI(m=4, n=20)
     expert = alg.fit(pomdp)
-    sample_episode(pomdp, expert, horizon=20, hook=display_hook)
+    pomdp.sample_episode(expert, horizon=20, hook=display_hook)
 
     predictor = SVC()
     learning_alg = BeliefStateClassifier(predictor)
@@ -77,7 +76,7 @@ def test_po_dagger(display=False):
         horizon=3)
 
     print "Testing final policy returned by DAgger..."
-    sample_episodes(10, pomdp, policies[-1], horizon=10, hook=display_hook)
+    pomdp.sample_episodes(10, policies[-1], horizon=10, hook=display_hook)
 
 
 @pytest.mark.xfail
@@ -99,7 +98,7 @@ def test_spectral_dagger(display=False):
     alg = PBVI(m=4, n=20)
     expert = alg.fit(pomdp)
 
-    sample_episode(pomdp, expert, horizon=5, hook=display_hook)
+    pomdp.sample_episode(expert, horizon=5, hook=display_hook)
 
     learning_alg = SpectralClassifier(SVC)
     beta = itertools.chain([1], iter(lambda: 0, 1))
@@ -111,4 +110,4 @@ def test_spectral_dagger(display=False):
         horizon=3)
 
     print "Testing final policy returned by DAgger..."
-    sample_episodes(10, pomdp, policies[-1], horizon=3, hook=display_hook)
+    pomdp.sample_episodes(10, policies[-1], horizon=3, hook=display_hook)
