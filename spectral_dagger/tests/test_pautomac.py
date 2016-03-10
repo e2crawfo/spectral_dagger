@@ -1,8 +1,9 @@
 import pytest
 import numpy as np
 
-from spectral_dagger.hmm.pautomac import pautomac_available, problem_indices
-from spectral_dagger.hmm.pautomac import load_pautomac_model, pautomac_score
+from spectral_dagger.datasets.pautomac import (
+    pautomac_available, problem_indices,
+    load_pautomac_model, pautomac_score)
 
 
 @pytest.mark.skipif(

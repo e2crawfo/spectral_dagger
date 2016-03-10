@@ -2,11 +2,10 @@ import pytest
 import numpy as np
 from scipy import stats
 
-from spectral_dagger.spectral import SpectralPSR, CompressedPSR
-from spectral_dagger.spectral import SpectralKernelPSR, KernelInfo
-from spectral_dagger.spectral import top_k_basis
-from spectral_dagger.spectral import fixed_length_basis
-from spectral_dagger.hmm import HMM, ContinuousHMM
+from spectral_dagger.sequence import SpectralPSR, CompressedPSR
+from spectral_dagger.sequence import SpectralKernelPSR, KernelInfo
+from spectral_dagger.sequence import top_k_basis, fixed_length_basis
+from spectral_dagger.sequence import HMM, ContinuousHMM
 from spectral_dagger.utils.math import normalize
 
 

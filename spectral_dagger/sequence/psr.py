@@ -2,11 +2,12 @@ import numpy as np
 from scipy.sparse import csr_matrix
 from scipy.optimize import minimize
 from sklearn.utils.extmath import randomized_svd
+from copy import deepcopy
 import logging
 
 from spectral_dagger import LearningAlgorithm, Space, Policy
 from spectral_dagger import get_model_rng
-from spectral_dagger.spectral import hankel
+from spectral_dagger.sequence import hankel
 
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,6 @@ class PredictiveStateRep(object):
         self.B_o = B_o
         self.B = sum(self.B_o.values())
 
-        self.estimator = estimator
         self.observations = B_o.keys()
         self.n_observations = len(self.observations)
 
@@ -255,6 +255,12 @@ class PredictiveStateRep(object):
         else:
             raise ValueError("Unknown Hankel estimator name: %s." % estimator)
 
+    def deepcopy(self):
+        return PredictiveStateRep(
+            self.b_0.copy(), self.b_inf.copy(),
+            deepcopy(self.B_o), estimator='prefix',
+            can_terminate=self.can_terminate)
+
 
 class SpectralPSR(PredictiveStateRep):
     def __init__(self, observations):
@@ -268,7 +274,7 @@ class SpectralPSR(PredictiveStateRep):
     def fit(
             self, data, n_components, estimator='prefix',
             basis=None, svd=None, hankels=None):
-        """ Fit a PSR to the given data using a spectral algorithm.
+        """ Fit a PSR to the given data using a sequence algorithm.
 
         Parameters
         ----------
@@ -369,9 +375,8 @@ class CompressedPSR(PredictiveStateRep):
 
     def fit(
             self, data, n_components,
-            basis=None, phi=None, hankels=None):
+            basis=None, phi=None, hankels=None, noise_std=None):
         """ Fit a PSR to the given data using a compression algorithm. """
-
         if not basis:
             logger.debug("Generating basis...")
             basis = hankel.top_k_basis(data, np.inf, 'prefix')
@@ -383,7 +388,8 @@ class CompressedPSR(PredictiveStateRep):
 
         if phi is None:
             phi = get_model_rng().randn(len(suffix_dict), n_components)
-            phi *= 1. / np.sqrt(n_components)
+            phi *= (
+                1. / np.sqrt(n_components) if noise_std is None else noise_std)
 
         self.phi = phi
 
@@ -598,8 +604,8 @@ class KernelPSR(PredictiveStateRep):
     def B(self):
         if not hasattr(self, "_B") or self._B is None:
             self._B = (
-                self.kernel_info.obs_kernel(np.zeros(self.obs_dim))
-                * sum(self.B_o))
+                self.kernel_info.obs_kernel(np.zeros(self.obs_dim)) *
+                sum(self.B_o))
 
         return self._B
 
@@ -667,7 +673,7 @@ class SpectralKernelPSR(KernelPSR):
         self.can_terminate = False
 
     def fit(self, data, n_components):
-        """ Fit a KernelPSR to the given data using a spectral algorithm.
+        """ Fit a KernelPSR to the given data using a sequence algorithm.
 
         Parameters
         ----------
@@ -711,8 +717,8 @@ class SpectralKernelPSR(KernelPSR):
         logger.debug("Computing operators...")
         self.B_o = [P_plus.dot(Ho).dot(S_plus) for Ho in symbol_hankels]
         self.B = (
-            self.kernel_info.obs_kernel(np.zeros(self.obs_dim))
-            * sum(self.B_o))
+            self.kernel_info.obs_kernel(np.zeros(self.obs_dim)) *
+            sum(self.B_o))
 
         # b_0 S = hs => b_0 = hs S^+
         b_0 = hp.dot(V)
@@ -841,8 +847,9 @@ class SpectralPSRWithActions(object):
         Return the symbol that the model expects next,
         given that action is executed.
         """
-        predict = lambda a: (lambda o: self.get_obs_prob(a, o))
-        return max(self.observations, key=predict(action))
+        def predict(o):
+            return self.get_obs_prob(action, o)
+        return max(self.observations, key=predict)
 
     def get_obs_prob(self, a, o):
         """

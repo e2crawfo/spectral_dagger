@@ -7,7 +7,7 @@ from spectral_dagger.tests.conftest import make_test_display
 from spectral_dagger.function_approximation import Identity
 from spectral_dagger.imitation_learning import dagger, StateClassifier
 from spectral_dagger.imitation_learning import po_dagger, BeliefStateClassifier
-from spectral_dagger.spectral import SpectralClassifier
+from spectral_dagger.sequence import SpectralClassifier
 from spectral_dagger.mdp import ValueIteration
 from spectral_dagger.envs import GridWorld, EgoGridWorld
 from spectral_dagger.pomdp import PBVI

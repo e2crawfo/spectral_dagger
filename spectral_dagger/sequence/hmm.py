@@ -2,7 +2,7 @@ import numpy as np
 
 from spectral_dagger import Environment, Space, get_model_rng
 from spectral_dagger.utils.math import normalize, sample_multinomial
-from spectral_dagger.spectral import PredictiveStateRep
+from spectral_dagger.sequence import PredictiveStateRep
 
 
 class HMM(Environment):
