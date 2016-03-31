@@ -8,11 +8,83 @@ from spectral_dagger.utils import sample_multinomial
 
 
 def is_pfa(b_0, b_inf, B_o):
-    """ Check that b_0, b_inf, B_o form a Probabilistic Finite Automaton. """
+    """ Check that b_0, b_inf, B_o form a Probabilistic Finite Automaton.
 
+    ``b_inf`` is assumed to be normalization vector for strings
+    (i.e. halting vector).
+
+    """
     B = sum(B_o.values())
     B_row_sums = B.sum(axis=1)
     return np.allclose(B_row_sums + b_inf, 1)
+
+
+def is_dpfa(b_0, b_inf, B_o):
+    """ Check that b_0, b_inf, B_o form a DPFA.
+    DPFA stands for Deterministic Probabilistic Finite Automaton.
+
+    ``b_inf`` is assumed to be normalization vector for strings
+    (i.e. halting vector).
+
+    """
+    if np.count_nonzero(b_0) > 1:
+        return False
+    for o in B_o:
+        for i in range(B_o[o].shape[0]):
+            if np.count_nonzero(B_o[o][i, :]) > 1:
+                return False
+    return True
+
+
+def is_hmm(b_0, b_inf, B_o):
+    """ Check that b_0, b_inf, B_o form a Hidden Markov Model.
+
+    Will only return True if it is an HMM in standard form
+    (i.e. B_sigma = diag(O_sigma)T)
+
+    ``b_inf`` is assumed to be normalization vector for strings
+    (i.e. halting vector).
+
+    """
+    if not np.isclose(b_0.sum(), 1.0):
+        return False
+
+    if np.any(b_0 < 0) or np.any(b_0 > 1):
+        return False
+
+    if np.any(b_inf < 0) or np.any(b_inf > 1):
+        return False
+
+    for i in range(b_inf.size):
+        first = True
+        coefs = []
+
+        for o in B_o:
+            if first:
+                first_row = B_o[o][i, :]
+                s = first_row.sum()
+
+                if s > 0:
+                    first_row /= s
+                    first = False
+
+                coefs.append(s)
+            else:
+                row = B_o[o][i, :]
+                s = row.sum()
+
+                if s > 0:
+                    row /= s
+
+                    if not np.allclose(first_row, row):
+                        return False
+
+                coefs.append(s)
+
+        if not np.isclose(sum(coefs) + b_inf[i], 1.0):
+            return False
+
+    return True
 
 
 def normalize_pfa(b_0, b_inf, B_o):

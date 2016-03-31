@@ -4,10 +4,9 @@ import sys
 import numpy as np
 from collections import defaultdict
 import six
-from pprint import PrettyPrinter
 
 from spectral_dagger.sequence import PredictiveStateRep
-from spectral_dagger.sequence.pfa import is_pfa
+from spectral_dagger.sequence.pfa import is_pfa, is_dpfa, is_hmm
 from spectral_dagger.utils import rmse
 
 PAUTOMAC_PATH = "/data/PAutomaC-competition_sets/"
@@ -41,8 +40,12 @@ def all_models():
 
 
 def print_models():
-    pp = PrettyPrinter(depth=3)
-    pp.pprint(all_models())
+    for i, model in enumerate(all_models()):
+        print str(i+1) + ": " + "*" * 40
+        print model
+        print "Is PFA?: ", is_pfa(model.b_0, model.b_inf_string, model.B_o)
+        print "Is DPFA?: ", is_dpfa(model.b_0, model.b_inf_string, model.B_o)
+        print "Is HMM?: ", is_hmm(model.b_0, model.b_inf_string, model.B_o)
 
 
 def int_or_float(x):
