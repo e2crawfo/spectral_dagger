@@ -202,11 +202,17 @@ class PredictiveStateRep(object):
             self.reset()
 
             for o in seq:
-                error += 1 - self.get_obs_prob(o)
+                pd = np.array([
+                    self.get_obs_prob(o) for o in self.observations])
+                true_pd = np.zeros(len(self.observations))
+                true_pd[o] = 1.0
+
+                error += np.linalg.norm(pd - true_pd, ord=1)
+
                 self.update(o)
                 n_predictions += 1
 
-        return 2. * error / n_predictions
+        return error / n_predictions
 
     def compute_start_end_vectors(self, b_0, b_inf, estimator):
         """ Calculate other start and end vectors for all estimator types.
