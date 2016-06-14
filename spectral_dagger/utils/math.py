@@ -1,10 +1,11 @@
 import numpy as np
 
+_default_rng = np.random.RandomState()
+
 
 def default_rng(rng=None):
     if rng is None:
-        rng = np.random.RandomState()
-        rng.set_state(np.random.get_state())
+        rng = _default_rng
     elif not isinstance(rng, np.random.RandomState):
         raise ValueError(
             "``rng`` must be None or an instance of np.random.RandomState")
@@ -88,10 +89,12 @@ def normalize(M, ord=2, axis=1, in_place=False, conservative=False):
 
     if in_place:
         M[:] = M / norm
-        return M
     else:
         M = M.copy()
-        return M / norm
+        M /= norm
+
+    M[np.isnan(M)] = 0.0
+    return M
 
 
 def laplace_smoothing(alpha, X, data):
