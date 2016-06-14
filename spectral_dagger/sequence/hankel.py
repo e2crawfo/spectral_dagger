@@ -4,8 +4,8 @@ estimating Hankel matrices from data.
 
 When constructing Hankel matrices, scipy.sparse.lil_matrices are used
 because they are most efficient for building-up matrices, and the
-results are returned as scipy.sparse.csr_matrices, as these are most
-efficient when manipulating matrices.
+results are returned as scipy.sparse.csr_matrices (if sparse is true),
+as these are most efficient when manipulating matrices.
 
 """
 
@@ -17,7 +17,7 @@ from collections import defaultdict
 import six
 
 
-def estimate_hankels(data, basis, observations, estimator, ret_sparse=True):
+def estimate_hankels(data, basis, observations, estimator, sparse=False):
     prefix_dict, suffix_dict = basis
 
     size_P = len(prefix_dict)
@@ -52,7 +52,7 @@ def estimate_hankels(data, basis, observations, estimator, ret_sparse=True):
     hp = csr_matrix(hp)
     hs = csr_matrix(hs)
 
-    if ret_sparse:
+    if sparse:
         return hp, hs, hankel, symbol_hankels
     else:
         symbol_hankels = {
@@ -209,6 +209,44 @@ def fill_prefix_kernel_hankel(
 
             if k_prefix is None:
                 continue
+
+            hp += k_prefix
+
+            for j in range(i, len(seq)+1):
+                suffix = seq[i:j]
+                k_suffix = kernel_info.eval_suffix_kernel(suffix)
+
+                if k_suffix is not None:
+                    hankel += np.outer(k_prefix, k_suffix)
+
+                if suffix.shape[0] > 0:
+                    obs = suffix[0]
+                    k_obs = kernel_info.eval_obs_kernel(obs)
+
+                    suffix = suffix[1:]
+                    k_suffix = kernel_info.eval_suffix_kernel(suffix)
+
+                    if k_obs is not None and k_suffix is not None:
+                        X = np.outer(k_prefix, k_suffix)
+
+                        for i, ko in enumerate(k_obs):
+                            symbol_hankels[i] += ko * X
+
+    n_samples = len(data)
+
+    hp /= n_samples
+    hankel /= n_samples
+    symbol_hankels = [sh/n_samples for sh in symbol_hankels]
+
+
+def fill_mean_hankel(
+        data, past_length, future_length, hp, hankel, symbol_hankels):
+
+    for seq in data:
+        seq = np.array(seq)
+
+        for i in range(past_length, len(seq)+1):
+            past = seq[:i]
 
             hp += k_prefix
 
@@ -514,35 +552,24 @@ def fixed_length_basis(observations, length, with_empty=True):
         Whether to include the empty string in the basis.
 
     """
-    basis = {}
+    prefix_dict = {}
 
     if with_empty:
-        basis[()] = 0
+        prefix_dict[()] = 0
 
     for seq in product(*[observations for i in range(length)]):
-        basis[seq] = len(basis)
+        prefix_dict[seq] = len(prefix_dict)
 
-    return basis, basis.copy()
+    return prefix_dict, prefix_dict.copy()
 
 
-def _true_probability_for_hmm(hmm, string, estimator, length):
+def _true_probability_for_pfa(pfa, string, estimator):
     if estimator == 'string':
-        prob = (
-            hmm.get_seq_prob(string)
-            if len(string) == length
-            else 0)
-
+        prob = pfa.get_string_prob(string)
     elif estimator == 'prefix':
-        prob = (
-            hmm.get_seq_prob(string)
-            if len(string) <= length
-            else 0)
-
+        prob = pfa.get_prefix_prob(string)
     elif estimator == 'substring':
-        prob = (
-            hmm.get_subsequence_expectation(string, length)
-            if len(string) <= length
-            else 0)
+        prob = pfa.get_substring_expectation(string)
     else:
         raise ValueError(
             "Unknown Hankel estimator: %s." % estimator)
@@ -550,9 +577,13 @@ def _true_probability_for_hmm(hmm, string, estimator, length):
     return prob
 
 
-def true_hankel_for_hmm(hmm, basis, length, estimator='string', full=False):
-    """ Construct the true Hankel matrix for a given HMM. """
+def true_hankel_for_hmm(hmm, *args, **kwargs):
+    return true_hankel_for_pfa(hmm.to_psr(), *args, **kwargs)
 
+
+def true_hankel_for_pfa(
+        pfa, basis, estimator='string', full=True, sparse=False):
+    """ Construct the true Hankel matrix for a given PFA. """
     prefix_dict, suffix_dict = basis
 
     size_P = len(prefix_dict)
@@ -567,42 +598,55 @@ def true_hankel_for_hmm(hmm, basis, length, estimator='string', full=False):
 
         prob = probabilities.get(string)
         if prob is None:
-            prob = _true_probability_for_hmm(hmm, string, estimator, length)
+            prob = _true_probability_for_pfa(pfa, string, estimator)
             probabilities[string] = prob
 
         hankel[prefix_dict[prefix], suffix_dict[suffix]] = prob
 
     if not full:
-        return csr_matrix(hankel)
+        hankel = csr_matrix(hankel)
+        if sparse:
+            return hankel
+        else:
+            return hankel.toarray()
     else:
         hp = lil_matrix((size_P, 1))
         hs = lil_matrix((1, size_S))
 
         for prefix in prefix_dict:
-            hp[prefix_dict[prefix], 0] = _true_probability_for_hmm(
-                hmm, prefix, estimator, length)
+            hp[prefix_dict[prefix], 0] = _true_probability_for_pfa(
+                pfa, prefix, estimator)
 
         for suffix in suffix_dict:
-            hs[0, suffix_dict[suffix]] = _true_probability_for_hmm(
-                hmm, suffix, estimator, length)
+            hs[0, suffix_dict[suffix]] = _true_probability_for_pfa(
+                pfa, suffix, estimator)
 
         symbol_hankels = {}
-        for obs in hmm.observations:
+        for obs in pfa.observations:
             symbol_hankels[obs] = lil_matrix((size_P, size_S))
 
-        strings = product(prefix_dict, hmm.observations, suffix_dict)
+        strings = product(prefix_dict, pfa.observations, suffix_dict)
         for prefix, o, suffix in strings:
             string = prefix + (o,) + suffix
 
             prob = probabilities.get(string)
             if prob is None:
-                prob = _true_probability_for_hmm(
-                    hmm, string, estimator, length)
+                prob = _true_probability_for_pfa(pfa, string, estimator)
                 probabilities[string] = prob
 
             symbol_hankels[o][prefix_dict[prefix], suffix_dict[suffix]] = prob
 
-        for obs in hmm.observations:
+        hankel = csr_matrix(hankel)
+
+        for obs in pfa.observations:
             symbol_hankels[obs] = csr_matrix(symbol_hankels[obs])
 
-        return hp, hs, hankel, symbol_hankels
+        hp = csr_matrix(hp)
+        hs = csr_matrix(hs)
+
+        if sparse:
+            return hp, hs, hankel, symbol_hankels
+        else:
+            symbol_hankels = {
+                o: h.toarray() for o, h in six.iteritems(symbol_hankels)}
+            return hp.toarray(), hs.toarray(), hankel.toarray(), symbol_hankels
