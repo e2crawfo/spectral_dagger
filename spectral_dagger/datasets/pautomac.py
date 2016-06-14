@@ -4,16 +4,18 @@ import sys
 import numpy as np
 from collections import defaultdict
 import six
+from itertools import product
+import operator
 
 from spectral_dagger.sequence import PredictiveStateRep
 from spectral_dagger.sequence.pfa import is_pfa, is_dpfa, is_hmm
-from spectral_dagger.utils import rmse
+from spectral_dagger.utils import rmse, default_rng
 
 PAUTOMAC_PATH = "/data/PAutomaC-competition_sets/"
 
 
 def pautomac_available():
-    return bool(problem_indices)
+    return bool(problem_indices())
 
 
 def problem_indices():
@@ -168,6 +170,119 @@ def pautomac_score(model, problem_idx):
         expected_llh += gt * np.log2(mp)
 
     return 2**(-expected_llh)
+
+
+def _populate_prob_table(lengths, sparsity, rng):
+    """ Create a probability table with dimensions given by `lengths`.
+
+    For every possible combination of the first n-1 indices, where `lengths`
+    has length n, the probability table contains a row that is a normalized
+    probability distribution. The nonzero entries in this row are chosen
+    randomly before the table is created according to the sparsity.
+    The values for the non-zero values are chosen from a Dirichlet
+    distribution. If some combination of the first n-1 indices has no
+    nonzero values, we create one for it artificially.
+
+    Parameters
+    ----------
+    lengths: list of integers
+        Size of each dimension.
+    sparsity: 0 < float < 1
+        Percentage of non-zero entries.
+    rng: np.random.RandomState
+        Pseudo-random number generator.
+
+    """
+    lengths_prod = reduce(operator.mul, lengths, 1)
+    n_nonzero = int(round(sparsity * lengths_prod))
+
+    nonzero_set = set(rng.choice(
+        lengths_prod, n_nonzero, replace=False))
+    nonzero_indices = [
+        p for i, p in enumerate(product(*[range(l) for l in lengths]))
+        if i in nonzero_set]
+
+    nonzero_table = {
+        t: [] for t in product(*[range(l) for l in lengths[:-1]])}
+    for t in nonzero_indices:
+        nonzero_table[t[:-1]].append(t[-1])
+
+    probs = np.zeros(lengths)
+    for t_trunc, indices in six.iteritems(nonzero_table):
+        if not indices:
+            indices = [rng.choice(lengths[-1])]
+            nonzero_indices.append(t_trunc + (indices[0],))
+
+        row = rng.dirichlet([1] * len(indices))
+        for i, idx in enumerate(indices):
+            probs[t_trunc + (idx,)] = row[i]
+
+    return probs, nonzero_indices
+
+
+def make_pautomac_like(
+        kind, n_states, n_symbols,
+        symbol_sparsity, transition_sparsity, halts=False, rng=None):
+    """ Create a PFA using the same algo as the Pautomac competition.
+
+    N.B: doesn't correctly handle the case where halts=True. """
+
+    assert int(n_states) == n_states and n_states > 0
+    assert int(n_symbols) == n_symbols and n_symbols > 0
+    assert 0 < symbol_sparsity < 1
+    assert 0 < transition_sparsity < 1
+
+    rng = default_rng(rng)
+
+    symbols = range(n_symbols)
+
+    n_start_states = int(round(transition_sparsity * n_states))
+    start_states = rng.choice(n_states, n_start_states, replace=False)
+
+    b_0 = np.zeros(n_states)
+    b_0[start_states] = rng.dirichlet([1] * n_start_states)
+
+    if halts:
+        n_halt_states = int(round(transition_sparsity * n_states))
+        halt_states = rng.choice(n_states, n_halt_states, replace=False)
+    else:
+        n_halt_states = 0
+        halt_states = []
+
+    b_inf_string = np.zeros(n_states)
+    b_inf_string[halt_states] = rng.dirichlet([1] * n_halt_states)
+
+    emission_probs, _ = _populate_prob_table(
+        (n_states, n_symbols), symbol_sparsity, rng)
+
+    if kind == 'pfa':
+        transition_probs, nonzero_indices = _populate_prob_table(
+            (n_states, n_symbols, n_states), transition_sparsity, rng)
+        B_o = {
+            symbol: np.zeros((n_states, n_states)) for symbol in symbols}
+
+        for state1, symbol, state2 in nonzero_indices:
+            B_o[symbol][state1, state2] = (
+                emission_probs[state1, symbol] *
+                transition_probs[state1, symbol, state2])
+
+        assert is_pfa(b_0, b_inf_string, B_o)
+
+    elif kind == 'hmm':
+        transition_probs, _ = _populate_prob_table(
+            (n_states, n_states), transition_sparsity, rng)
+
+        B_o = {
+            s: np.diag(emission_probs[:, s]).dot(transition_probs)
+            for s in symbols}
+
+        assert is_hmm(b_0, b_inf_string, B_o)
+    else:
+        raise NotImplementedError(
+            'Cannot generate PFA of kind "%s".' % kind)
+
+    psr = PredictiveStateRep(b_0, b_inf_string, B_o, estimator='string')
+    return psr
 
 
 if __name__ == "__main__":
