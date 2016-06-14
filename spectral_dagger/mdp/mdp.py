@@ -8,7 +8,7 @@ class MDP(Environment):
 
     def __init__(
             self, actions, states, T, R, gamma,
-            initial_state=None, terminal_states=None):
+            init_dist=None, terminal_states=None):
         """ A Markov Decision Process.
 
         Parameters
@@ -26,9 +26,9 @@ class MDP(Environment):
             the reward for transitioning from state i to state j with action a.
         gamma: float
             Discount factor.
-        initial_state: An element of ``states``.
-            A state in `states` which the MDP will be reset
-            to whenever the `reset` method is called.
+        init_dist: A distribution over states.
+            A distribution from which an initial state will be chosen whenever
+            the `reset` method is called.
         terminal_states: list
             A (possibly empty) subset of the states in states. Episodes are
             terminated when the agent enters one of these states.
@@ -37,7 +37,7 @@ class MDP(Environment):
         self.actions = actions
         self.states = states
 
-        self.initial_state = initial_state
+        self.init_dist = init_dist
         self.terminal_states = terminal_states
 
         self._T = T.copy()
@@ -80,13 +80,13 @@ class MDP(Environment):
 
     def has_terminal_states(self):
         return (
-            hasattr(self, 'terminal_states')
-            and bool(self.terminal_states))
+            hasattr(self, 'terminal_states') and
+            bool(self.terminal_states))
 
     def in_terminal_state(self):
         return (
-            self.has_terminal_states()
-            and self.current_state in self.terminal_states)
+            self.has_terminal_states() and
+            self.current_state in self.terminal_states)
 
     def reset(self, init_dist=None):
         """ Resets the state of the MDP.
@@ -97,11 +97,8 @@ class MDP(Environment):
             A distribution to choose the initial state from.
 
         """
-        if init_dist is None:
-            init_state = self.rng.choice(self.states)
-        else:
-            init_state = self.states[sample_multinomial(init_dist, self.rng)]
-
+        init_dist = self.init_dist if init_dist is None else init_dist
+        init_state = self.states[sample_multinomial(init_dist, self.rng)]
         self.current_state = init_state
         return init_state
 
