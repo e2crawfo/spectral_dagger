@@ -24,9 +24,8 @@ def read(*filenames, **kwargs):
 root = os.path.dirname(os.path.realpath(__file__))
 version_module = imp.load_source(
     'version', os.path.join(root, 'spectral_dagger', 'version.py'))
-description = ("Tools for experimenting with reinforcement learning "
-               "and imitation learning.")
-#long_description = read('README.md', 'CHANGES.rst')
+description = ("Tools for experimenting with reinforcement learning, "
+               "sequence learning and imitation learning.")
 long_description = read('README.md')
 
 setup(
