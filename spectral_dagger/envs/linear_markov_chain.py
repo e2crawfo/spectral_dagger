@@ -44,7 +44,10 @@ class LinearMarkovChain(MDP):
 
         self.actions = [0]
         self.states = range(n_states)
-        self.initial_state = np.floor(n_states / 2.0)
+
+        self.init_dist = np.zeros(n_states)
+        self.init_dist[int(np.floor(n_states / 2.0))] = 1.0
+
         self.terminal_states = [0, n_states-1]
         self.gamma = gamma
 

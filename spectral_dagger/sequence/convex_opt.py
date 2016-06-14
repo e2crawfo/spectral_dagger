@@ -4,9 +4,9 @@ import logging
 import os
 
 import spectral_dagger.sequence
-from spectral_dagger.sequence import PredictiveStateRep
+from spectral_dagger.sequence import StochasticAutomaton
 from spectral_dagger.sequence import hankel
-from spectral_dagger.sequence.psr import MAX_BASIS_SIZE
+from spectral_dagger.sequence.stochastic_automaton import MAX_BASIS_SIZE
 
 
 logger = logging.getLogger(__name__)
@@ -15,7 +15,7 @@ MAXDIM = 50
 machine_eps = np.finfo(float).eps
 
 
-class ConvexOptPSR(PredictiveStateRep):
+class ConvexOptSA(StochasticAutomaton):
     def __init__(self, observations):
         self.b_0 = None
         self.b_inf = None
@@ -27,7 +27,7 @@ class ConvexOptPSR(PredictiveStateRep):
     def fit(self, data, tau, max_k=500, estimator='prefix',
             basis=None, hp_string=None, hankels=None, probabilistic=True,
             rank_tol=0.0):
-        """ Fit a PSR to the given data using a convex optimization algorithm.
+        """ Fit a SA to the given data using a convex optimization algorithm.
 
         The algorithm solves a convex optimization problem by minimizing the
         regression error with a trace-norm penalty on the coefficient matrix.

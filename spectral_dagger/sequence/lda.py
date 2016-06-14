@@ -5,7 +5,7 @@ from itertools import product
 import time
 from collections import defaultdict
 
-from spectral_dagger.sequence import PredictiveStateRep, SpectralPSR
+from spectral_dagger.sequence import StochasticAutomaton, SpectralSA
 from spectral_dagger.utils import normalize
 
 
@@ -15,7 +15,7 @@ machine_eps = np.finfo(float).eps
 MAX_BASIS_SIZE = 100
 
 
-class LatentDirichletPSR(PredictiveStateRep):
+class LatentDirichletSA(StochasticAutomaton):
     def __init__(self, observations):
         self.b_0 = None
         self.b_inf = None
@@ -65,7 +65,7 @@ class LatentDirichletPSR(PredictiveStateRep):
         return hp, hs, h, sh
 
     def fit(self, data, n_components, alpha=1.0, eta=1.0, direct=True):
-        """ Fit a PSR to the given data using an LDA algorithm.
+        """ Fit a SA to the given data using an LDA algorithm.
 
         Parameters
         ----------
@@ -138,12 +138,12 @@ class LatentDirichletPSR(PredictiveStateRep):
             conditional_hankel = P.dot(S)
             hankels = self._conditional_to_joint(
                 conditional_hankel, prefixes, symbols)
-            psr = SpectralPSR(symbols)
-            psr.fit(
+            sa = SpectralSA(symbols)
+            sa.fit(
                 [], n_components, basis=basis,
                 hankels=hankels, sparse=False)
 
-            self.b_0, self.b_inf, self.B_o = psr.b_0, psr.b_inf, psr.B_o
+            self.b_0, self.b_inf, self.B_o = sa.b_0, sa.b_inf, sa.B_o
 
         self.B = sum(self.B_o.values())
         self.compute_start_end_vectors(

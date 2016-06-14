@@ -578,7 +578,7 @@ def _true_probability_for_pfa(pfa, string, estimator):
 
 
 def true_hankel_for_hmm(hmm, *args, **kwargs):
-    return true_hankel_for_pfa(hmm.to_psr(), *args, **kwargs)
+    return true_hankel_for_pfa(hmm.to_sa(), *args, **kwargs)
 
 
 def true_hankel_for_pfa(

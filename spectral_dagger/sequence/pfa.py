@@ -2,7 +2,7 @@ import numpy as np
 import six
 
 from spectral_dagger import Environment, Space
-from spectral_dagger.sequence import PredictiveStateRep
+from spectral_dagger.sequence import StochasticAutomaton
 from spectral_dagger.utils import normalize
 from spectral_dagger.utils import sample_multinomial
 
@@ -118,7 +118,7 @@ def perturb_pfa_additive(pfa, std, rng=None):
 
     Parameters
     ----------
-    pfa: PredictiveStateRep instance
+    pfa: StochasticAutomaton instance
         The PFA to perturb.
     std: positive float
         Standard deviation of perturbation for the operators.
@@ -137,7 +137,7 @@ def perturb_pfa_additive(pfa, std, rng=None):
     b_0, b_inf_string, Bo_prime = normalize_pfa(
         pfa.b_0, pfa.b_inf_string, Bo_prime)
 
-    return PredictiveStateRep(
+    return StochasticAutomaton(
         b_0, b_inf_string, Bo_prime, estimator='string')
 
 
@@ -149,7 +149,7 @@ def perturb_pfa_multiplicative(pfa, std, rng=None):
 
     Parameters
     ----------
-    pfa: PredictiveStateRep instance
+    pfa: StochasticAutomaton instance
         The PFA to perturb.
     std: positive float
         Standard deviation of perturbation for the operators.
@@ -167,7 +167,7 @@ def perturb_pfa_multiplicative(pfa, std, rng=None):
     b_0, b_inf_string, Bo_prime = normalize_pfa(
         pfa.b_0, pfa.b_inf_string, Bo_prime)
 
-    return PredictiveStateRep(
+    return StochasticAutomaton(
         b_0, b_inf_string, Bo_prime, estimator='string')
 
 
@@ -176,7 +176,7 @@ def perturb_pfa_bernoulli(pfa, p, increment=None, rng=None):
 
     Parameters
     ----------
-    pfa: PredictiveStateRep instance
+    pfa: StochasticAutomaton instance
         The PFA to perturb.
     p: positive float
         Probability parameter for Bernoulli's.
@@ -198,7 +198,7 @@ def perturb_pfa_bernoulli(pfa, p, increment=None, rng=None):
     b_0, b_inf_string, Bo_prime = normalize_pfa(
         pfa.b_0, pfa.b_inf_string, Bo_prime)
 
-    return PredictiveStateRep(
+    return StochasticAutomaton(
         b_0, b_inf_string, Bo_prime, estimator='string')
 
 
@@ -275,9 +275,9 @@ class PFASampler(Environment):
 
         return obs
 
-    def to_psr(self):
-        psr = PredictiveStateRep(
+    def to_sa(self):
+        sa = StochasticAutomaton(
             b_0=self.b_0, b_inf=self.b_inf_prefix, B_o=self.B_o,
             estimator='prefix')
 
-        return psr
+        return sa

@@ -7,7 +7,7 @@ import six
 from itertools import product
 import operator
 
-from spectral_dagger.sequence import PredictiveStateRep
+from spectral_dagger.sequence import StochasticAutomaton
 from spectral_dagger.sequence.pfa import is_pfa, is_dpfa, is_hmm
 from spectral_dagger.utils import rmse, default_rng
 
@@ -118,7 +118,7 @@ def load_pautomac_model(problem_idx):
 
     assert is_pfa(b_0, b_inf, B_o), "Loaded model is not a PFA."
 
-    return PredictiveStateRep(b_0, b_inf, B_o, estimator='string')
+    return StochasticAutomaton(b_0, b_inf, B_o, estimator='string')
 
 
 def load_pautomac_ground_truth(problem_idx):
@@ -281,8 +281,8 @@ def make_pautomac_like(
         raise NotImplementedError(
             'Cannot generate PFA of kind "%s".' % kind)
 
-    psr = PredictiveStateRep(b_0, b_inf_string, B_o, estimator='string')
-    return psr
+    sa = StochasticAutomaton(b_0, b_inf_string, B_o, estimator='string')
+    return sa
 
 
 if __name__ == "__main__":

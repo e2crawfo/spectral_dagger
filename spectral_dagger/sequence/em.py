@@ -3,7 +3,7 @@ import copy
 import subprocess
 import os
 
-from spectral_dagger.sequence import PredictiveStateRep
+from spectral_dagger.sequence import StochasticAutomaton
 
 LIKE_ITS = 20000
 MAX_VALID_ITERS = 1000
@@ -29,7 +29,7 @@ def em_available():
     return _treba_available
 
 
-class ExpMaxPSR(PredictiveStateRep):
+class ExpMaxSA(StochasticAutomaton):
 
     def __init__(self, n_components, n_observations):
         self.n_components = n_components

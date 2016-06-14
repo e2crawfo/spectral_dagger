@@ -4,12 +4,12 @@ from scipy import stats
 from scipy.linalg import orth
 from itertools import product
 
-from spectral_dagger.sequence import SpectralPSR, CompressedPSR
-from spectral_dagger.sequence import SpectralKernelPSR, KernelInfo
+from spectral_dagger.sequence import SpectralSA, CompressedSA
+from spectral_dagger.sequence import SpectralKernelSA, KernelInfo
 from spectral_dagger.sequence import top_k_basis, fixed_length_basis
 from spectral_dagger.sequence import HMM, ContinuousHMM
-from spectral_dagger.sequence import ExpMaxPSR
-from spectral_dagger.sequence import ConvexOptPSR
+from spectral_dagger.sequence import ExpMaxSA
+from spectral_dagger.sequence import ConvexOptSA
 from spectral_dagger.sequence import MixtureOfPFA, MixtureOfPFASampler
 from spectral_dagger.utils.math import normalize
 from spectral_dagger.datasets.pautomac import make_pautomac_like
@@ -57,7 +57,7 @@ def do_test_spectral_hmm(
         simple_hmm, estimator, n_samples=4000, horizon=3, m=None, basis=None):
 
     samples = simple_hmm.sample_episodes(n_samples, horizon=horizon)
-    psr = SpectralPSR(simple_hmm.observations)
+    sa = SpectralSA(simple_hmm.observations)
 
     if m is None:
         m = simple_hmm.n_states
@@ -65,14 +65,14 @@ def do_test_spectral_hmm(
     if basis is None:
         basis = top_k_basis(samples, np.inf, estimator)
 
-    psr.fit(samples, m, estimator, basis=basis)
+    sa.fit(samples, m, estimator, basis=basis)
 
     test_seqs = [[0], [1], [0, 0], [0, 1], [1, 0], [1, 1]]
 
     print "*" * 20
     for seq in test_seqs:
         ground_truth = simple_hmm.get_seq_prob(seq)
-        pred = psr.get_prefix_prob(seq)
+        pred = sa.get_prefix_prob(seq)
         print("Seq: ", seq)
         print("Ground truth: %f" % ground_truth)
         print("Prediction: %f" % pred)
@@ -83,7 +83,7 @@ def do_test_compressed_hmm(
         simple_hmm, n_samples=1000, horizon=3, m=None, basis=None):
 
     samples = simple_hmm.sample_episodes(n_samples, horizon=horizon)
-    comp_psr = CompressedPSR(simple_hmm.observations)
+    comp_sa = CompressedSA(simple_hmm.observations)
 
     if m is None:
         m = simple_hmm.n_states
@@ -91,15 +91,15 @@ def do_test_compressed_hmm(
     if basis is None:
         basis = top_k_basis(samples, np.inf, 'prefix')
 
-    comp_psr.model_rng = np.random.RandomState(10)
-    comp_psr.fit(samples, m, basis=basis)
+    comp_sa.model_rng = np.random.RandomState(10)
+    comp_sa.fit(samples, m, basis=basis)
 
     test_seqs = [[0], [1], [0, 0], [0, 1], [1, 0], [1, 1]]
 
     print "*" * 20
     for seq in test_seqs:
         ground_truth = simple_hmm.get_seq_prob(seq)
-        pred = comp_psr.get_prefix_prob(seq)
+        pred = comp_sa.get_prefix_prob(seq)
         print("Seq: ", seq)
         print("Ground truth: %f" % ground_truth)
         print("Prediction: %f" % pred)
@@ -113,15 +113,15 @@ def do_test_em(hmm, n_samples=1000, horizon=3):
     samples = hmm.sample_episodes(n_samples, horizon=horizon)
     validate_samples = hmm.sample_episodes(n_samples, horizon=horizon)
 
-    em_psr = ExpMaxPSR(hmm.n_states, hmm.n_observations)
-    em_psr.fit(samples, validate_samples)
+    em_sa = ExpMaxSA(hmm.n_states, hmm.n_observations)
+    em_sa.fit(samples, validate_samples)
 
     test_seqs = [[0], [1], [0, 0], [0, 1], [1, 0], [1, 1]]
 
     print "*" * 20
     for seq in test_seqs:
         ground_truth = hmm.get_seq_prob(seq)
-        pred = em_psr.get_prefix_prob(seq)
+        pred = em_sa.get_prefix_prob(seq)
         print("Seq: ", seq)
         print("Ground truth: %f" % ground_truth)
         print("Prediction: %f" % pred)
@@ -138,10 +138,10 @@ def do_test_convex_opt(
     if basis is None:
         basis = top_k_basis(samples, np.inf, 'prefix')
 
-    co_psr = ConvexOptPSR(hmm.observations)
+    co_sa = ConvexOptSA(hmm.observations)
 
-    co_psr.model_rng = np.random.RandomState(10)
-    co_psr.fit(samples, basis=basis, **kwargs)
+    co_sa.model_rng = np.random.RandomState(10)
+    co_sa.fit(samples, basis=basis, **kwargs)
 
     test_seqs = [[0], [1], [0, 0], [0, 1], [1, 0], [1, 1]]
 
@@ -150,7 +150,7 @@ def do_test_convex_opt(
     print "*" * 20
     for seq in test_seqs:
         ground_truth = hmm.get_seq_prob(seq)
-        pred = co_psr.get_prefix_prob(seq)
+        pred = co_sa.get_prefix_prob(seq)
         print("Seq: ", seq)
         print("Ground truth: %f" % ground_truth)
         print("Prediction: %f" % pred)
@@ -164,7 +164,7 @@ def do_test_convex_opt(
 
 
 def test_spectral():
-    # Test SpectralPSR
+    # Test SpectralSA
     hmm = simple_hmm()
     dimension = 6
 
@@ -189,7 +189,7 @@ def test_spectral():
 
 
 def test_compressed():
-    # Test CompressedPSR
+    # Test CompressedSA
     hmm = simple_hmm()
     dimension = 6
 
@@ -212,7 +212,7 @@ def test_compressed():
 
 
 def test_em():
-    # Test ExpMaxPSR
+    # Test ExpMaxSA
     hmm = simple_hmm()
     do_test_em(hmm)
 
@@ -221,7 +221,7 @@ def test_em():
 
 
 def test_convex_opt():
-    # Test ConvexOptPSR
+    # Test ConvexOptSA
     horizon = 3
     rank_tol = 1e-7
     tau = 0.001
@@ -253,7 +253,7 @@ def test_convex_opt():
     do_test_convex_opt(rr_hmm, tau=0.001, basis=basis, horizon=3)
 
 
-def test_cts_psr():
+def test_cts_sa():
     T = normalize(10 * np.eye(4) + np.ones((4, 4)), ord=1)
     O = [stats.multivariate_normal(np.ones(2), cov=0.1*np.eye(2)),
          stats.multivariate_normal(-np.ones(2), cov=0.1*np.eye(2)),
@@ -287,11 +287,11 @@ def test_cts_psr():
     lmbda = 0.5
 
     kernel_info = KernelInfo(kernel, kernel_centers, kernel_gradient, lmbda)
-    psr = SpectralKernelPSR(kernel_info)
-    psr.fit(eps, n_components=cts_hmm.size)
-    psr.reset()
-    prediction = psr.predict()
-    return psr, prediction
+    sa = SpectralKernelSA(kernel_info)
+    sa.fit(eps, n_components=cts_hmm.size)
+    sa.reset()
+    prediction = sa.predict()
+    return sa, prediction
 
 
 def test_mixture_pfa():
@@ -337,4 +337,4 @@ def test_mixture_pfa():
 
 
 if __name__ == "__main__":
-    psr, prediction = test_cts_psr()
+    sa, prediction = test_cts_sa()

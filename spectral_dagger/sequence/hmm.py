@@ -2,7 +2,7 @@ import numpy as np
 
 from spectral_dagger import Environment, Space, get_model_rng
 from spectral_dagger.utils.math import normalize, sample_multinomial
-from spectral_dagger.sequence import PredictiveStateRep
+from spectral_dagger.sequence import StochasticAutomaton
 
 
 class HMM(Environment):
@@ -229,16 +229,16 @@ class HMM(Environment):
 
         return prob
 
-    def to_psr(self):
+    def to_sa(self):
         B_o = {}
         for o in self.observations:
             B_o[o] = np.diag(self.get_obs_probs(o)).dot(self.T)
 
-        psr = PredictiveStateRep(
+        sa = StochasticAutomaton(
             b_0=self.init_dist, b_inf=np.ones(self.n_states), B_o=B_o,
             estimator='prefix')
 
-        return psr
+        return sa
 
 
 class ContinuousHMM(HMM):
@@ -321,7 +321,7 @@ class ContinuousHMM(HMM):
         return np.array(
             [self._O[s].pdf(o) for s in self.states])
 
-    def to_psr(self):
+    def to_sa(self):
         raise NotImplementedError()
 
 
