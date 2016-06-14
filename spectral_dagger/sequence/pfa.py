@@ -61,7 +61,7 @@ def is_hmm(b_0, b_inf, B_o):
 
         for o in B_o:
             if first:
-                first_row = B_o[o][i, :]
+                first_row = B_o[o][i, :].copy()
                 s = first_row.sum()
 
                 if s > 0:
@@ -70,7 +70,7 @@ def is_hmm(b_0, b_inf, B_o):
 
                 coefs.append(s)
             else:
-                row = B_o[o][i, :]
+                row = B_o[o][i, :].copy()
                 s = row.sum()
 
                 if s > 0:
@@ -96,7 +96,7 @@ def normalize_pfa(b_0, b_inf, B_o):
     for o, B in six.iteritems(B_o):
         assert (B >= 0).all()
 
-    b_0 = normalize(b_0)
+    b_0 = normalize(b_0, ord=1)
 
     B = sum(B_o.values())
     norms = B.sum(axis=1) / (1 - b_inf)
@@ -105,6 +105,7 @@ def normalize_pfa(b_0, b_inf, B_o):
     new_B_o = {}
     for o, Bo in six.iteritems(B_o):
         new_B_o[o] = Bo / norms
+        new_B_o[o][np.isnan(new_B_o[o])] = 0.0
 
     assert is_pfa(b_0, b_inf, new_B_o)
     return b_0, b_inf, new_B_o
@@ -184,13 +185,14 @@ def perturb_pfa_bernoulli(pfa, p, increment=None, rng=None):
 
     """
     rng = rng if rng is not None else np.random.RandomState()
+    increment = (
+        increment if increment is not None
+        else np.mean(np.mean(np.hstack(pfa.B_o.values()))))
 
-    # Only perturb locations that are already non-zero.
     Bo_prime = {}
     for o, b in six.iteritems(pfa.B_o):
         b_prime = b.copy()
-        inc = np.mean(b_prime[b_prime > 0]) if increment is None else increment
-        b_prime += np.abs(inc * rng.binomial(1, p, size=b_prime.shape))
+        b_prime += np.abs(increment * rng.binomial(1, p, size=b_prime.shape))
         Bo_prime[o] = b_prime
 
     b_0, b_inf_string, Bo_prime = normalize_pfa(
@@ -264,7 +266,10 @@ class PFASampler(Environment):
 
         numer = self.b.dot(self.B_o[obs])
         denom = numer.dot(self.b_inf_prefix)
-        self.b = numer / denom
+        if np.isclose(denom, 0):
+            self.b = np.zeros_like(self.b)
+        else:
+            self.b = numer / denom
 
         self.lookahead()
 

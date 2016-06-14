@@ -13,10 +13,11 @@ from spectral_dagger.sequence import hankel
 logger = logging.getLogger(__name__)
 
 machine_eps = np.finfo(float).eps
+MAX_BASIS_SIZE = 100
 
 
 class PredictiveStateRep(object):
-    def __init__(self, b_0, b_inf, B_o, estimator, can_terminate=None):
+    def __init__(self, b_0, b_inf, B_o, estimator):
 
         self.B_o = B_o
         self.B = sum(self.B_o.values())
@@ -25,11 +26,6 @@ class PredictiveStateRep(object):
         self.n_observations = len(self.observations)
 
         self.compute_start_end_vectors(b_0, b_inf, estimator)
-
-        if can_terminate is None:
-            self.can_terminate = (b_inf != 0).any()
-        else:
-            self.can_terminate = can_terminate
 
         self.reset()
 
@@ -49,6 +45,10 @@ class PredictiveStateRep(object):
         return Space(set(self.observations), "ObsSpace")
 
     @property
+    def can_terminate(self):
+        return (self.b_inf_string != 0).any()
+
+    @property
     def size(self):
         return self.b_0.size
 
@@ -63,7 +63,10 @@ class PredictiveStateRep(object):
         numer = self.b.dot(self.operator(o))
         denom = numer.dot(self.b_inf)
 
-        self.b = numer / denom
+        if np.isclose(denom, 0):
+            self.b = np.zeros_like(self.b)
+        else:
+            self.b = numer / denom
 
     def get_obs_prob(self, o):
         """ Get probability of observation for next time step.  """
@@ -157,6 +160,22 @@ class PredictiveStateRep(object):
 
         return self.get_prefix_prob(prefix, init_dist=b)
 
+    def get_substring_expectation(self, substring):
+        """ Get expected number of occurrences of a substring. """
+
+        self.b = self.b_0_substring.copy()
+
+        log_prob = 0.0
+
+        for o in substring:
+            obs_prob = self.get_obs_prob(o)
+            obs_prob = max(machine_eps, obs_prob)
+            log_prob += np.log2(obs_prob)
+            self.update(o)
+
+        prob = 2**log_prob
+        return np.clip(prob, machine_eps, 1)
+
     def get_WER(self, test_data):
         """ Get word error rate for the test data. """
         errors = 0.0
@@ -180,10 +199,16 @@ class PredictiveStateRep(object):
         llh = 0.0
 
         for seq in test_data:
-            if base == 2:
-                seq_llh = np.log2(self.get_string_prob(seq))
+            if self.can_terminate:
+                if base == 2:
+                    seq_llh = np.log2(self.get_string_prob(seq))
+                else:
+                    seq_llh = np.log(self.get_string_prob(seq))
             else:
-                seq_llh = np.log(self.get_string_prob(seq))
+                if base == 2:
+                    seq_llh = np.log2(self.get_prefix_prob(seq))
+                else:
+                    seq_llh = np.log(self.get_prefix_prob(seq))
 
             llh += seq_llh
 
@@ -203,7 +228,11 @@ class PredictiveStateRep(object):
 
             for o in seq:
                 pd = np.array([
-                    self.get_obs_prob(o) for o in self.observations])
+                    self.get_obs_prob(obs)
+                    for obs in self.observations])
+                pd = np.clip(pd, 0.0, np.inf)
+                pd /= pd.sum()
+
                 true_pd = np.zeros(len(self.observations))
                 true_pd[o] = 1.0
 
@@ -229,8 +258,8 @@ class PredictiveStateRep(object):
             The estimator that was used to calculate b_0 and b_inf.
 
         """
-        b_0 = b_0.copy()
-        b_inf = b_inf.copy()
+        b_0 = b_0.reshape(-1).copy()
+        b_inf = b_inf.reshape(-1).copy()
 
         # See Lemma 6.1.1 in Borja Balle's thesis
         I_minus_B = np.eye(self.B.shape[0]) - self.B
@@ -239,7 +268,11 @@ class PredictiveStateRep(object):
 
         if estimator == 'string':
             self.b_inf_string = b_inf
-            self.b_inf = I_minus_B_inv.dot(self.b_inf_string)
+
+            if (self.b_inf_string == 0).all():
+                self.b_inf = np.ones_like(self.b_inf_string)
+            else:
+                self.b_inf = I_minus_B_inv.dot(self.b_inf_string)
 
             self.b_0 = b_0
             self.b_0_substring = self.b_0.dot(I_minus_B_inv)
@@ -264,8 +297,7 @@ class PredictiveStateRep(object):
     def deepcopy(self):
         return PredictiveStateRep(
             self.b_0.copy(), self.b_inf.copy(),
-            deepcopy(self.B_o), estimator='prefix',
-            can_terminate=self.can_terminate)
+            deepcopy(self.B_o), estimator='prefix')
 
 
 class SpectralPSR(PredictiveStateRep):
@@ -277,14 +309,13 @@ class SpectralPSR(PredictiveStateRep):
         self.observations = observations
         self.n_observations = len(self.observations)
 
-    def fit(
-            self, data, n_components, estimator='prefix',
-            basis=None, svd=None, hankels=None):
-        """ Fit a PSR to the given data using a sequence algorithm.
+    def fit(self, data, n_components, estimator='prefix',
+            basis=None, svd=None, hankels=None, sparse=True):
+        """ Fit a PSR to the given data using a spectral algorithm.
 
         Parameters
         ----------
-        data: list of list
+        data: list of list of observations
             Each sublist is a list of observations constituting a trajectory.
         n_components: int
             Number of dimensions in feature space.
@@ -310,11 +341,11 @@ class SpectralPSR(PredictiveStateRep):
         else:
             if not basis:
                 logger.debug("Generating basis...")
-                basis = hankel.top_k_basis(data, max_basis_size, estimator)
+                basis = hankel.top_k_basis(data, MAX_BASIS_SIZE, estimator)
 
             logger.debug("Estimating Hankels...")
             hankels = hankel.estimate_hankels(
-                data, basis, self.observations, estimator)
+                data, basis, self.observations, estimator, sparse=sparse)
 
             # Note: all hankels are scipy csr matrices
             hp, hs, hankel_matrix, symbol_hankels = hankels
@@ -344,26 +375,34 @@ class SpectralPSR(PredictiveStateRep):
         Sigma = np.diag(Sigma[:n_components])
 
         # P^+ = (HV)^+ = (U Sigma)^+ = Sigma^+ U+ = Sigma^-1 U.T
-        P_plus = csr_matrix(np.linalg.pinv(Sigma).dot(U.T))
+        P_plus = np.linalg.pinv(Sigma).dot(U.T)
+        if sparse:
+            P_plus = csr_matrix(P_plus)
 
         # S^+ = (V.T)^+ = V
-        S_plus = csr_matrix(V)
+        S_plus = V
+        if sparse:
+            S_plus = csr_matrix(S_plus)
 
         logger.debug("Computing operators...")
         self.B_o = {}
         for o in self.observations:
             B_o = P_plus.dot(symbol_hankels[o]).dot(S_plus)
-            self.B_o[o] = B_o.toarray()
+            if sparse:
+                B_o = B_o.toarray()
+            self.B_o[o] = B_o
 
         self.B = sum(self.B_o.values())
 
         # b_0 S = hs => b_0 = hs S^+
         b_0 = hs.dot(S_plus)
-        b_0 = b_0.toarray()[0, :]
+        if sparse:
+            b_0 = b_0.toarray()[0, :]
 
         # P b_inf = hp => b_inf = P^+ hp
         b_inf = P_plus.dot(hp)
-        b_inf = b_inf.toarray()[:, 0]
+        if sparse:
+            b_inf = b_inf.toarray()[:, 0]
 
         self.compute_start_end_vectors(b_0, b_inf, estimator)
 
@@ -380,22 +419,62 @@ class CompressedPSR(PredictiveStateRep):
         self.n_observations = len(self.observations)
 
     def fit(
-            self, data, n_components,
-            basis=None, phi=None, hankels=None, noise_std=None):
-        """ Fit a PSR to the given data using a compression algorithm. """
-        if not basis:
-            logger.debug("Generating basis...")
-            basis = hankel.top_k_basis(data, np.inf, 'prefix')
+            self, data, n_components, noise_std=None, estimator='prefix',
+            basis=None, phi=None, hankels=None):
+        """ Fit a PSR to the given data using a compression algorithm.
+
+        Parameters
+        ----------
+        data: list of list of observations
+            Each sublist is a list of observations constituting a trajectory.
+        n_components: int > 0
+            Number of dimensions in feature space.
+        noise_std: float > 0, optional
+            Standard deviation of noise used to generate compression matrices.
+            Defaults to 1 / sqrt(n_components).
+        estimator: string
+            'string', 'prefix', or 'substring'.
+        basis: length-2 tuple
+            Contains prefix and suffix dictionaries.
+        phi: (n_suffix, n_components) ndarray, optional
+            A pre-computed projection matrix. If not provided, then a
+            projection matrix is drawn randomly.
+        hankels: length-4 tuple
+            Contains hp, hs, hankel, symbol_hankels. If provided, then
+            estimating the Hankel matrices is skipped. If provided, then
+            a basis must also be provided.
+
+        """
+        if hankels:
+            if not basis:
+                raise ValueError(
+                    "If `hankels` provided, must also provide a basis.")
+
+            hp, hs, hankel_matrix, symbol_hankels = hankels
+        else:
+            if not basis:
+                logger.debug("Generating basis...")
+                basis = hankel.top_k_basis(data, MAX_BASIS_SIZE, estimator)
+
+            logger.debug("Estimating Hankels...")
+            hankels = hankel.estimate_hankels(
+                data, basis, self.observations, estimator, sparse=True)
+
+            # Note: all hankels are scipy csr matrices
+            hp, hs, hankel_matrix, symbol_hankels = hankels
 
         self.basis = basis
         self.n_components = n_components
+
+        self.hankel = hankel_matrix
+        self.symbol_hankels = symbol_hankels
 
         prefix_dict, suffix_dict = basis
 
         if phi is None:
             phi = get_model_rng().randn(len(suffix_dict), n_components)
-            phi *= (
-                1. / np.sqrt(n_components) if noise_std is None else noise_std)
+            phi *= (1. / np.sqrt(n_components)
+                    if noise_std is None else noise_std)
 
         self.phi = phi
 
@@ -443,6 +522,10 @@ class CompressedPSR(PredictiveStateRep):
         for o in self.observations:
             proj_sym_hankels[o] /= n_samples
 
+        self.proj_sym_hankels = proj_sym_hankels
+        self.proj_hankel = proj_hankel
+        self.hp = hp
+
         inv_proj_hankel = np.linalg.pinv(proj_hankel)
 
         self.B_o = {}
@@ -453,11 +536,7 @@ class CompressedPSR(PredictiveStateRep):
 
         b_inf = inv_proj_hankel.dot(hp)
 
-        self.proj_sym_hankels = proj_sym_hankels
-        self.proj_hankel = proj_hankel
-        self.hp = hp
-
-        self.compute_start_end_vectors(b_0, b_inf, estimator='prefix')
+        self.compute_start_end_vectors(b_0, b_inf, estimator=estimator)
 
         self.reset()
 
@@ -571,7 +650,7 @@ class KernelPSR(PredictiveStateRep):
 
     """
     def __init__(
-            self, b_0, b_inf, B_o, kernel_info, estimator, can_terminate=None):
+            self, b_0, b_inf, B_o, kernel_info, estimator):
 
         self.kernel_info = kernel_info
 
@@ -580,11 +659,6 @@ class KernelPSR(PredictiveStateRep):
         self.B_o = B_o
 
         self.estimator = estimator
-
-        if can_terminate is None:
-            self.can_terminate = (b_inf != 0).any()
-        else:
-            self.can_terminate = can_terminate
 
         self.compute_start_end_vectors(b_0, b_inf, estimator)
 
@@ -676,10 +750,9 @@ class SpectralKernelPSR(KernelPSR):
         self.kernel_info = kernel_info
 
         self.estimator = "prefix"
-        self.can_terminate = False
 
     def fit(self, data, n_components):
-        """ Fit a KernelPSR to the given data using a sequence algorithm.
+        """ Fit a KernelPSR to the given data using a spectral algorithm.
 
         Parameters
         ----------
@@ -843,7 +916,10 @@ class SpectralPSRWithActions(object):
         numer = self.b.dot(B_ao)
         denom = numer.dot(self.b_inf)
 
-        self.b = numer / denom
+        if np.isclose(denom, 0):
+            self.b = np.zeros_like(self.b)
+        else:
+            self.b = numer / denom
 
     def reset(self):
         self.b = self.b_0.copy()
