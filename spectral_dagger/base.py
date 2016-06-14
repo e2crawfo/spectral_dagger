@@ -305,7 +305,6 @@ class Environment(SpectralDaggerObject):
         ----------
         n_eps: int
             The number of episodes to sample.
-
         policy: Policy instance or list of Policy instances
             Policy or policies that will learn from the episodes, with
             ``update`` called on them each time step. If the env requires
@@ -399,14 +398,14 @@ class Environment(SpectralDaggerObject):
                 episode.append(
                     obs if just_obs else (action, obs, reward))
 
+                t += 1
+
                 terminal = self.in_terminal_state()
                 terminated = terminal or horizon and t >= horizon
 
                 if hook:
                     hook(env=self, policies=policies, action=action,
                          obs=obs, terminal=terminal, t=t)
-
-                t += 1
 
             for p in policies:
                 p.end_episode()
