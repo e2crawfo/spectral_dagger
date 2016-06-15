@@ -429,7 +429,7 @@ class GridWorld(MDP):
 
         return self.pos2state(self.current_position)
 
-    def update(self, action):
+    def step(self, action):
         """ Update state of the grid world given that ``action`` was taken.
 
         With probability 1 - self.noise, move in the specified direction. With
@@ -500,7 +500,7 @@ class GridWorld(MDP):
         """ Make transition operator. """
 
         # local transition probabilities when trying to move straight
-        # see fn update for where this is implemented
+        # see fn ``step`` for where this is implemented
         # dict index is (S, R, L), whether the location is blocked by a wall.
         # probabilities are (C, S, R, L), probability of transitioning there.
         # C is current position
@@ -729,7 +729,7 @@ class EgoGridWorld(POMDP):
         else:
             self.grid_world.reset()
 
-    def update(self, action):
+    def step(self, action):
         """ Update state of the grid world given that ``action`` was taken.
 
         Returns
@@ -737,7 +737,7 @@ class EgoGridWorld(POMDP):
         New state and reward received.
 
         """
-        state, reward = self.grid_world.update(action)
+        state, reward = self.grid_world.step(action)
         obs = self.generate_observation()
 
         return obs, reward

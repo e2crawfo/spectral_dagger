@@ -53,9 +53,9 @@ class LinearMarkovChain(MDP):
 
         self.reset()
 
-    def update(self, action=None):
+    def step(self, action=None):
         """ Ignore the supplied action. """
-        return super(LinearMarkovChain, self).update(0)
+        return super(LinearMarkovChain, self).step(0)
 
     def __str__(self):
         return ''.join([

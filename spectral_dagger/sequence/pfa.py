@@ -257,7 +257,7 @@ class PFASampler(Environment):
         self.b = self.b_0.copy()
         self.lookahead()
 
-    def update(self):
+    def step(self):
         if self.terminal:
             return None
 

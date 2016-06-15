@@ -43,7 +43,7 @@ class LQG(MDP):
 
         return state
 
-    def update(self, u):
+    def step(self, u):
         prev_state = self.x
 
         mean = self.A.dot(self.x) + self.B.dot(u)

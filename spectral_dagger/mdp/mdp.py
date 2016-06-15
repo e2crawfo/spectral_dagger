@@ -102,7 +102,7 @@ class MDP(Environment):
         self.current_state = init_state
         return init_state
 
-    def update(self, action=None):
+    def step(self, action=None):
         """ Execute the given action. Returns new state and reward. """
 
         action = self.action_space.validate(action)
@@ -151,10 +151,10 @@ class SingleActionMDP(MDP):
         self.policy.reset(self.mdp.current_state)
         return self.mdp.current_state
 
-    def update(self, action=None):
+    def step(self, action=None):
         """ Ignores the given action, uses the action from the policy. """
         a = self.policy.get_action()
-        s_prime, r = self.mdp.update(a)
+        s_prime, r = self.mdp.step(a)
         self.policy.update(s_prime, a, r)
         return s_prime, r
 
@@ -203,11 +203,11 @@ class AlternateRewardMDP(MDP):
         self.mdp.reset(state)
         return self.mdp.current_state
 
-    def update(self, action=None):
+    def step(self, action=None):
         action = self.action_space.validate(action)
 
         prev_state = self.current_state
-        s, _ = self.mdp.update(action)
+        s, _ = self.mdp.step(action)
         r = self.get_reward(action, prev_state, s)
 
         return s, r
@@ -269,9 +269,9 @@ class TimeDependentRewardMDP(AlternateRewardMDP):
         self.t = 0
         return self.mdp.current_state
 
-    def update(self, action=None):
+    def step(self, action=None):
         prev_state = self.current_state
-        s, _ = self.mdp.update(action)
+        s, _ = self.mdp.step(action)
         r = self.get_reward(action, prev_state, s, self.t)
 
         self.t += 1

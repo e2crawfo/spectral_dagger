@@ -275,17 +275,16 @@ class Environment(SpectralDaggerObject):
         return self.reset(initial)
 
     @abc.abstractmethod
-    def update(self, action=None):
+    def step(self, action=None):
         """ Update the environment given that ``action`` was taken.
 
-        Environments that do not use actions still need to accept an action
-        argument, but can just throw it away.
+        Environments with degenerate or non-existent action spaces
+        do not need to accept an action argument.
 
         Returns
         -------
-        (observation, reward)
-
-        For envs without reward, just set the reward to 0.
+        For envs with reward, returns (observation, reward).
+        For envs without reward, returns observation.
 
         """
         raise NotImplementedError()
@@ -383,9 +382,9 @@ class Environment(SpectralDaggerObject):
             while not terminated:
                 if do_actions:
                     action = behaviour_policy.get_action()
-                    result = self.update(action)
+                    result = self.step(action)
                 else:
-                    result = self.update()
+                    result = self.step()
 
                 if do_reward:
                     obs, reward = result
@@ -469,8 +468,8 @@ class Policy(SpectralDaggerObject):
         """ Return the action the policy chooses to execute.
 
         Note that the policy should not "update" itself. In other words, it
-        should not act as if the action that it returns is *actually* played.
-        That is handled by calling the ``update`` method.
+        should not act as if the action that it returns is actually played.
+        Such updating should be performed in the ``update`` method.
 
         """
         raise NotImplementedError()

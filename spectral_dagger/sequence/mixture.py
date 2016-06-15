@@ -179,8 +179,8 @@ class MixtureOfPFASampler(Environment):
     def reset(self, initial=None):
         self.choice = self.rng.choice(self.pfa_samplers)
 
-    def update(self):
+    def step(self):
         if self.choice.terminal:
             return None
-        obs = self.choice.update()
+        obs = self.choice.step()
         return obs

@@ -50,7 +50,7 @@ def dagger(
                 else:
                     action = policy.get_action()
 
-                next_state, _ = mdp.update(action)
+                next_state, _ = mdp.step(action)
 
                 policy.update(next_state, action)
                 expert.update(next_state, action)
@@ -111,7 +111,7 @@ def po_dagger(
                 else:
                     action = policy.get_action()
 
-                obs, _ = pomdp.update(action)
+                obs, _ = pomdp.step(action)
 
                 policy.update(obs, action)
                 expert.update(obs, action)
@@ -176,7 +176,7 @@ class BeliefStateClassifier(LearningAlgorithm):
 
     Learns a policy from pairs of the form (b, a) where b is a belief state and
     a is the action taken in reponse to that belief state by an expert. Uses a
-    classifier to try to reproduce the mapping.
+    classifier to reproduce the mapping.
 
     Parameters
     ----------

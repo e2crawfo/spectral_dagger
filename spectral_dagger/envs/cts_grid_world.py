@@ -154,12 +154,12 @@ class ContinuousGridWorld(GridWorld):
 
     def in_valid_start_state(self):
         return (
-            self.world_map.is_valid_position(self.current_position)
-            and not self.in_pit_state()
-            and not self.in_puddle_state()
-            and not self.in_terminal_state())
+            self.world_map.is_valid_position(self.current_position) and
+            not self.in_pit_state() and
+            not self.in_puddle_state() and
+            not self.in_terminal_state())
 
-    def update(self, action):
+    def step(self, action):
         action = GridAction(action)
 
         if self.world_map.in_pit_state():

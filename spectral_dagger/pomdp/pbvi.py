@@ -101,7 +101,7 @@ class PBVI(LearningAlgorithm):
 
             for a in pomdp.actions:
                 pomdp.reset(b)
-                o, r = pomdp.update(a)
+                o, r = pomdp.step(a)
 
                 b_prime = b.dot(T[a]) * O[a, :, o]
                 b_prime /= sum(b_prime)

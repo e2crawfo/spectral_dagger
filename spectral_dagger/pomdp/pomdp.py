@@ -115,10 +115,10 @@ class POMDP(Environment):
 
         self.mdp.reset(init_dist)
 
-    def update(self, action):
+    def step(self, action):
         """ Execute the given action. Returns new obs and reward. """
 
-        state, reward = self.mdp.update(action)
+        state, reward = self.mdp.step(action)
 
         obs_dist = self.O[action, self.mdp.current_state]
         obs = sample_multinomial(obs_dist)

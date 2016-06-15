@@ -112,7 +112,7 @@ class HMM(Environment):
         self._state = self.states[
             sample_multinomial(init_dist, self.rng)]
 
-    def update(self):
+    def step(self):
         """ Returns the resulting observation. """
 
         o = self.observations[
@@ -304,7 +304,7 @@ class ContinuousHMM(HMM):
     def obs_dim(self):
         return self.O[0].rvs().size
 
-    def update(self):
+    def step(self):
         """ Returns the resulting observation. """
         o = self.O[self.state].rvs(random_state=self.rng)
         self._state = self.states[

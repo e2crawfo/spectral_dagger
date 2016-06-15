@@ -24,43 +24,43 @@ def test_parse_map(display=False):
     ground_truth = 'xxxx\nx Gx\nx Px\nxAOx\nxxxx'
     assert str(dummy_world) == ground_truth
 
-    dummy_world.update('NORTH')
+    dummy_world.step('NORTH')
 
     ground_truth = 'xxxx\nx Gx\nxAPx\nxSOx\nxxxx'
     assert str(dummy_world) == ground_truth
 
-    dummy_world.update('NORTH')
+    dummy_world.step('NORTH')
 
     ground_truth = 'xxxx\nxAGx\nx Px\nxSOx\nxxxx'
     assert str(dummy_world) == ground_truth
 
-    dummy_world.update('NORTH')
+    dummy_world.step('NORTH')
     assert str(dummy_world) == ground_truth
 
-    dummy_world.update('EAST')
+    dummy_world.step('EAST')
     ground_truth = 'xxxx\nx Ax\nx Px\nxSOx\nxxxx'
     assert str(dummy_world) == ground_truth
     assert dummy_world.in_terminal_state()
 
-    dummy_world.update('SOUTH')
+    dummy_world.step('SOUTH')
     ground_truth = 'xxxx\nx Gx\nx Ax\nxSOx\nxxxx'
     assert str(dummy_world) == ground_truth
     assert dummy_world.in_puddle_state()
 
-    dummy_world.update('WEST')
+    dummy_world.step('WEST')
     ground_truth = 'xxxx\nx Gx\nxAPx\nxSOx\nxxxx'
     assert str(dummy_world) == ground_truth
 
-    dummy_world.update('SOUTH')
+    dummy_world.step('SOUTH')
     ground_truth = 'xxxx\nx Gx\nx Px\nxAOx\nxxxx'
     assert str(dummy_world) == ground_truth
 
-    dummy_world.update('EAST')
+    dummy_world.step('EAST')
     ground_truth = 'xxxx\nx Gx\nx Px\nxSAx\nxxxx'
     assert str(dummy_world) == ground_truth
     assert dummy_world.in_pit_state()
 
-    dummy_world.update('EAST')
+    dummy_world.step('EAST')
     ground_truth = 'xxxx\nx Gx\nx Px\nxAOx\nxxxx'
     assert str(dummy_world) == ground_truth
 
@@ -123,40 +123,40 @@ def test_cts_grid_world(display=False):
     assert not dummy_world.in_puddle_state()
     assert not dummy_world.in_terminal_state()
 
-    dummy_world.update('NORTH')
-    dummy_world.update('NORTH')
-    dummy_world.update('NORTH')
+    dummy_world.step('NORTH')
+    dummy_world.step('NORTH')
+    dummy_world.step('NORTH')
 
     assert not dummy_world.in_pit_state()
     assert not dummy_world.in_puddle_state()
     assert not dummy_world.in_terminal_state()
     assert dummy_world.current_position == (1.0, 1.0)
 
-    dummy_world.update('EAST')
+    dummy_world.step('EAST')
     assert dummy_world.in_terminal_state()
     assert not dummy_world.in_pit_state()
     assert not dummy_world.in_puddle_state()
     assert dummy_world.current_position == (1.0, 2.0)
 
-    dummy_world.update('SOUTH')
+    dummy_world.step('SOUTH')
     assert not dummy_world.in_terminal_state()
     assert not dummy_world.in_pit_state()
     assert dummy_world.in_puddle_state()
     assert dummy_world.current_position == (2.0, 2.0)
 
-    dummy_world.update('EAST')
+    dummy_world.step('EAST')
     assert not dummy_world.in_terminal_state()
     assert not dummy_world.in_pit_state()
     assert dummy_world.in_puddle_state()
     assert dummy_world.current_position == (2.0, 2.0)
 
-    dummy_world.update('SOUTH')
+    dummy_world.step('SOUTH')
     assert not dummy_world.in_terminal_state()
     assert dummy_world.in_pit_state()
     assert not dummy_world.in_puddle_state()
     assert dummy_world.current_position == (3.0, 2.0)
 
-    dummy_world.update('EAST')
+    dummy_world.step('EAST')
     assert not dummy_world.in_terminal_state()
     assert not dummy_world.in_pit_state()
     assert not dummy_world.in_puddle_state()
