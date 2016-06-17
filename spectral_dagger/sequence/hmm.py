@@ -1,14 +1,14 @@
 import numpy as np
 
-from spectral_dagger import Environment, Space, get_model_rng
-from spectral_dagger.utils.math import normalize, sample_multinomial
-from spectral_dagger.sequence import StochasticAutomaton
+from spectral_dagger import get_model_rng
+from spectral_dagger.utils import normalize
+from spectral_dagger.sequence import ProbabilisticAutomaton
 
 
-class HMM(Environment):
+class HMM(ProbabilisticAutomaton):
 
-    def __init__(self, T, O, init_dist=None, states=None, observations=None):
-        """ A Hidden Markov Model.
+    def __init__(self, T, O, init_dist=None, stop_prob=None):
+        """ A Hidden Markov Model with discrete outputs.
 
         Parameters
         ----------
@@ -23,18 +23,19 @@ class HMM(Environment):
         init_dist: ndarray
             A |states| vector specifying the initial state distribution.
             Defaults to a uniform distribution.
+        stop_prob: ndarray
+            A |states| vector specifying the prob of halting in each state.
         states: iterable (optional)
             The states that can be occupied by the HMM.
         observations: iterable (optional)
             The observations that can be emitted by the HMM.
 
         """
-        self.states = range(T.shape[0]) if states is None else states
-        self.observations = (
-            range(O.shape[1]) if observations is None else observations)
+        self.states = range(T.shape[0])
+        self.observations = range(O.shape[1])
 
-        n_states = len(self.states)
-        n_obs = len(self.observations)
+        n_states = self.n_states = len(self.states)
+        n_obs = self.n_observations = len(self.observations)
 
         self._T = T.copy()
         self._T.flags.writeable = False
@@ -52,84 +53,30 @@ class HMM(Environment):
 
         if init_dist is None:
             init_dist = np.ones(n_states) / float(n_states)
-
         self.init_dist = init_dist.copy()
+        self.init_dist.flags.writeable = False
         assert(self.init_dist.size == n_states)
-        assert(np.isclose(sum(init_dist), 1.0))
+        assert(np.isclose(sum(self.init_dist), 1.0))
+        assert np.all(self.init_dist >= 0) and np.all(self.init_dist <= 1)
 
-        self.reset()
+        if stop_prob is None:
+            stop_prob = np.zeros(n_states)
+        self.stop_prob = stop_prob.copy()
+        self.stop_prob.flags.writeable = False
+        assert(self.stop_prob.size == n_states)
+        assert np.all(self.stop_prob >= 0) and np.all(self.stop_prob <= 1)
 
-    @property
-    def name(self):
-        return "HMM"
+        halt_correction = np.diag(1 - self.stop_prob)
+
+        B_o = {o: np.diag(self._O[:, o]).dot(self._T).dot(halt_correction)
+               for o in self.observations}
+        super(HMM, self).__init__(
+            self.init_dist, self.stop_prob, B_o, estimator='string')
+        assert(is_hmm(self.b_0, self.b_inf_string, self.B_o))
 
     def __str__(self):
-        return "<%s. Current state: %s>" % (
-            self.name, str(self.state))
-
-    @property
-    def action_space(self):
-        return None
-
-    @property
-    def observation_space(self):
-        return Space([set(self.observations)], "ObsSpace")
-
-    def has_terminal_states(self):
-        return False
-
-    def in_terminal_state(self):
-        return False
-
-    def has_reward(self):
-        return False
-
-    @property
-    def size(self):
-        return self.n_states
-
-    @property
-    def n_observations(self):
-        return len(self.observations)
-
-    @property
-    def n_states(self):
-        return len(self.states)
-
-    def reset(self, init_dist=None):
-        """
-        Resets the state of the HMM.
-
-        Parameters
-        ----------
-        init_dist: array-like (optional)
-            A vector giving an initial distribution over hidden states.
-
-        """
-        if init_dist is None:
-            init_dist = self.init_dist
-
-        self._state = self.states[
-            sample_multinomial(init_dist, self.rng)]
-
-    def step(self):
-        """ Returns the resulting observation. """
-
-        o = self.observations[
-            sample_multinomial(self.O[self.state], self.rng)]
-
-        self._state = self.states[
-            sample_multinomial(self.T[self.state], self.rng)]
-
-        return o
-
-    @property
-    def current_state(self):
-        return self._state
-
-    @property
-    def state(self):
-        return self._state
+        return "<HMM. n_obs: %d, n_states: %d>" % (
+            self.n_observations, self.n_states)
 
     @property
     def T(self):
@@ -139,190 +86,56 @@ class HMM(Environment):
     def O(self):
         return self._O
 
-    def get_obs_prob(self, o):
-        """ Get probability of observing obs given the current state. """
-        return self._O[self.state, o]
 
-    def get_obs_probs(self, o):
-        """ Get vector containing probs of observing obs given each state. """
-        return self._O[:, o]
+def is_hmm(b_0, b_inf, B_o):
+    """ Check that b_0, b_inf, B_o form a Hidden Markov Model.
 
-    def predict(self):
-        """ Get observation with highest prob for next time step. """
-        return max(self.observations, key=self.get_obs_prob)
+    Will only return True if it is an HMM in standard form
+    (i.e. B_sigma = diag(O_sigma)T)
 
-    def get_seq_prob(self, seq):
-        """ Get probability of observing `seq`.
+    ``b_inf`` is assumed to be normalization vector for strings
+    (i.e. halting vector).
 
-        Disregards current internal state.
+    """
+    if not np.isclose(b_0.sum(), 1.0):
+        return False
 
-        """
-        if len(seq) == 0:
-            return 1.0
+    if np.any(b_0 < 0) or np.any(b_0 > 1):
+        return False
 
-        s = self.init_dist.copy()
+    if np.any(b_inf < 0) or np.any(b_inf > 1):
+        return False
 
-        for o in seq:
-            s = (s * self.get_obs_probs(o)).dot(self._T)
+    for i in range(b_inf.size):
+        first = True
+        coefs = []
 
-        return s.sum()
+        for o in B_o:
+            if first:
+                first_row = B_o[o][i, :].copy()
+                s = first_row.sum()
 
-    def get_state_dist(self, t):
-        """ Get state distribution after `t` steps. """
-        s = self.init_dist.copy()
+                if s > 0:
+                    first_row /= s
+                    first = False
 
-        for i in range(1, t):
-            s = s.dot(self._T)
+                coefs.append(s)
+            else:
+                row = B_o[o][i, :].copy()
+                s = row.sum()
 
-        return s
+                if s > 0:
+                    row /= s
 
-    def get_delayed_seq_prob(self, seq, t):
-        """ Get probability of observing `seq` at a delay of `t`.
+                    if not np.allclose(first_row, row):
+                        return False
 
-        get_delayed_seq_prob(seq, 0) is equivalent to get_seq_prob(seq).
+                coefs.append(s)
 
-        Disregards current internal state.
+        if not np.isclose(sum(coefs) + b_inf[i], 1.0):
+            return False
 
-        """
-        s = self.init_dist.copy()
-
-        for i in range(t):
-            s = s.dot(self._T)
-
-        for o in seq:
-            s = (s.dot * self.get_obs_probs(o)).dot(self._T)
-
-        return s.sum()
-
-    def get_subsequence_expectation(self, subseq, length):
-        """ Get expected number of occurrences of `subseq` as subsequence.
-
-        Assumes strings are of length `length`.
-
-        Parameters
-        ----------
-        subseq: list/tuple/string
-            Sequence of obervations.
-        length: int > 0
-            The length of sequences to consider.
-
-        """
-        if len(subseq) == 0:
-            return length + 1
-
-        reverse_seq = list(subseq[:-1])
-        reverse_seq.reverse()
-
-        # Compute vector of probability of sequence starting from each state.
-        seq_given_state = self.get_obs_probs(subseq[-1]).copy()
-
-        for o in reverse_seq:
-            seq_given_state = self._T.dot(seq_given_state)
-            seq_given_state *= self.get_obs_probs(o)
-
-        s = self.init_dist.copy()
-
-        prob = 0.0
-        for i in range(length - len(subseq) + 1):
-            prob += s.dot(seq_given_state)
-            s = s.dot(self._T)
-
-        return prob
-
-    def to_sa(self):
-        B_o = {}
-        for o in self.observations:
-            B_o[o] = np.diag(self.get_obs_probs(o)).dot(self.T)
-
-        sa = StochasticAutomaton(
-            b_0=self.init_dist, b_inf=np.ones(self.n_states), B_o=B_o,
-            estimator='prefix')
-
-        return sa
-
-
-class ContinuousHMM(HMM):
-
-    def __init__(self, T, O, init_dist=None, states=None):
-        """ A Hidden Markov Model with continuous observations.
-
-        Parameters
-        ----------
-        T: ndarray
-            A |states| x |states| matrix. Entry (i, j) gives
-            the probability of moving from state i to state j, so each row of
-            T must be a probability distribution.
-        O: A list of distributions.
-            A list of length |states|. The i-th element is a distribution (so
-            has an ``rvs`` method, which takes an argument called
-            ``random_state``, and a ``pdf`` method; basically, instances
-            of scipy.stats.rv_frozen) which gives the probability density
-            for observation emissions given the i-th state. All distributions
-            should have the same dimensionality.
-        init_dist: ndarray
-            A |states| vector specifying the initial state distribution.
-            Defaults to a uniform distribution.
-        states: iterable (optional)
-            The state space of the HMM.
-
-        """
-        self.states = range(T.shape[0]) if states is None else states
-        n_states = len(self.states)
-
-        self._T = T.copy()
-        self._T.flags.writeable = False
-
-        assert np.allclose(np.sum(self._T, axis=1), 1.0)
-        assert np.all(self._T >= 0) and np.all(self._T <= 1)
-        assert self._T.shape == (n_states, n_states)
-
-        self._O = O
-
-        assert len(self.O) == n_states
-        for o in O:
-            assert hasattr(o, 'rvs')
-            assert hasattr(o, 'pdf')
-
-        if init_dist is None:
-            init_dist = np.ones(n_states) / float(n_states)
-
-        self.init_dist = init_dist.copy()
-        assert(self.init_dist.size == n_states)
-        assert(np.allclose(sum(init_dist), 1.0))
-
-        self.reset()
-
-    @property
-    def name(self):
-        return "ContinuousHMM"
-
-    @property
-    def observation_space(self):
-        return Space([-np.inf, np.inf] * len(self.O), "ObsSpace")
-
-    @property
-    def obs_dim(self):
-        return self.O[0].rvs().size
-
-    def step(self):
-        """ Returns the resulting observation. """
-        o = self.O[self.state].rvs(random_state=self.rng)
-        self._state = self.states[
-            sample_multinomial(self.T[self.state], self.rng)]
-
-        return o
-
-    def get_obs_prob(self, o):
-        """ Get probability of observing o given the current state. """
-        return self.O[self.state].pdf(o)
-
-    def get_obs_probs(self, o):
-        """ Get vector containing probs of observing obs given each state. """
-        return np.array(
-            [self._O[s].pdf(o) for s in self.states])
-
-    def to_sa(self):
-        raise NotImplementedError()
+    return True
 
 
 def dummy_hmm(n_states):
@@ -362,17 +175,3 @@ def bernoulli_hmm(n_states, n_obs, model_rng=None):
     hmm = HMM(T, O, init_dist)
 
     return hmm
-
-
-def test_hmm():
-    O = normalize(np.array([[1, 0], [0, 1]]), ord=1)
-    T = normalize(np.array([[2, 1.], [3, 1]]), ord=1)
-
-    init_dist = normalize(np.array([0.5, 0.5]), ord=1)
-
-    hmm = HMM(T, O, init_dist)
-    print(hmm.sample_episodes(10))
-
-
-if __name__ == "__main__":
-    test_hmm()

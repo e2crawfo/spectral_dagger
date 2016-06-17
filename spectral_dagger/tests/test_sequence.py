@@ -3,14 +3,18 @@ import numpy as np
 from scipy import stats
 from scipy.linalg import orth
 from itertools import product
+from collections import defaultdict
+import six
 
+import spectral_dagger
 from spectral_dagger.sequence import SpectralSA, CompressedSA
 from spectral_dagger.sequence import SpectralKernelSA, KernelInfo
 from spectral_dagger.sequence import top_k_basis, fixed_length_basis
 from spectral_dagger.sequence import HMM, ContinuousHMM
 from spectral_dagger.sequence import ExpMaxSA
 from spectral_dagger.sequence import ConvexOptSA
-from spectral_dagger.sequence import MixtureOfPFA, MixtureOfPFASampler
+from spectral_dagger.sequence import MixtureOfPFA
+from spectral_dagger.sequence import MarkovChain, HMM
 from spectral_dagger.utils.math import normalize
 from spectral_dagger.datasets.pautomac import make_pautomac_like
 
@@ -21,15 +25,11 @@ def simple_hmm():
     T = normalize([[8, 2], [2, 8]], ord=1)
 
     init_dist = normalize([1, 1], ord=1)
-
     return HMM(T, O, init_dist)
 
 
 @pytest.fixture
-def reduced_rank_hmm():
-    seed = np.random.randint(333)
-    rng = np.random.RandomState(seed)
-
+def reduced_rank_hmm(rng):
     n = 6
     r = 3
 
@@ -45,212 +45,170 @@ def reduced_rank_hmm():
     rank = np.linalg.matrix_rank(T)
     assert rank <= r
 
-    O = np.abs(orth(np.random.randn(n, n)))
+    O = np.abs(orth(rng.randn(n, n)))
     O = normalize(O, ord=1, conservative=True)
 
     return HMM(T, O, init_dist=normalize(np.ones(n), ord=1))
 
 
-@pytest.mark.parametrize(
-    'estimator', ['string', 'prefix', 'substring'])
-def do_test_spectral_hmm(
-        simple_hmm, estimator, n_samples=4000, horizon=3, m=None, basis=None):
-
-    samples = simple_hmm.sample_episodes(n_samples, horizon=horizon)
-    sa = SpectralSA(simple_hmm.observations)
-
-    if m is None:
-        m = simple_hmm.n_states
-
-    if basis is None:
-        basis = top_k_basis(samples, np.inf, estimator)
-
-    sa.fit(samples, m, estimator, basis=basis)
-
-    test_seqs = [[0], [1], [0, 0], [0, 1], [1, 0], [1, 1]]
-
-    print "*" * 20
-    for seq in test_seqs:
-        ground_truth = simple_hmm.get_seq_prob(seq)
-        pred = sa.get_prefix_prob(seq)
-        print("Seq: ", seq)
-        print("Ground truth: %f" % ground_truth)
-        print("Prediction: %f" % pred)
-        assert np.isclose(ground_truth, pred, atol=0.2, rtol=0.0)
-
-
-def do_test_compressed_hmm(
-        simple_hmm, n_samples=1000, horizon=3, m=None, basis=None):
-
-    samples = simple_hmm.sample_episodes(n_samples, horizon=horizon)
-    comp_sa = CompressedSA(simple_hmm.observations)
-
-    if m is None:
-        m = simple_hmm.n_states
-
-    if basis is None:
-        basis = top_k_basis(samples, np.inf, 'prefix')
-
-    comp_sa.model_rng = np.random.RandomState(10)
-    comp_sa.fit(samples, m, basis=basis)
-
-    test_seqs = [[0], [1], [0, 0], [0, 1], [1, 0], [1, 1]]
-
-    print "*" * 20
-    for seq in test_seqs:
-        ground_truth = simple_hmm.get_seq_prob(seq)
-        pred = comp_sa.get_prefix_prob(seq)
-        print("Seq: ", seq)
-        print("Ground truth: %f" % ground_truth)
-        print("Prediction: %f" % pred)
-
-        if n_samples >= 4000:
-            assert np.isclose(ground_truth, pred, atol=0.2, rtol=0.0)
-
-
-def do_test_em(hmm, n_samples=1000, horizon=3):
-
-    samples = hmm.sample_episodes(n_samples, horizon=horizon)
-    validate_samples = hmm.sample_episodes(n_samples, horizon=horizon)
-
-    em_sa = ExpMaxSA(hmm.n_states, hmm.n_observations)
-    em_sa.fit(samples, validate_samples)
-
-    test_seqs = [[0], [1], [0, 0], [0, 1], [1, 0], [1, 1]]
-
-    print "*" * 20
-    for seq in test_seqs:
-        ground_truth = hmm.get_seq_prob(seq)
-        pred = em_sa.get_prefix_prob(seq)
-        print("Seq: ", seq)
-        print("Ground truth: %f" % ground_truth)
-        print("Prediction: %f" % pred)
-
-        if n_samples >= 4000:
-            assert np.isclose(ground_truth, pred, atol=0.2, rtol=0.0)
-
-
-def do_test_convex_opt(
-        hmm, n_samples=10000, horizon=3, basis=None, **kwargs):
+def do_test_hmm_learning(
+        hmm, learning_alg, horizon=3, n_samples=4000, tol=0.1, **kwargs):
 
     samples = hmm.sample_episodes(n_samples, horizon=horizon)
 
-    if basis is None:
-        basis = top_k_basis(samples, np.inf, 'prefix')
-
-    co_sa = ConvexOptSA(hmm.observations)
-
-    co_sa.model_rng = np.random.RandomState(10)
-    co_sa.fit(samples, basis=basis, **kwargs)
+    sa = learning_alg(hmm, samples, **kwargs)
 
     test_seqs = [[0], [1], [0, 0], [0, 1], [1, 0], [1, 1]]
 
-    error = 0.0
+    error = 0
 
-    print "*" * 20
+    print("*" * 20)
     for seq in test_seqs:
-        ground_truth = hmm.get_seq_prob(seq)
-        pred = co_sa.get_prefix_prob(seq)
+        ground_truth = hmm.get_string_prob(seq)
+        pred = sa.get_string_prob(seq)
         print("Seq: ", seq)
+        print("String estimate:")
         print("Ground truth: %f" % ground_truth)
         print("Prediction: %f" % pred)
+        if n_samples >= 4000:
+            assert np.isclose(ground_truth, pred, atol=tol, rtol=0.0)
 
         error += np.abs(ground_truth - pred)
 
+        ground_truth = hmm.get_prefix_prob(seq)
+        pred = sa.get_prefix_prob(seq)
+        print("Seq: ", seq)
+        print("Prefix estimate:")
+        print("Ground truth: %f" % ground_truth)
+        print("Prediction: %f" % pred)
         if n_samples >= 4000:
-            assert np.isclose(ground_truth, pred, atol=0.2, rtol=0.0)
+            assert np.isclose(ground_truth, pred, atol=tol, rtol=0.0)
+
+        error += np.abs(ground_truth - pred)
 
     return error
 
 
-def test_spectral():
-    # Test SpectralSA
+@pytest.mark.parametrize("learning_alg", [SpectralSA, CompressedSA])
+def test_spectral_like(learning_alg):
+    def learn(hmm, samples, dimension, estimator, basis=None):
+
+        if learning_alg == CompressedSA:
+            estimator = 'prefix'
+
+        if basis is None:
+            basis = top_k_basis(samples, np.inf, estimator)
+
+        sa = learning_alg(hmm.observations)
+        sa.fit(
+            samples, dimension, basis=basis, estimator=estimator)
+        return sa
+
+    # set global rngs
+    seed = 10
+    spectral_dagger.set_model_rng(seed)
+    spectral_dagger.set_sim_rng(seed)
+
+    print("Learning with: %s" % learning_alg)
     hmm = simple_hmm()
     dimension = 6
 
-    do_test_spectral_hmm(hmm, 'string', m=dimension)
-    do_test_spectral_hmm(hmm, 'prefix', m=dimension)
-    do_test_spectral_hmm(hmm, 'substring', m=dimension)
+    do_test_hmm_learning(
+        hmm, learn, estimator='string', dimension=dimension)
+    do_test_hmm_learning(
+        hmm, learn, estimator='prefix', dimension=dimension)
+    do_test_hmm_learning(
+        hmm, learn, estimator='substring', dimension=dimension)
 
-    rr_hmm = reduced_rank_hmm()
+    rr_hmm = reduced_rank_hmm(spectral_dagger.get_model_rng())
     dimension = np.linalg.matrix_rank(rr_hmm.T)
 
     basis = fixed_length_basis(rr_hmm.observations, 2, False)
-    do_test_spectral_hmm(rr_hmm, 'prefix', m=dimension, basis=basis, horizon=5)
+    do_test_hmm_learning(
+        rr_hmm, learn, horizon=5,
+        estimator='prefix', dimension=dimension, basis=basis)
 
     basis = fixed_length_basis(rr_hmm.observations, 1, False)
-    do_test_spectral_hmm(rr_hmm, 'prefix', m=dimension, basis=basis, horizon=3)
+    do_test_hmm_learning(
+        rr_hmm, learn, horizon=3,
+        estimator='prefix', dimension=dimension, basis=basis)
 
     basis = fixed_length_basis(rr_hmm.observations, 2, True)
-    do_test_spectral_hmm(rr_hmm, 'prefix', m=dimension, basis=basis, horizon=5)
+    do_test_hmm_learning(
+        rr_hmm, learn, horizon=5,
+        estimator='prefix', dimension=dimension, basis=basis)
 
     basis = fixed_length_basis(rr_hmm.observations, 1, True)
-    do_test_spectral_hmm(rr_hmm, 'prefix', m=dimension, basis=basis, horizon=3)
+    do_test_hmm_learning(
+        rr_hmm, learn, horizon=3,
+        estimator='prefix', dimension=dimension, basis=basis)
 
 
-def test_compressed():
-    # Test CompressedSA
-    hmm = simple_hmm()
-    dimension = 6
-
-    do_test_compressed_hmm(hmm, m=dimension)
-
-    rr_hmm = reduced_rank_hmm()
-    dimension = np.linalg.matrix_rank(rr_hmm.T)
-
-    basis = fixed_length_basis(rr_hmm.observations, 2, False)
-    do_test_compressed_hmm(rr_hmm, m=dimension, basis=basis, horizon=5)
-
-    basis = fixed_length_basis(rr_hmm.observations, 1, False)
-    do_test_compressed_hmm(rr_hmm, m=dimension, basis=basis, horizon=3)
-
-    basis = fixed_length_basis(rr_hmm.observations, 2, True)
-    do_test_compressed_hmm(rr_hmm, m=dimension, basis=basis, horizon=5)
-
-    basis = fixed_length_basis(rr_hmm.observations, 1, True)
-    do_test_compressed_hmm(rr_hmm, m=dimension, basis=basis, horizon=3)
-
-
+@pytest.mark.skipif(True, reason="Incomplete implementation.")
 def test_em():
-    # Test ExpMaxSA
+    def learn(hmm, samples):
+        validate_samples = hmm.sample_episodes(
+            len(samples), horizon=len(samples[0]))
+        em_sa = ExpMaxSA(hmm.n_states, hmm.n_observations)
+        em_sa.fit(samples, validate_samples)
+        return em_sa
+
+    # set global rngs
+    seed = 10
+    spectral_dagger.set_model_rng(seed)
+    spectral_dagger.set_sim_rng(seed)
+
     hmm = simple_hmm()
-    do_test_em(hmm)
+    do_test_hmm_learning(hmm, learn)
 
-    rr_hmm = reduced_rank_hmm()
-    do_test_em(rr_hmm, horizon=5)
+    rr_hmm = reduced_rank_hmm(spectral_dagger.get_model_rng())
+    do_test_hmm_learning(rr_hmm, learn, horizon=5)
 
 
+@pytest.mark.skipif(True, reason="Incomplete implementation.")
 def test_convex_opt():
-    # Test ConvexOptSA
     horizon = 3
     rank_tol = 1e-7
     tau = 0.001
 
+    def learn(hmm, samples, dimension, basis=None):
+        if basis is None:
+            basis = top_k_basis(samples, np.inf, 'prefix')
+        sa = ConvexOptSA(hmm.observations)
+        sa.fit(samples, dimension, basis=basis, estimator='prefix')
+        return sa
+
+    # set global rngs
+    seed = 10
+    spectral_dagger.set_model_rng(seed)
+    spectral_dagger.set_sim_rng(seed)
+
     hmm = simple_hmm()
+
     basis = fixed_length_basis(hmm.observations, 3, True)
-    do_test_convex_opt(
-        hmm, tau=tau, probabilistic=True, basis=basis,
-        horizon=horizon, rank_tol=rank_tol)
+    do_test_hmm_learning(
+        hmm, learn, horizon, basis=basis,
+        tau=tau, probabilistic=True, rank_tol=rank_tol)
 
     # results = []
-    # for p in [True]:#, False]:
+    # for p in [True, False]:
     #     for estimator in ['prefix', 'substring']:
     #         for tau in [0.0001, 0.001, 0.01, 0.1, 1.0]:
-    #             error = do_test_convex_opt(
-    #                 hmm, tau=tau, probabilistic=p, basis=basis,
-    #                 horizon=horizon, rank_tol=rank_tol)
+    #             error = do_test_hmm_learning(
+    #                 hmm, learn, horizon, basis=basis,
+    #                 tau=tau, probabilistic=p, rank_tol=rank_tol)
     #             results.append(
     #                 dict(tau=tau, p=p, estimator=estimator, error=error))
     #             print results[-1]
     # print "Best: ", min(results, key=lambda x: x['error'])
 
-    rr_hmm = reduced_rank_hmm()
+    rr_hmm = reduced_rank_hmm(spectral_dagger.get_model_rng())
 
     basis = fixed_length_basis(rr_hmm.observations, 3, False)
-    do_test_convex_opt(rr_hmm, tau=0.001, basis=basis, horizon=3)
+    do_test_hmm_learning(hmm, learn, 3, basis=basis, tau=0.001)
 
     basis = fixed_length_basis(rr_hmm.observations, 3, True)
-    do_test_convex_opt(rr_hmm, tau=0.001, basis=basis, horizon=3)
+    do_test_hmm_learning(hmm, learn, 3, basis=basis, tau=0.001)
 
 
 def test_cts_sa():
@@ -260,7 +218,11 @@ def test_cts_sa():
          stats.multivariate_normal(np.array([1, -1]), cov=0.1*np.eye(2)),
          stats.multivariate_normal(np.array([-1, 1]), cov=0.1*np.eye(2))]
 
-    rng = np.random.RandomState(10)
+    # set global rngs
+    seed = 10
+    spectral_dagger.set_model_rng(seed)
+    spectral_dagger.set_sim_rng(seed)
+    rng = spectral_dagger.get_model_rng()
 
     init_dist = normalize([10, 1, 1, 1], ord=1)
     cts_hmm = ContinuousHMM(T, O, init_dist)
@@ -288,7 +250,7 @@ def test_cts_sa():
 
     kernel_info = KernelInfo(kernel, kernel_centers, kernel_gradient, lmbda)
     sa = SpectralKernelSA(kernel_info)
-    sa.fit(eps, n_components=cts_hmm.size)
+    sa.fit(eps, n_components=cts_hmm.n_states)
     sa.reset()
     prediction = sa.predict()
     return sa, prediction
@@ -299,9 +261,12 @@ def test_mixture_pfa():
     n_states = 4
     n_obs = 5
     o_sparse, t_sparse = 0.5, 0.5
-    seed = 10
 
-    rng = np.random.RandomState(seed)
+    # set global rngs
+    seed = 10
+    spectral_dagger.set_model_rng(seed)
+    spectral_dagger.set_sim_rng(seed)
+    rng = spectral_dagger.get_model_rng()
 
     pfas = [
         make_pautomac_like(
@@ -310,9 +275,8 @@ def test_mixture_pfa():
 
     coefficients = normalize([1.0] * n_components, ord=1)
     mixture_pfa = MixtureOfPFA(coefficients, pfas)
-    sampler = MixtureOfPFASampler(mixture_pfa)
     # test that sampling doesn't crash
-    sampler.sample_episodes(10, horizon=3)
+    mixture_pfa.sample_episodes(10, horizon=3)
 
     obs_probs = [
         mixture_pfa.get_obs_prob(o) for o in range(n_obs)]
@@ -336,5 +300,31 @@ def test_mixture_pfa():
     assert np.isclose(sum(prefix_probs), 1)
 
 
-if __name__ == "__main__":
-    sa, prediction = test_cts_sa()
+def test_markov_chain():
+    # set global rngs
+    seed = 10
+    spectral_dagger.set_model_rng(seed)
+    spectral_dagger.set_sim_rng(seed)
+
+    T = np.array([[0.9, 0.1], [0.3, 0.7]])
+    init_dist = np.array([0.2, 0.8])
+    horizon = 3
+    mc = MarkovChain(T, init_dist)
+    n_samples = 10000
+
+    samples = mc.sample_episodes(n_samples, horizon=horizon)
+
+    empirical_probs = defaultdict(int)
+    for s in samples:
+        empirical_probs[tuple(s)] += 1.0 / n_samples
+
+    for seq, prob in six.iteritems(empirical_probs):
+        reference = init_dist[seq[0]]
+        for i in range(horizon-1):
+            reference *= T[seq[i], seq[i+1]]
+
+        assert np.isclose(reference, mc.get_prefix_prob(seq))
+
+        # ``prob`` should be approximately normally distributed.
+        std = np.sqrt(reference * (1 - reference) / n_samples)
+        assert np.isclose(reference, prob, atol=4*std)

@@ -1,10 +1,20 @@
 import numpy as np
 import six
 
-from spectral_dagger import Environment, Space
 from spectral_dagger.sequence import StochasticAutomaton
 from spectral_dagger.utils import normalize
-from spectral_dagger.utils import sample_multinomial
+
+
+class ProbabilisticAutomaton(StochasticAutomaton):
+    def __init__(self, b_0, b_inf, B_o, estimator):
+        super(ProbabilisticAutomaton,
+              self).__init__(b_0, b_inf, B_o, estimator)
+
+        assert is_pfa(self.b_0, self.b_inf_string, self.B_o)
+
+    def __str__(self):
+        return ("<ProbabilisticAutomaton. "
+                "n_obs: %d, n_states: %d>" % (self.n_observations, self.size))
 
 
 def is_pfa(b_0, b_inf, B_o):
@@ -33,57 +43,6 @@ def is_dpfa(b_0, b_inf, B_o):
         for i in range(B_o[o].shape[0]):
             if np.count_nonzero(B_o[o][i, :]) > 1:
                 return False
-    return True
-
-
-def is_hmm(b_0, b_inf, B_o):
-    """ Check that b_0, b_inf, B_o form a Hidden Markov Model.
-
-    Will only return True if it is an HMM in standard form
-    (i.e. B_sigma = diag(O_sigma)T)
-
-    ``b_inf`` is assumed to be normalization vector for strings
-    (i.e. halting vector).
-
-    """
-    if not np.isclose(b_0.sum(), 1.0):
-        return False
-
-    if np.any(b_0 < 0) or np.any(b_0 > 1):
-        return False
-
-    if np.any(b_inf < 0) or np.any(b_inf > 1):
-        return False
-
-    for i in range(b_inf.size):
-        first = True
-        coefs = []
-
-        for o in B_o:
-            if first:
-                first_row = B_o[o][i, :].copy()
-                s = first_row.sum()
-
-                if s > 0:
-                    first_row /= s
-                    first = False
-
-                coefs.append(s)
-            else:
-                row = B_o[o][i, :].copy()
-                s = row.sum()
-
-                if s > 0:
-                    row /= s
-
-                    if not np.allclose(first_row, row):
-                        return False
-
-                coefs.append(s)
-
-        if not np.isclose(sum(coefs) + b_inf[i], 1.0):
-            return False
-
     return True
 
 
@@ -118,7 +77,7 @@ def perturb_pfa_additive(pfa, std, rng=None):
 
     Parameters
     ----------
-    pfa: StochasticAutomaton instance
+    pfa: ProbabilisticAutomaton instance
         The PFA to perturb.
     std: positive float
         Standard deviation of perturbation for the operators.
@@ -137,7 +96,7 @@ def perturb_pfa_additive(pfa, std, rng=None):
     b_0, b_inf_string, Bo_prime = normalize_pfa(
         pfa.b_0, pfa.b_inf_string, Bo_prime)
 
-    return StochasticAutomaton(
+    return ProbabilisticAutomaton(
         b_0, b_inf_string, Bo_prime, estimator='string')
 
 
@@ -149,7 +108,7 @@ def perturb_pfa_multiplicative(pfa, std, rng=None):
 
     Parameters
     ----------
-    pfa: StochasticAutomaton instance
+    pfa: ProbabilisticAutomaton instance
         The PFA to perturb.
     std: positive float
         Standard deviation of perturbation for the operators.
@@ -167,7 +126,7 @@ def perturb_pfa_multiplicative(pfa, std, rng=None):
     b_0, b_inf_string, Bo_prime = normalize_pfa(
         pfa.b_0, pfa.b_inf_string, Bo_prime)
 
-    return StochasticAutomaton(
+    return ProbabilisticAutomaton(
         b_0, b_inf_string, Bo_prime, estimator='string')
 
 
@@ -176,7 +135,7 @@ def perturb_pfa_bernoulli(pfa, p, increment=None, rng=None):
 
     Parameters
     ----------
-    pfa: StochasticAutomaton instance
+    pfa: ProbabilisticAutomaton instance
         The PFA to perturb.
     p: positive float
         Probability parameter for Bernoulli's.
@@ -198,86 +157,5 @@ def perturb_pfa_bernoulli(pfa, p, increment=None, rng=None):
     b_0, b_inf_string, Bo_prime = normalize_pfa(
         pfa.b_0, pfa.b_inf_string, Bo_prime)
 
-    return StochasticAutomaton(
+    return ProbabilisticAutomaton(
         b_0, b_inf_string, Bo_prime, estimator='string')
-
-
-class PFASampler(Environment):
-    """ An environment created from a probabilistic automaton. """
-
-    def __init__(self, pa):
-        self.observations = pa.observations
-        self.can_terminate = pa.can_terminate
-        self.terminal = False
-
-        self.b_0 = pa.b_0.copy()
-
-        self.B_o = {}
-        for o in pa.B_o:
-            self.B_o[o] = pa.B_o[o].copy()
-
-        self.b_inf_string = pa.b_inf_string.copy()
-        self.b_inf_prefix = pa.b_inf.copy()
-
-        self.reset()
-
-    @property
-    def action_space(self):
-        return None
-
-    @property
-    def observation_space(self):
-        return Space(set(self.observations), "ObsSpace")
-
-    @property
-    def size(self):
-        return self.b_0.size
-
-    def in_terminal_state(self):
-        return self.terminal
-
-    def has_terminal_states(self):
-        return self.can_terminate
-
-    def has_reward(self):
-        return False
-
-    def lookahead(self):
-        terminal_prob = self.b.dot(self.b_inf_string)
-        self.terminal = self.rng.rand() < terminal_prob
-
-        probs = np.array([
-            self.b.dot(self.B_o[o]).dot(self.b_inf_prefix)
-            for o in self.observations])
-
-        # Normalize probs since we've already sampled whether to terminate.
-        self.probs = probs / probs.sum()
-
-    def reset(self, initial=None):
-        self.b = self.b_0.copy()
-        self.lookahead()
-
-    def step(self):
-        if self.terminal:
-            return None
-
-        sample = sample_multinomial(self.probs, self.rng)
-        obs = self.observations[sample]
-
-        numer = self.b.dot(self.B_o[obs])
-        denom = numer.dot(self.b_inf_prefix)
-        if np.isclose(denom, 0):
-            self.b = np.zeros_like(self.b)
-        else:
-            self.b = numer / denom
-
-        self.lookahead()
-
-        return obs
-
-    def to_sa(self):
-        sa = StochasticAutomaton(
-            b_0=self.b_0, b_inf=self.b_inf_prefix, B_o=self.B_o,
-            estimator='prefix')
-
-        return sa

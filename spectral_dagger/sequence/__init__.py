@@ -8,17 +8,17 @@ from .stochastic_automaton import KernelSA, SpectralKernelSA, KernelInfo
 from .stochastic_automaton import SpectralSAWithActions, SpectralClassifier
 from .stochastic_automaton import SpectralPolicy
 
-from .pfa import is_pfa, normalize_pfa, PFASampler
+from .pfa import is_pfa, normalize_pfa, ProbabilisticAutomaton
 from .pfa import (
     perturb_pfa_additive, perturb_pfa_multiplicative,
     perturb_pfa_bernoulli)
 
 from .hmm import HMM, dummy_hmm, bernoulli_hmm
-from .hmm import ContinuousHMM
+from .cts_hmm import ContinuousHMM
+from .markov_chain import MarkovChain
 
 from .em import ExpMaxSA
 from .convex_opt import ConvexOptSA
-
-from .mixture import MixtureOfPFA, MixtureOfPFASampler
-
 from .lda import LatentDirichletSA
+
+from .mixture import MixtureOfPFA

@@ -5,9 +5,9 @@ from sklearn.utils.extmath import randomized_svd
 from copy import deepcopy
 import logging
 
-from spectral_dagger import LearningAlgorithm, Space, Policy
-from spectral_dagger import get_model_rng
+from spectral_dagger import Environment, LearningAlgorithm, Space, Policy
 from spectral_dagger.sequence import hankel
+from spectral_dagger.utils import sample_multinomial
 
 
 logger = logging.getLogger(__name__)
@@ -16,7 +16,16 @@ machine_eps = np.finfo(float).eps
 MAX_BASIS_SIZE = 100
 
 
-class StochasticAutomaton(object):
+class StochasticAutomaton(Environment):
+    """ A Stochastic Automaton.
+
+    Notes: Defines both ``update`` and ``step`` methods, so it can be either be
+    used as an Environment or for filtering. Using a single instance for both
+    purposes simultaneously requires some case, as the ``step`` method will
+    alter the state used for filtering, and ``update`` will alter the state
+    used for sampling.
+
+    """
     def __init__(self, b_0, b_inf, B_o, estimator):
 
         self.B_o = B_o
@@ -26,7 +35,6 @@ class StochasticAutomaton(object):
         self.n_observations = len(self.observations)
 
         self.compute_start_end_vectors(b_0, b_inf, estimator)
-
         self.reset()
 
     def __str__(self):
@@ -46,19 +54,52 @@ class StochasticAutomaton(object):
 
     @property
     def can_terminate(self):
-        return (self.b_inf_string != 0).any()
+        return (self.b_inf_string != 0).all()
 
     @property
     def size(self):
         return self.b_0.size
 
-    def reset(self):
-        self.b = self.b_0.copy()
+    def in_terminal_state(self):
+        return self.terminal
+
+    def has_terminal_states(self):
+        return self.can_terminate
+
+    def has_reward(self):
+        return False
 
     def operator(self, o):
         return self.B_o[o]
 
-    def update(self, o=None, a=None):
+    def _lookahead(self):
+        """ Decide whether to halt, and if not, compute next-state probs. """
+        terminal_prob = self.b.dot(self.b_inf_string)
+        self.terminal = self.rng.rand() < terminal_prob
+
+        probs = np.array([
+            self.b.dot(self.operator(o)).dot(self.b_inf)
+            for o in self.observations])
+
+        # Normalize probs since we've already sampled whether to terminate.
+        self.probs = probs / probs.sum()
+
+    def reset(self, initial=None):
+        self.b = self.b_0.copy()
+        self._lookahead()
+
+    def step(self):
+        if self.terminal:
+            return None
+
+        sample = sample_multinomial(self.probs, self.rng)
+        o = self.observations[sample]
+        self.update(o)
+        self._lookahead()
+
+        return o
+
+    def update(self, o):
         """ Update state upon seeing an observation. """
         numer = self.b.dot(self.operator(o))
         denom = numer.dot(self.b_inf)
@@ -162,6 +203,12 @@ class StochasticAutomaton(object):
 
     def get_substring_expectation(self, substring):
         """ Get expected number of occurrences of a substring. """
+
+        if not self.can_terminate():
+            raise RuntimeError(
+                "This stochastic automaton will never halt, so the "
+                "expected number of occurrences of any substring will "
+                "be infinite.")
 
         self.b = self.b_0_substring.copy()
 
@@ -366,7 +413,8 @@ class SpectralSA(StochasticAutomaton):
 
             # H = U Sigma V^T
             U, Sigma, VT = randomized_svd(
-                hankel_matrix, n_components, n_oversamples, n_iter)
+                hankel_matrix, n_components, n_oversamples, n_iter,
+                random_state=self.model_rng)
 
         V = VT.T
 
@@ -472,7 +520,7 @@ class CompressedSA(StochasticAutomaton):
         prefix_dict, suffix_dict = basis
 
         if phi is None:
-            phi = get_model_rng().randn(len(suffix_dict), n_components)
+            phi = self.model_rng.randn(len(suffix_dict), n_components)
             phi *= (1. / np.sqrt(n_components)
                     if noise_std is None else noise_std)
 
@@ -681,6 +729,7 @@ class KernelSA(StochasticAutomaton):
     def obs_dim(self):
         return self.kernel_info.obs_dim
 
+    @property
     def B(self):
         if not hasattr(self, "_B") or self._B is None:
             self._B = (
@@ -688,6 +737,9 @@ class KernelSA(StochasticAutomaton):
                 sum(self.B_o))
 
         return self._B
+
+    def reset(self, initial=None):
+        self.b = self.b_0.copy()
 
     def update(self, o=None, a=None):
         """ Update state upon seeing an observation. """
@@ -779,7 +831,8 @@ class SpectralKernelSA(KernelSA):
 
         # H = U Sigma V^T
         U, Sigma, VT = randomized_svd(
-            hankel_matrix, n_components, n_oversamples, n_iter)
+            hankel_matrix, n_components, n_oversamples, n_iter,
+            random_state=self.model_rng)
 
         V = VT.T
 
@@ -795,9 +848,6 @@ class SpectralKernelSA(KernelSA):
 
         logger.debug("Computing operators...")
         self.B_o = [P_plus.dot(Ho).dot(S_plus) for Ho in symbol_hankels]
-        self.B = (
-            self.kernel_info.obs_kernel(np.zeros(self.obs_dim)) *
-            sum(self.B_o))
 
         # b_0 S = hs => b_0 = hs S^+
         b_0 = hp.dot(V)
@@ -813,6 +863,8 @@ class SpectralKernelSA(KernelSA):
 
         self.reset()
 
+
+# Below here is largely out of date.
 
 class SpectralSAWithActions(object):
     def __init__(self, actions, observations, max_dim=80):
@@ -871,7 +923,8 @@ class SpectralSAWithActions(object):
 
         # H = U S V^T
         U, S, VT = randomized_svd(
-            hankel_matrix, self.max_dim, n_oversamples, n_iter)
+            hankel_matrix, self.max_dim, n_oversamples, n_iter,
+            random_state=self.model_rng)
 
         V = VT.T
 

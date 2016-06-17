@@ -7,7 +7,7 @@ from spectral_dagger.sequence import StochasticAutomaton
 
 LIKE_ITS = 20000
 MAX_VALID_ITERS = 1000
-DELTA_THRESH=0.1
+DELTA_THRESH = 0.1
 NOT_IMPROVE = 3
 IMPROVE_EPS = 0.1
 VERBOSE = True

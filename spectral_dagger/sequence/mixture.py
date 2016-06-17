@@ -1,11 +1,10 @@
 import numpy as np
 
-from spectral_dagger.sequence import PFASampler
 from spectral_dagger.utils import normalize
 from spectral_dagger import Environment, Space
 
 
-class MixtureOfPFA(object):
+class MixtureOfPFA(Environment):
     def __init__(self, coefficients, pfas):
         assert (0 < coefficients).all()
         assert (1 > coefficients).all()
@@ -37,17 +36,40 @@ class MixtureOfPFA(object):
         return str(self)
 
     @property
+    def action_space(self):
+        return None
+
+    @property
+    def observation_space(self):
+        return Space(set(self.mpfa.observations), "ObsSpace")
+
+    @property
     def can_terminate(self):
         return all(pfa.can_terminate() for pfa in self.pfas)
 
-    @property
-    def size(self):
-        raise NotImplementedError()
+    def in_terminal_state(self):
+        return self.choice.terminal
 
-    def reset(self):
+    def has_terminal_states(self):
+        return self.mpfa.can_terminate()
+
+    def has_reward(self):
+        return False
+
+    def reset(self, initial=None):
+        for pfa in self.pfas:
+            pfa.reset()
+        self.choice = self.rng.choice(self.pfas)
         self.state_dist = self.coefficients.copy()
 
-    def update(self, o=None, a=None):
+    def step(self):
+        if self.choice.terminal:
+            return None
+        o = self.choice.step()
+        self.update(o)
+        return o
+
+    def update(self, o):
         """ Update state upon seeing an observation. """
         weights = np.array([pfa.get_obs_prob(o) for pfa in self.pfas])
         self.state_dist = normalize(weights * self.state_dist, ord=1)
@@ -150,37 +172,3 @@ class MixtureOfPFA(object):
                 n_predictions += 1
 
         return error / n_predictions
-
-
-class MixtureOfPFASampler(Environment):
-    def __init__(self, mpfa):
-        self.mpfa = mpfa
-        self.pfa_samplers = [PFASampler(pfa) for pfa in mpfa.pfas]
-
-        self.reset()
-
-    @property
-    def action_space(self):
-        return None
-
-    @property
-    def observation_space(self):
-        return Space(set(self.mpfa.observations), "ObsSpace")
-
-    def in_terminal_state(self):
-        return self.choice.terminal
-
-    def has_terminal_states(self):
-        return self.mpfa.can_terminate()
-
-    def has_reward(self):
-        return False
-
-    def reset(self, initial=None):
-        self.choice = self.rng.choice(self.pfa_samplers)
-
-    def step(self):
-        if self.choice.terminal:
-            return None
-        obs = self.choice.step()
-        return obs

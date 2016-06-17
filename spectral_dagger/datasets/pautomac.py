@@ -7,8 +7,9 @@ import six
 from itertools import product
 import operator
 
-from spectral_dagger.sequence import StochasticAutomaton
-from spectral_dagger.sequence.pfa import is_pfa, is_dpfa, is_hmm
+from spectral_dagger.sequence import ProbabilisticAutomaton
+from spectral_dagger.sequence.pfa import is_pfa, is_dpfa
+from spectral_dagger.sequence.hmm import is_hmm
 from spectral_dagger.utils import rmse, default_rng
 
 PAUTOMAC_PATH = "/data/PAutomaC-competition_sets/"
@@ -75,11 +76,15 @@ def load_pautomac_model(problem_idx):
                 vals = re.split(split_pattern, line)
                 start_states.append(map(int_or_float, vals[1:]))
 
+            # Probability of emitting symbol, given that
+            # we are in state and not halting
             final_states = []
             for line in iter(lines.next, "S: (state,symbol)"):
                 vals = re.split(split_pattern, line)
                 final_states.append(map(int_or_float, vals[1:]))
 
+            # Probability of transitioning to state2, given that we are in
+            # state1 and emitting symbol and not halting
             symbol_probs = []
             for line in iter(lines.next, "T: (state,symbol,state)"):
                 vals = re.split(split_pattern, line)
@@ -118,7 +123,7 @@ def load_pautomac_model(problem_idx):
 
     assert is_pfa(b_0, b_inf, B_o), "Loaded model is not a PFA."
 
-    return StochasticAutomaton(b_0, b_inf, B_o, estimator='string')
+    return ProbabilisticAutomaton(b_0, b_inf, B_o, estimator='string')
 
 
 def load_pautomac_ground_truth(problem_idx):
@@ -281,12 +286,11 @@ def make_pautomac_like(
         raise NotImplementedError(
             'Cannot generate PFA of kind "%s".' % kind)
 
-    sa = StochasticAutomaton(b_0, b_inf_string, B_o, estimator='string')
-    return sa
+    pa = ProbabilisticAutomaton(b_0, b_inf_string, B_o, estimator='string')
+    return pa
 
 
 if __name__ == "__main__":
-    from spectral_dagger.sequence.pfa import PFASampler
     from spectral_dagger.sequence import top_k_basis, estimate_hankels
     from spectral_dagger.sequence.pfa import perturb_pfa_additive
     from spectral_dagger import set_sim_rng
@@ -297,46 +301,43 @@ if __name__ == "__main__":
     problem_idx = int(sys.argv[1]) if len(sys.argv) > 1 else 1
     print("Parsing problem %d." % problem_idx)
     pa = load_pautomac_model(problem_idx=problem_idx)
-    generator = PFASampler(pa)
-
     pp = pprint.PrettyPrinter()
 
     print("Generated from model. " + "=" * 40)
     n_samples = 10000
-    episodes = generator.sample_episodes(n_samples)
+    episodes = pa.sample_episodes(n_samples)
 
     basis = top_k_basis(episodes, 100, 'prefix')
     hankels = estimate_hankels(
-        episodes, basis, generator.observations, 'prefix')
+        episodes, basis, pa.observations, 'prefix')
     hankel1 = hankels[2].toarray()
     pp.pprint(hankel1)
 
     print("True samples. " + "=" * 40)
     pautomac_train = load_pautomac_train(problem_idx)
     hankels = estimate_hankels(
-        pautomac_train, basis, generator.observations, 'prefix')
+        pautomac_train, basis, pa.observations, 'prefix')
     hankel2 = hankels[2].toarray()
     pp.pprint(hankel2)
 
     print("Perturbed model. " + "=" * 40)
     pert = perturb_pfa_additive(pa, noise=1.0/pa.b_0.size**0.01)
-    pert_gen = PFASampler(pert)
 
     n_samples = 10000
-    episodes = pert_gen.sample_episodes(n_samples)
+    episodes = pert.sample_episodes(n_samples)
 
     hankels = estimate_hankels(
-        episodes, basis, generator.observations, 'prefix')
+        episodes, basis, pa.observations, 'prefix')
     hankel3 = hankels[2].toarray()
     pp.pprint(hankel3)
 
     print("Generated from model again. " + "=" * 40)
     n_samples = 10000
-    episodes = generator.sample_episodes(n_samples)
+    episodes = pa.sample_episodes(n_samples)
 
     basis = top_k_basis(episodes, 100, 'prefix')
     hankels = estimate_hankels(
-        episodes, basis, generator.observations, 'prefix')
+        episodes, basis, pa.observations, 'prefix')
     hankel4 = hankels[2].toarray()
     pp.pprint(hankel4)
 

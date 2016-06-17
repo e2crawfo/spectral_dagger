@@ -38,12 +38,18 @@ class SpectralDaggerObject(object):
                 "``rng`` must be None or an instance of np.random.RandomState")
 
 
+def _handle_seed(seed):
+    if isinstance(seed, int):
+        return np.random.RandomState(seed)
+    return seed
+
+
 def set_model_rng(rng):
-    SpectralDaggerObject._model_rng = default_rng(rng)
+    SpectralDaggerObject._model_rng = default_rng(_handle_seed(rng))
 
 
 def set_sim_rng(rng):
-    SpectralDaggerObject._simulation_rng = default_rng(rng)
+    SpectralDaggerObject._simulation_rng = default_rng(_handle_seed(rng))
 
 
 def get_model_rng():
@@ -247,7 +253,9 @@ class Environment(SpectralDaggerObject):
 
         Should be overriden by subclasses. Called at the beginning of
         an episode. If the environment needs to supply an initial observation,
-        it should be returned from this function.
+        it should be returned from this function. Must accept a single argument
+        initial, which specifies conditions for the episode (e.g. initial
+        distribution over states) if applicable.
 
         Parameters
         ----------
@@ -314,9 +322,11 @@ class Environment(SpectralDaggerObject):
             The maximum length of the episodes. Episodes may terminate
             earlier if the env has terminal states. Cannot be infinite if the
             env lacks terminal states.
-        reset_env: bool
-            Whether to call ``reset`` on the env at the beginning of each
-            episode.
+        reset_env: any
+            The environment is reset between episodes iff this is not None.
+            In the case that the environment is reset, the environment's
+            ``reset`` method will be called with ``reset_env`` as its only
+            argument.
         hook: function (optional)
             A function that is called every time step with the results from
             that time step. Useful e.g. for logging or displaying.
@@ -361,10 +371,10 @@ class Environment(SpectralDaggerObject):
 
         for ep_idx in range(n_eps):
             if reset_env:
-                init = None if reset_env is True else reset_env
-
-                # Handle possibility of an initial observation.
-                obs = self.start_episode(init)
+                if reset_env is True:
+                    obs = self.start_episode()
+                else:
+                    obs = self.start_episode(reset_env)
 
             for p in policies:
                 p.start_episode(obs)
