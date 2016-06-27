@@ -26,7 +26,7 @@ class StochasticAutomaton(Environment):
     used for sampling.
 
     """
-    def __init__(self, b_0, b_inf, B_o, estimator):
+    def __init__(self, b_0, B_o, b_inf, estimator):
 
         self.B_o = B_o
         self.B = sum(self.B_o.values())
@@ -127,7 +127,7 @@ class StochasticAutomaton(Environment):
             np.count_nonzero(probs > self.get_obs_prob(o)),
             np.count_nonzero(probs < self.get_obs_prob(o)))
 
-    def get_string_prob(self, string, init_state=None):
+    def get_string_prob(self, string, init_state=None, log=False):
         """ Get probability of string. """
 
         if init_state is None:
@@ -147,10 +147,13 @@ class StochasticAutomaton(Environment):
         end_prob = max(machine_eps, end_prob)
         log_prob += np.log(end_prob)
 
-        prob = np.e**log_prob
-        return np.clip(prob, machine_eps, 1)
+        if log:
+            return np.clip(log_prob, -np.inf, 0.0)
+        else:
+            prob = np.e**log_prob
+            return np.clip(prob, machine_eps, 1)
 
-    def get_delayed_string_prob(self, string, t, init_state=None):
+    def get_delayed_string_prob(self, string, t, init_state=None, log=False):
         """ Get probability of observing string at a delay of ``t``.
 
         get_delayed_string_prob(s, 0) is equivalent to get_string_prob(s).
@@ -164,9 +167,9 @@ class StochasticAutomaton(Environment):
         for i in range(t):
             b = b.dot(self.B)
 
-        return self.get_string_prob(string, init_dist=b)
+        return self.get_string_prob(string, init_dist=b, log=log)
 
-    def get_prefix_prob(self, prefix, init_state=None):
+    def get_prefix_prob(self, prefix, init_state=None, log=False):
         """ Get probability of prefix. """
 
         if init_state is None:
@@ -179,13 +182,16 @@ class StochasticAutomaton(Environment):
         for o in prefix:
             obs_prob = self.get_obs_prob(o)
             obs_prob = max(machine_eps, obs_prob)
-            log_prob += np.log2(obs_prob)
+            log_prob += np.log(obs_prob)
             self.update(o)
 
-        prob = 2**log_prob
-        return np.clip(prob, machine_eps, 1)
+        if log:
+            return np.clip(log_prob, -np.inf, 0.0)
+        else:
+            prob = np.e**log_prob
+            return np.clip(prob, machine_eps, 1)
 
-    def get_delayed_prefix_prob(self, prefix, t, init_state=None):
+    def get_delayed_prefix_prob(self, prefix, t, init_state=None, log=False):
         """ Get probability of observing prefix at a delay of ``t``.
 
         get_delayed_prefix_prob(p, 0) is equivalent to get_prefix_prob(p).
@@ -199,7 +205,7 @@ class StochasticAutomaton(Environment):
         for i in range(t):
             b = b.dot(self.B)
 
-        return self.get_prefix_prob(prefix, init_dist=b)
+        return self.get_prefix_prob(prefix, init_dist=b, log=log)
 
     def get_substring_expectation(self, substring):
         """ Get expected number of occurrences of a substring. """
@@ -343,8 +349,8 @@ class StochasticAutomaton(Environment):
 
     def deepcopy(self):
         return StochasticAutomaton(
-            self.b_0.copy(), self.b_inf.copy(),
-            deepcopy(self.B_o), estimator='prefix')
+            self.b_0.copy(), deepcopy(self.B_o),
+            self.b_inf.copy(), estimator='prefix')
 
 
 class SpectralSA(StochasticAutomaton):
@@ -697,8 +703,7 @@ class KernelSA(StochasticAutomaton):
         wherein the order must be the same as the "kernel centers" list.
 
     """
-    def __init__(
-            self, b_0, b_inf, B_o, kernel_info, estimator):
+    def __init__(self, b_0, B_o, b_inf, kernel_info, estimator):
 
         self.kernel_info = kernel_info
 

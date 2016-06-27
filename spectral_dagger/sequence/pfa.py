@@ -6,19 +6,19 @@ from spectral_dagger.utils import normalize
 
 
 class ProbabilisticAutomaton(StochasticAutomaton):
-    def __init__(self, b_0, b_inf, B_o, estimator):
+    def __init__(self, b_0, B_o, b_inf, estimator):
         super(ProbabilisticAutomaton,
-              self).__init__(b_0, b_inf, B_o, estimator)
+              self).__init__(b_0, B_o, b_inf, estimator)
 
-        assert is_pfa(self.b_0, self.b_inf_string, self.B_o)
+        assert is_pfa(self.b_0, self.B_o, self.b_inf_string)
 
     def __str__(self):
         return ("<ProbabilisticAutomaton. "
                 "n_obs: %d, n_states: %d>" % (self.n_observations, self.size))
 
 
-def is_pfa(b_0, b_inf, B_o):
-    """ Check that b_0, b_inf, B_o form a Probabilistic Finite Automaton.
+def is_pfa(b_0, B_o, b_inf):
+    """ Check that b_0, B_o, b_inf form a Probabilistic Finite Automaton.
 
     ``b_inf`` is assumed to be normalization vector for strings
     (i.e. halting vector).
@@ -29,7 +29,7 @@ def is_pfa(b_0, b_inf, B_o):
     return np.allclose(B_row_sums + b_inf, 1)
 
 
-def is_dpfa(b_0, b_inf, B_o):
+def is_dpfa(b_0, B_o, b_inf):
     """ Check that b_0, b_inf, B_o form a DPFA.
     DPFA stands for Deterministic Probabilistic Finite Automaton.
 
@@ -46,7 +46,7 @@ def is_dpfa(b_0, b_inf, B_o):
     return True
 
 
-def normalize_pfa(b_0, b_inf, B_o):
+def normalize_pfa(b_0, B_o, b_inf):
     """ Return a version of arguments normalized to be a PFA. """
 
     assert (b_0 >= 0).all()
@@ -66,8 +66,8 @@ def normalize_pfa(b_0, b_inf, B_o):
         new_B_o[o] = Bo / norms
         new_B_o[o][np.isnan(new_B_o[o])] = 0.0
 
-    assert is_pfa(b_0, b_inf, new_B_o)
-    return b_0, b_inf, new_B_o
+    assert is_pfa(b_0, new_B_o, b_inf)
+    return b_0, new_B_o, b_inf
 
 
 def perturb_pfa_additive(pfa, std, rng=None):
@@ -97,7 +97,7 @@ def perturb_pfa_additive(pfa, std, rng=None):
         pfa.b_0, pfa.b_inf_string, Bo_prime)
 
     return ProbabilisticAutomaton(
-        b_0, b_inf_string, Bo_prime, estimator='string')
+        b_0, Bo_prime, b_inf_string, estimator='string')
 
 
 def perturb_pfa_multiplicative(pfa, std, rng=None):
@@ -127,7 +127,7 @@ def perturb_pfa_multiplicative(pfa, std, rng=None):
         pfa.b_0, pfa.b_inf_string, Bo_prime)
 
     return ProbabilisticAutomaton(
-        b_0, b_inf_string, Bo_prime, estimator='string')
+        b_0, Bo_prime, b_inf_string, estimator='string')
 
 
 def perturb_pfa_bernoulli(pfa, p, increment=None, rng=None):
@@ -158,4 +158,4 @@ def perturb_pfa_bernoulli(pfa, p, increment=None, rng=None):
         pfa.b_0, pfa.b_inf_string, Bo_prime)
 
     return ProbabilisticAutomaton(
-        b_0, b_inf_string, Bo_prime, estimator='string')
+        b_0, Bo_prime, b_inf_string, estimator='string')

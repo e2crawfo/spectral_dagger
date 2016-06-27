@@ -6,11 +6,14 @@ from spectral_dagger.utils.math import sample_multinomial
 
 class ContinuousHMM(Environment):
 
-    def __init__(self, T, O, init_dist=None, states=None):
+    def __init__(self, init_dist, T, O, states=None):
         """ A Hidden Markov Model with continuous observations.
 
         Parameters
         ----------
+        init_dist: ndarray
+            A |states| vector specifying the initial state distribution.
+            Defaults to a uniform distribution.
         T: ndarray
             A |states| x |states| matrix. Entry (i, j) gives
             the probability of moving from state i to state j, so each row of
@@ -22,15 +25,16 @@ class ContinuousHMM(Environment):
             of scipy.stats.rv_frozen) which gives the probability density
             for observation emissions given the i-th state. All distributions
             should have the same dimensionality.
-        init_dist: ndarray
-            A |states| vector specifying the initial state distribution.
-            Defaults to a uniform distribution.
         states: iterable (optional)
             The state space of the HMM.
 
         """
         self._states = range(T.shape[0]) if states is None else states
         n_states = len(self._states)
+
+        self.init_dist = init_dist.copy()
+        assert(self.init_dist.size == n_states)
+        assert(np.allclose(sum(init_dist), 1.0))
 
         self._T = T.copy()
         self._T.flags.writeable = False
@@ -45,13 +49,6 @@ class ContinuousHMM(Environment):
         for o in O:
             assert hasattr(o, 'rvs')
             assert hasattr(o, 'pdf')
-
-        if init_dist is None:
-            init_dist = np.ones(n_states) / float(n_states)
-
-        self.init_dist = init_dist.copy()
-        assert(self.init_dist.size == n_states)
-        assert(np.allclose(sum(init_dist), 1.0))
 
         self.reset()
 

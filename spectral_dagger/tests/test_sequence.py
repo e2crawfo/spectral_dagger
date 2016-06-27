@@ -10,11 +10,11 @@ import spectral_dagger
 from spectral_dagger.sequence import SpectralSA, CompressedSA
 from spectral_dagger.sequence import SpectralKernelSA, KernelInfo
 from spectral_dagger.sequence import top_k_basis, fixed_length_basis
-from spectral_dagger.sequence import HMM, ContinuousHMM
+from spectral_dagger.sequence import ContinuousHMM
 from spectral_dagger.sequence import ExpMaxSA
 from spectral_dagger.sequence import ConvexOptSA
 from spectral_dagger.sequence import MixtureOfPFA
-from spectral_dagger.sequence import MarkovChain, HMM
+from spectral_dagger.sequence import HMM, MarkovChain
 from spectral_dagger.utils.math import normalize
 from spectral_dagger.datasets.pautomac import make_pautomac_like
 
@@ -25,7 +25,7 @@ def simple_hmm():
     T = normalize([[8, 2], [2, 8]], ord=1)
 
     init_dist = normalize([1, 1], ord=1)
-    return HMM(T, O, init_dist)
+    return HMM(init_dist, T, O)
 
 
 @pytest.fixture
@@ -48,7 +48,7 @@ def reduced_rank_hmm(rng):
     O = np.abs(orth(rng.randn(n, n)))
     O = normalize(O, ord=1, conservative=True)
 
-    return HMM(T, O, init_dist=normalize(np.ones(n), ord=1))
+    return HMM(normalize(np.ones(n), ord=1), T, O)
 
 
 def do_test_hmm_learning(
@@ -225,7 +225,7 @@ def test_cts_sa():
     rng = spectral_dagger.get_model_rng()
 
     init_dist = normalize([10, 1, 1, 1], ord=1)
-    cts_hmm = ContinuousHMM(T, O, init_dist)
+    cts_hmm = ContinuousHMM(init_dist, T, O)
 
     n_train_samples = 1000
     horizon = 10
@@ -309,7 +309,7 @@ def test_markov_chain():
     T = np.array([[0.9, 0.1], [0.3, 0.7]])
     init_dist = np.array([0.2, 0.8])
     horizon = 3
-    mc = MarkovChain(T, init_dist)
+    mc = MarkovChain(init_dist, T)
     n_samples = 10000
 
     samples = mc.sample_episodes(n_samples, horizon=horizon)

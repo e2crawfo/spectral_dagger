@@ -46,9 +46,9 @@ def print_models():
     for i, model in enumerate(all_models()):
         print str(i+1) + ": " + "*" * 40
         print model
-        print "Is PFA?: ", is_pfa(model.b_0, model.b_inf_string, model.B_o)
-        print "Is DPFA?: ", is_dpfa(model.b_0, model.b_inf_string, model.B_o)
-        print "Is HMM?: ", is_hmm(model.b_0, model.b_inf_string, model.B_o)
+        print "Is PFA?: ", is_pfa(model.b_0, model.B_o, model.b_inf_string)
+        print "Is DPFA?: ", is_dpfa(model.b_0, model.B_o, model.b_inf_string)
+        print "Is HMM?: ", is_hmm(model.b_0, model.B_o, model.b_inf_string)
 
 
 def int_or_float(x):
@@ -121,9 +121,9 @@ def load_pautomac_model(problem_idx):
         if halt_prob < 1.0:
             B_o[o][s, s_prime] = prob * obs_prob * (1 - halt_prob)
 
-    assert is_pfa(b_0, b_inf, B_o), "Loaded model is not a PFA."
+    assert is_pfa(b_0, B_o, b_inf), "Loaded model is not a PFA."
 
-    return ProbabilisticAutomaton(b_0, b_inf, B_o, estimator='string')
+    return ProbabilisticAutomaton(b_0, B_o, b_inf, estimator='string')
 
 
 def load_pautomac_ground_truth(problem_idx):
@@ -271,7 +271,7 @@ def make_pautomac_like(
                 emission_probs[state1, symbol] *
                 transition_probs[state1, symbol, state2])
 
-        assert is_pfa(b_0, b_inf_string, B_o)
+        assert is_pfa(b_0, B_o, b_inf_string)
 
     elif kind == 'hmm':
         transition_probs, _ = _populate_prob_table(
@@ -281,12 +281,12 @@ def make_pautomac_like(
             s: np.diag(emission_probs[:, s]).dot(transition_probs)
             for s in symbols}
 
-        assert is_hmm(b_0, b_inf_string, B_o)
+        assert is_hmm(b_0, B_o, b_inf_string)
     else:
         raise NotImplementedError(
             'Cannot generate PFA of kind "%s".' % kind)
 
-    pa = ProbabilisticAutomaton(b_0, b_inf_string, B_o, estimator='string')
+    pa = ProbabilisticAutomaton(b_0, B_o, b_inf_string, estimator='string')
     return pa
 
 
