@@ -83,13 +83,13 @@ class ContinuousHMM(Environment):
 
     def reset(self, initial=None):
         self._state = self._states[
-            sample_multinomial(self.init_dist, self.rng)]
+            sample_multinomial(self.init_dist, self.run_rng)]
 
     def step(self):
         """ Returns the resulting observation. """
-        o = self._O[self._state].rvs(random_state=self.rng)
+        o = self._O[self._state].rvs(random_state=self.run_rng)
         self._state = self._states[
-            sample_multinomial(self._T[self._state], self.rng)]
+            sample_multinomial(self._T[self._state], self.run_rng)]
 
         return o
 

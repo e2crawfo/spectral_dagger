@@ -75,14 +75,19 @@ class StochasticAutomaton(Environment):
     def _lookahead(self):
         """ Decide whether to halt, and if not, compute next-state probs. """
         terminal_prob = self.b.dot(self.b_inf_string)
-        self.terminal = self.rng.rand() < terminal_prob
+        self.terminal = self.run_rng.rand() < terminal_prob
 
         probs = np.array([
             self.b.dot(self.operator(o)).dot(self.b_inf)
             for o in self.observations])
 
+        if probs.sum() == 0:
+            raise Exception("Dividing by 0 when calculating next-step "
+                            "probabilities for StochasticAutomaton.")
+
         # Normalize probs since we've already sampled whether to terminate.
         self.probs = probs / probs.sum()
+        assert not any(np.isnan(self.probs))
 
     def reset(self, initial=None):
         self.b = self.b_0.copy()
@@ -92,7 +97,7 @@ class StochasticAutomaton(Environment):
         if self.terminal:
             return None
 
-        sample = sample_multinomial(self.probs, self.rng)
+        sample = sample_multinomial(self.probs, self.run_rng)
         o = self.observations[sample]
         self.update(o)
         self._lookahead()
@@ -420,7 +425,7 @@ class SpectralSA(StochasticAutomaton):
             # H = U Sigma V^T
             U, Sigma, VT = randomized_svd(
                 hankel_matrix, n_components, n_oversamples, n_iter,
-                random_state=self.model_rng)
+                random_state=self.build_rng)
 
         V = VT.T
 
@@ -526,7 +531,7 @@ class CompressedSA(StochasticAutomaton):
         prefix_dict, suffix_dict = basis
 
         if phi is None:
-            phi = self.model_rng.randn(len(suffix_dict), n_components)
+            phi = self.build_rng.randn(len(suffix_dict), n_components)
             phi *= (1. / np.sqrt(n_components)
                     if noise_std is None else noise_std)
 
@@ -837,7 +842,7 @@ class SpectralKernelSA(KernelSA):
         # H = U Sigma V^T
         U, Sigma, VT = randomized_svd(
             hankel_matrix, n_components, n_oversamples, n_iter,
-            random_state=self.model_rng)
+            random_state=self.build_rng)
 
         V = VT.T
 
@@ -929,7 +934,7 @@ class SpectralSAWithActions(object):
         # H = U S V^T
         U, S, VT = randomized_svd(
             hankel_matrix, self.max_dim, n_oversamples, n_iter,
-            random_state=self.model_rng)
+            random_state=self.build_rng)
 
         V = VT.T
 

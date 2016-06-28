@@ -1,6 +1,7 @@
 import numpy as np
 import six
 
+from spectral_dagger import process_rng
 from spectral_dagger.sequence import StochasticAutomaton
 from spectral_dagger.utils import normalize
 
@@ -83,7 +84,7 @@ def perturb_pfa_additive(pfa, std, rng=None):
         Standard deviation of perturbation for the operators.
 
     """
-    rng = rng if rng is not None else np.random.RandomState()
+    rng = process_rng(rng)
 
     # Only perturb locations that are already non-zero.
     Bo_prime = {}
@@ -114,7 +115,7 @@ def perturb_pfa_multiplicative(pfa, std, rng=None):
         Standard deviation of perturbation for the operators.
 
     """
-    rng = rng if rng is not None else np.random.RandomState()
+    rng = process_rng(rng)
 
     # Only perturb locations that are already non-zero.
     Bo_prime = {}
@@ -143,7 +144,7 @@ def perturb_pfa_bernoulli(pfa, p, increment=None, rng=None):
         The amount to increment when the Bernoulli is non-zero.
 
     """
-    rng = rng if rng is not None else np.random.RandomState()
+    rng = process_rng(rng)
     increment = (
         increment if increment is not None
         else np.mean(np.mean(np.hstack(pfa.B_o.values()))))

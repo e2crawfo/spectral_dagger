@@ -1,6 +1,4 @@
-import numpy as np
-
-from spectral_dagger import set_sim_rng
+from spectral_dagger import rng
 from spectral_dagger.envs import LinearMarkovChain
 
 
@@ -13,16 +11,13 @@ def test_rng():
 
     n_eps = 10
 
-    rng = np.random.RandomState(seed=seed)
-    set_sim_rng(rng)
+    rng('run', seed)
     episodes1 = env.sample_episodes(n_eps)
 
-    rng = np.random.RandomState(seed=seed)
-    set_sim_rng(rng)
+    rng('run', seed)
     episodes2 = env.sample_episodes(n_eps)
 
-    rng = np.random.RandomState(seed=other_seed)
-    set_sim_rng(rng)
+    rng('run', other_seed)
     episodes3 = env.sample_episodes(n_eps)
 
     episodes1 = [t for ep in episodes1 for t in ep]

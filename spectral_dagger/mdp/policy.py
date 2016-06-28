@@ -21,7 +21,7 @@ class UniformRandomPolicy(Policy):
         pass
 
     def get_action(self):
-        return self.rng.choice(self.actions)
+        return self.run_rng.choice(self.actions)
 
     def action_distribution(self, s):
         d = np.ones(len(self.actions))
@@ -91,8 +91,8 @@ class GreedyPolicy(MDPPolicy):
         self.V[s] = v
 
     def get_action(self):
-        if self.epsilon > 0 and self.rng.rand() < self.epsilon:
-            return self.rng.choice(self.actions)
+        if self.epsilon > 0 and self.run_rng.rand() < self.epsilon:
+            return self.run_rng.choice(self.actions)
         else:
             T_s = self.T[:, self.current_state, :]
             R_s = self.R[:, self.current_state, :]
@@ -129,7 +129,7 @@ class LinearGibbsPolicy(MDPPolicy):
 
     def get_action(self):
         probs = self.action_distribution(self.current_state)
-        action = sample_multinomial(probs, self.rng)
+        action = sample_multinomial(probs, self.run_rng)
 
         return action
 

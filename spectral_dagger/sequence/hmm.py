@@ -1,6 +1,6 @@
 import numpy as np
 
-from spectral_dagger import get_model_rng
+from spectral_dagger import process_rng
 from spectral_dagger.utils import normalize, indent
 from spectral_dagger.sequence import ProbabilisticAutomaton
 
@@ -161,16 +161,14 @@ def dummy_hmm(n_states):
 
 def bernoulli_hmm(n_states, n_obs, model_rng=None):
     """ Create an HMM with operators chosen from Bernoulii distributions. """
-
-    model_rng = get_model_rng() if model_rng is None else model_rng
-
-    O = model_rng.binomial(1, 0.5, (n_states, n_obs))
+    rng = process_rng(rng)
+    O = rng.binomial(1, 0.5, (n_states, n_obs))
     for row in O:
         if sum(row) == 0:
             row[:] = 1.0
     O = normalize(O, ord=1, conservative=True)
 
-    T = model_rng.binomial(1, 0.5, (n_states, n_states))
+    T = rng.binomial(1, 0.5, (n_states, n_states))
     for row in T:
         if sum(row) == 0:
             row[:] = 1.0

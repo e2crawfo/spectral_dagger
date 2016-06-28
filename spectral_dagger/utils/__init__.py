@@ -1,5 +1,4 @@
-# spectra_dagger.utils
-from .math import default_rng, sample_multinomial, normalize, rmse
+from .math import sample_multinomial, normalize, rmse
 
 
 def indent(s, n):

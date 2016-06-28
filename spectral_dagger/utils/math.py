@@ -1,21 +1,10 @@
 import numpy as np
 
-_default_rng = np.random.RandomState()
-
-
-def default_rng(rng=None):
-    if rng is None:
-        rng = _default_rng
-    elif not isinstance(rng, np.random.RandomState):
-        raise ValueError(
-            "``rng`` must be None or an instance of np.random.RandomState")
-
-    return rng
+from spectral_dagger import process_rng
 
 
 def sample_multinomial(p_vals, rng=None):
-    rng = default_rng(rng)
-
+    rng = process_rng(rng)
     sample = rng.multinomial(1, p_vals)
     return np.where(sample > 0)[0][0]
 

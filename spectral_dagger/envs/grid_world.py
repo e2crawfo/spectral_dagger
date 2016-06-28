@@ -1,10 +1,11 @@
 import numpy as np
 import itertools
 
+from spectral_dagger import process_rng
 from spectral_dagger import Action, Observation, State, Space
 from spectral_dagger.mdp import MDP, MDPPolicy
 from spectral_dagger.pomdp import POMDP
-from spectral_dagger.utils import sample_multinomial, default_rng
+from spectral_dagger.utils import sample_multinomial
 from spectral_dagger.utils.geometry import Position, Rectangle
 
 
@@ -296,7 +297,7 @@ class ColoredWorldMap(WorldMap):
         n_walls = np.count_nonzero(self.world_map == WorldMap.WALL_MARKER)
         is_wall = self.world_map == WorldMap.WALL_MARKER
 
-        rng = default_rng(rng)
+        rng = process_rng(rng)
         self.world_map[is_wall] = (
             rng.randint(1, self.n_colors+1, n_walls))
 
@@ -415,7 +416,7 @@ class GridWorld(MDP):
                 locations = list(locations)
 
                 self.current_position = (
-                    locations[self.rng.randint(len(locations))])
+                    locations[self.run_rng.randint(len(locations))])
             else:
                 self.current_position = Position(self.init_position)
 
@@ -452,16 +453,16 @@ class GridWorld(MDP):
         prev_position = self.current_position
 
         if self.world_map.in_pit_state():
-            sample = sample_multinomial(self.init_dist, self.rng)
+            sample = sample_multinomial(self.init_dist, self.run_rng)
             self.current_position = self.positions[sample]
 
         elif self.world_map.in_trap_state():
             pass
 
         else:
-            if(self.rng.rand() < self.noise):
+            if(self.run_rng.rand() < self.noise):
                 perp_dirs = action.get_perpendicular_directions()
-                action = self.rng.choice(perp_dirs)
+                action = self.run_rng.choice(perp_dirs)
 
             next_position = action.get_next_position(self.current_position)
 
@@ -723,7 +724,7 @@ class EgoGridWorld(POMDP):
                     "Initialization distribution must have number of elements "
                     "equal to the number of states in the POMDP.")
 
-            sample = sample_multinomial(init_dist, self.rng)
+            sample = sample_multinomial(init_dist, self.run_rng)
             self.grid_world.reset(sample)
 
         else:

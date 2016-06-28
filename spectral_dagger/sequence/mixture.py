@@ -15,6 +15,11 @@ class MixtureOfPFA(Environment):
         assert len(coefficients) == len(pfas)
         self.pfas = pfas
 
+        # Create a separate set of PFAs for sampling since problems
+        # can arise if a single object is used for both sampling and
+        # filtering simultaneously
+        self.sample_pfas = [pfa.deepcopy() for pfa in pfas]
+
         self.n_observations = pfas[0].n_observations
 
         for pfa in self.pfas:
@@ -59,7 +64,9 @@ class MixtureOfPFA(Environment):
     def reset(self, initial=None):
         for pfa in self.pfas:
             pfa.reset()
-        self.choice = self.rng.choice(self.pfas)
+        for pfa in self.sample_pfas:
+            pfa.reset()
+        self.choice = self.run_rng.choice(self.sample_pfas)
         self.state_dist = self.coefficients.copy()
 
     def step(self):

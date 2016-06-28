@@ -7,10 +7,11 @@ import six
 from itertools import product
 import operator
 
+from spectral_dagger import process_rng, set_seed
 from spectral_dagger.sequence import ProbabilisticAutomaton
 from spectral_dagger.sequence.pfa import is_pfa, is_dpfa
 from spectral_dagger.sequence.hmm import is_hmm
-from spectral_dagger.utils import rmse, default_rng
+from spectral_dagger.utils import rmse
 
 PAUTOMAC_PATH = "/data/PAutomaC-competition_sets/"
 
@@ -237,7 +238,7 @@ def make_pautomac_like(
     assert 0 < symbol_sparsity < 1
     assert 0 < transition_sparsity < 1
 
-    rng = default_rng(rng)
+    rng = process_rng(rng)
 
     symbols = range(n_symbols)
 
@@ -293,10 +294,9 @@ def make_pautomac_like(
 if __name__ == "__main__":
     from spectral_dagger.sequence import top_k_basis, estimate_hankels
     from spectral_dagger.sequence.pfa import perturb_pfa_additive
-    from spectral_dagger import set_sim_rng
     import pprint
 
-    set_sim_rng(np.random.RandomState(1))
+    set_seed(seed=10)
 
     problem_idx = int(sys.argv[1]) if len(sys.argv) > 1 else 1
     print("Parsing problem %d." % problem_idx)

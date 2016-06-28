@@ -2,62 +2,67 @@ import abc
 import numpy as np
 import time
 
-from spectral_dagger.utils import default_rng
+
+maxint = np.iinfo(np.int32).max
+_rngs = {None: np.random.RandomState()}
+
+
+def process_rng(rng):
+    if isinstance(rng, int):
+        return np.random.RandomState(rng)
+    elif rng is None:
+        return _rngs[None]
+    elif not isinstance(rng, np.random.RandomState):
+        raise ValueError(
+            "``rng`` must be None or an instance of np.random.RandomState")
+    return rng
+
+
+def rng(key=None, rng=None):
+    if rng is not None:
+        rng = process_rng(rng)
+        _rngs[key] = rng
+        return rng
+
+    rng = _rngs.get(key, False)
+    if rng is False:
+        rng = process_rng(gen_seed())
+        _rngs[key] = rng
+        return rng
+    else:
+        return rng
+
+
+def clear_rngs():
+    default_rng = _rngs[None]
+    _rngs.clear()
+    _rngs[None] = default_rng
+
+
+def clear_rng(key):
+    del _rngs[key]
+
+
+def gen_seed(rng=None):
+    if rng is None:
+        rng = _rngs[None]
+    return rng.randint(maxint)
+
+
+def set_seed(seed):
+    clear_rngs()
+    _rngs[None] = np.random.RandomState(seed)
 
 
 class SpectralDaggerObject(object):
-    _model_rng = default_rng()
-    _simulation_rng = default_rng()
 
     @property
-    def model_rng(self):
-        return self._model_rng
-
-    @model_rng.setter
-    def model_rng(self, rng):
-        if rng is None:
-            self._model_rng = SpectralDaggerObject._model_rng
-        elif isinstance(rng, np.random.RandomState):
-            self._model_rng = rng
-        else:
-            raise ValueError(
-                "``rng`` must be None or an instance of np.random.RandomState")
+    def build_rng(self):
+        return rng('build')
 
     @property
-    def rng(self):
-        return self._simulation_rng
-
-    @rng.setter
-    def rng(self, rng):
-        if rng is None:
-            self._simulation_rng = SpectralDaggerObject._simulation_rng
-        elif isinstance(rng, np.random.RandomState):
-            self._simulation_rng = rng
-        else:
-            raise ValueError(
-                "``rng`` must be None or an instance of np.random.RandomState")
-
-
-def _handle_seed(seed):
-    if isinstance(seed, int):
-        return np.random.RandomState(seed)
-    return seed
-
-
-def set_model_rng(rng):
-    SpectralDaggerObject._model_rng = default_rng(_handle_seed(rng))
-
-
-def set_sim_rng(rng):
-    SpectralDaggerObject._simulation_rng = default_rng(_handle_seed(rng))
-
-
-def get_model_rng():
-    return SpectralDaggerObject._model_rng
-
-
-def get_sim_rng():
-    return SpectralDaggerObject._simulation_rng
+    def run_rng(self):
+        return rng('run')
 
 
 class Space(object):
@@ -261,8 +266,6 @@ class Environment(SpectralDaggerObject):
         ----------
         initial: any
             An initial state or initial dist to start the episode from.
-        rng: RandomState instance
-            RNG to use for the episode.
 
         """
         raise NotImplementedError()
@@ -305,7 +308,7 @@ class Environment(SpectralDaggerObject):
 
     def sample_episodes(
             self, n_eps, policy=None, horizon=np.inf,
-            reset_env=True, hook=None):
+            reset_env=True, hook=None, rng=None):
         """ Sample a batch of episodes.
 
         Parameters
@@ -330,8 +333,14 @@ class Environment(SpectralDaggerObject):
         hook: function (optional)
             A function that is called every time step with the results from
             that time step. Useful e.g. for logging or displaying.
+        rng: RandomState instance (optional)
+            Random number generator to use for the episodes. If not supplied,
+            self.rng is used.
 
         """
+        if rng is not None:
+            self.rng, rng = rng, self.rng
+
         if policy is None:
             policies = []
         elif hasattr(policy, "__iter__"):
@@ -422,6 +431,9 @@ class Environment(SpectralDaggerObject):
             self.end_episode()
 
             episodes.append(episode)
+
+        if rng is not None:
+            self.rng, rng = rng, self.rng
 
         return episodes
 

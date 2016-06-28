@@ -6,7 +6,7 @@ from itertools import product
 from collections import defaultdict
 import six
 
-import spectral_dagger
+import spectral_dagger as sd
 from spectral_dagger.sequence import SpectralSA, CompressedSA
 from spectral_dagger.sequence import SpectralKernelSA, KernelInfo
 from spectral_dagger.sequence import top_k_basis, fixed_length_basis
@@ -104,10 +104,8 @@ def test_spectral_like(learning_alg):
             samples, dimension, basis=basis, estimator=estimator)
         return sa
 
-    # set global rngs
     seed = 10
-    spectral_dagger.set_model_rng(seed)
-    spectral_dagger.set_sim_rng(seed)
+    sd.set_seed(seed)
 
     print("Learning with: %s" % learning_alg)
     hmm = simple_hmm()
@@ -120,7 +118,7 @@ def test_spectral_like(learning_alg):
     do_test_hmm_learning(
         hmm, learn, estimator='substring', dimension=dimension)
 
-    rr_hmm = reduced_rank_hmm(spectral_dagger.get_model_rng())
+    rr_hmm = reduced_rank_hmm(sd.rng('build'))
     dimension = np.linalg.matrix_rank(rr_hmm.T)
 
     basis = fixed_length_basis(rr_hmm.observations, 2, False)
@@ -153,15 +151,13 @@ def test_em():
         em_sa.fit(samples, validate_samples)
         return em_sa
 
-    # set global rngs
     seed = 10
-    spectral_dagger.set_model_rng(seed)
-    spectral_dagger.set_sim_rng(seed)
+    sd.set_seed(seed)
 
     hmm = simple_hmm()
     do_test_hmm_learning(hmm, learn)
 
-    rr_hmm = reduced_rank_hmm(spectral_dagger.get_model_rng())
+    rr_hmm = reduced_rank_hmm(sd.rng('build'))
     do_test_hmm_learning(rr_hmm, learn, horizon=5)
 
 
@@ -178,10 +174,8 @@ def test_convex_opt():
         sa.fit(samples, dimension, basis=basis, estimator='prefix')
         return sa
 
-    # set global rngs
     seed = 10
-    spectral_dagger.set_model_rng(seed)
-    spectral_dagger.set_sim_rng(seed)
+    sd.set_seed(seed)
 
     hmm = simple_hmm()
 
@@ -202,7 +196,7 @@ def test_convex_opt():
     #             print results[-1]
     # print "Best: ", min(results, key=lambda x: x['error'])
 
-    rr_hmm = reduced_rank_hmm(spectral_dagger.get_model_rng())
+    rr_hmm = reduced_rank_hmm(sd.rng('build'))
 
     basis = fixed_length_basis(rr_hmm.observations, 3, False)
     do_test_hmm_learning(hmm, learn, 3, basis=basis, tau=0.001)
@@ -218,11 +212,9 @@ def test_cts_sa():
          stats.multivariate_normal(np.array([1, -1]), cov=0.1*np.eye(2)),
          stats.multivariate_normal(np.array([-1, 1]), cov=0.1*np.eye(2))]
 
-    # set global rngs
     seed = 10
-    spectral_dagger.set_model_rng(seed)
-    spectral_dagger.set_sim_rng(seed)
-    rng = spectral_dagger.get_model_rng()
+    sd.set_seed(seed)
+    rng = sd.rng('build')
 
     init_dist = normalize([10, 1, 1, 1], ord=1)
     cts_hmm = ContinuousHMM(init_dist, T, O)
@@ -262,11 +254,9 @@ def test_mixture_pfa():
     n_obs = 5
     o_sparse, t_sparse = 0.5, 0.5
 
-    # set global rngs
     seed = 10
-    spectral_dagger.set_model_rng(seed)
-    spectral_dagger.set_sim_rng(seed)
-    rng = spectral_dagger.get_model_rng()
+    sd.set_seed(seed)
+    rng = sd.rng('build')
 
     pfas = [
         make_pautomac_like(
@@ -301,10 +291,8 @@ def test_mixture_pfa():
 
 
 def test_markov_chain():
-    # set global rngs
     seed = 10
-    spectral_dagger.set_model_rng(seed)
-    spectral_dagger.set_sim_rng(seed)
+    sd.set_seed(seed)
 
     T = np.array([[0.9, 0.1], [0.3, 0.7]])
     init_dist = np.array([0.2, 0.8])

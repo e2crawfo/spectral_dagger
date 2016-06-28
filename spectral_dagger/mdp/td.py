@@ -257,10 +257,10 @@ class ControlTD(TD):
                 pass
 
     def get_action(self):
-        p = self.rng.rand()
+        p = self.run_rng.rand()
 
         if p < self.epsilon:
-            return self.rng.choice(self.actions)
+            return self.run_rng.choice(self.actions)
         else:
             return max(
                 (a for a in self.actions),
