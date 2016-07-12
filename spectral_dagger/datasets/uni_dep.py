@@ -6,8 +6,27 @@ import itertools
 UNIDEP_PATH = "/data/universal_dep/universal-dependencies-1.2/"
 
 
+def memoize(f):
+    """ Memoization decorator for functions taking one or more arguments. """
+
+    class memodict(dict):
+        def __init__(self, f):
+            self.f = f
+
+        def __call__(self, *args):
+            return self[args]
+
+        def __missing__(self, key):
+            ret = self[key] = self.f(*key)
+            return ret
+
+    return memodict(f)
+
+
 def languages():
-    fnames = filter(lambda x: os.path.isdir(x), os.listdir(UNIDEP_PATH))
+    fnames = filter(
+        lambda x: os.path.isdir(os.path.join(UNIDEP_PATH, x)),
+        os.listdir(UNIDEP_PATH))
     languages = set(fn.split('_')[-1].split('-')[0] for fn in fnames)
     return sorted(list(languages))
 
@@ -17,7 +36,9 @@ def n_languages():
 
 
 def datasets():
-    fnames = filter(lambda x: os.path.isdir(x), os.listdir(UNIDEP_PATH))
+    fnames = filter(
+        lambda x: os.path.isdir(os.path.join(UNIDEP_PATH, x)),
+        os.listdir(UNIDEP_PATH))
     return sorted([fn.split('_')[-1] for fn in fnames])
 
 
@@ -25,7 +46,7 @@ def n_datasets():
     return len(datasets())
 
 
-def load_data(language, filt, get_all=False):
+def load_data(language, filt, get_all=True):
     """ Load Universal Dependency data stored in CoNULL-U format.
 
     Parameters
@@ -38,8 +59,8 @@ def load_data(language, filt, get_all=False):
     get_all: bool
         If ``language`` is the name of a language (as opposed to a
         dataset), then this controls whether all datasets for that language
-        are returned, or just the dataset whose name exactly matches the
-        language.
+        are returned, or just the dataset whose name exactly matches
+        ``language``.
 
     """
     if language not in languages():
@@ -75,6 +96,7 @@ def load_data_test(language, get_all=False):
         language, lambda x: 'test' in x and x.endswith('.conllu'), get_all)
 
 
+@memoize
 def load_POS_train(language, get_all=False):
     """Return list of lists of universal POS tags."""
     return [
@@ -82,6 +104,7 @@ def load_POS_train(language, get_all=False):
         for sentence in load_data_train(language, get_all)]
 
 
+@memoize
 def load_POS_dev(language, get_all=False):
     """Return list of lists of universal POS tags."""
     return [
@@ -89,6 +112,7 @@ def load_POS_dev(language, get_all=False):
         for sentence in load_data_dev(language, get_all)]
 
 
+@memoize
 def load_POS_test(language, get_all=False):
     """Return list of lists of universal POS tags."""
     return [
@@ -97,7 +121,7 @@ def load_POS_test(language, get_all=False):
 
 
 class StatsPOS(object):
-    def __init__(self, language, get_all=False, clear=True):
+    def __init__(self, language, get_all=True, clear=True):
         self.language = language
         self.stats = {}
 
@@ -183,7 +207,7 @@ def map_nested(nested):
 
 
 class SequenceData(object):
-    def __init__(self, language, get_all=False):
+    def __init__(self, language, get_all=True):
         self.language = language
 
         self.train = map_nested(load_POS_train(language, get_all))
