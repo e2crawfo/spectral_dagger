@@ -51,7 +51,8 @@ def gen_seed(rng=None):
 
 def set_seed(seed):
     clear_rngs()
-    _rngs[None] = np.random.RandomState(seed)
+    _rngs[None] = process_rng(seed)
+    return _rngs[None]
 
 
 class SpectralDaggerObject(object):
@@ -483,7 +484,7 @@ class Policy(SpectralDaggerObject):
             An initial state or initial dist to start the episode from.
 
         """
-        self.reset(initial_obs)
+        return self.reset(initial_obs)
 
     @abc.abstractmethod
     def get_action(self):

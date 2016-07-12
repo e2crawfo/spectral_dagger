@@ -45,3 +45,69 @@ class MarkovChain(HMM):
         s += indent("stop:\n", 1)
         s += indent(str(self.stop_prob) + "\n", 2)
         return s
+
+    @property
+    def n_observations(self):
+        return self.n_states
+
+
+class AdjustedMarkovChain(MarkovChain):
+
+    def __init__(self, init_dist, T, stop_prob=None):
+        """ An adjusted discrete Markov Chain.
+
+        Adjusted so that it can never output empty sequences.
+
+        """
+        self.markov_chain = markov_chain = MarkovChain(init_dist, T, stop_prob)
+
+        init_dist, T, stop_prob = (
+            markov_chain.init_dist, markov_chain.T, markov_chain.stop_prob)
+
+        # Create an alternate set of parameters such that it is not
+        # possible to halt from the initial state. Effectively creates a
+        # new state, and this state is the only state in which halting
+        # can take place. The old halting probabilities becomes the
+        # probabilities of transitioning into the halting state.
+        n_symbols = len(init_dist)
+        new_init_dist = np.array(list(init_dist) + [0.0])
+        new_stop_prob = np.array([0.0] * n_symbols + [1.0])
+        T = np.diag(1 - stop_prob).dot(T)
+        new_T = np.concatenate((T, stop_prob.reshape(-1, 1)), axis=1)
+        new_bottom_row = np.array([0.0] * n_symbols + [1.0]).reshape(1, -1)
+        new_T = np.concatenate((new_T, new_bottom_row), axis=0)
+
+        super(MarkovChain, self).__init__(
+            new_init_dist, new_T, np.eye(n_symbols + 1), new_stop_prob)
+
+    def __repr__(self):
+        return str(self)
+
+    def __str__(self):
+        s = "AdjustedMarkovChain\n"
+        s += indent("n_states/n_symbols: %d\n" % self.n_states, 1)
+        s += indent("init_dist:\n", 1)
+        s += indent(str(self.init_dist) + "\n", 2)
+        s += indent("T:\n", 1)
+        s += indent(str(self.T) + "\n", 2)
+        s += indent("stop:\n", 1)
+        s += indent(str(self.stop_prob) + "\n", 2)
+        s += indent("Original Markov Chain: \n", 1)
+        s += indent(str(self.markov_chain), 2)
+        return s
+
+    @property
+    def init_dist(self):
+        return self.markov_chain.init_dist
+
+    @property
+    def T(self):
+        return self.markov_chain.T
+
+    @property
+    def stop_prob(self):
+        return self.markov_chain.stop_prob
+
+    @property
+    def n_states(self):
+        return self.markov_chain.n_states

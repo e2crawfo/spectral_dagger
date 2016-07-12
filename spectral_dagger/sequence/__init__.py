@@ -15,7 +15,7 @@ from .pfa import (
 
 from .hmm import HMM, dummy_hmm, bernoulli_hmm
 from .cts_hmm import ContinuousHMM
-from .markov_chain import MarkovChain
+from .markov_chain import MarkovChain, AdjustedMarkovChain
 
 from .em import ExpMaxSA
 from .convex_opt import ConvexOptSA

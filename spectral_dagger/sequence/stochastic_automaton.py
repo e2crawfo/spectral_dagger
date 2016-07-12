@@ -21,18 +21,17 @@ class StochasticAutomaton(Environment):
 
     Notes: Defines both ``update`` and ``step`` methods, so it can be either be
     used as an Environment or for filtering. Using a single instance for both
-    purposes simultaneously requires some case, as the ``step`` method will
+    purposes simultaneously requires some care, as the ``step`` method will
     alter the state used for filtering, and ``update`` will alter the state
     used for sampling.
 
     """
     def __init__(self, b_0, B_o, b_inf, estimator):
 
+        self._observations = B_o.keys()
+
         self.B_o = B_o
         self.B = sum(self.B_o.values())
-
-        self.observations = B_o.keys()
-        self.n_observations = len(self.observations)
 
         self.compute_start_end_vectors(b_0, b_inf, estimator)
         self.reset()
@@ -45,6 +44,22 @@ class StochasticAutomaton(Environment):
         return str(self)
 
     @property
+    def n_states(self):
+        return self.b_0.size
+
+    @property
+    def n_observations(self):
+        return len(self._observations)
+
+    @property
+    def size(self):
+        return self.n_states
+
+    @property
+    def observations(self):
+        return self._observations
+
+    @property
     def action_space(self):
         return None
 
@@ -54,11 +69,7 @@ class StochasticAutomaton(Environment):
 
     @property
     def can_terminate(self):
-        return (self.b_inf_string != 0).all()
-
-    @property
-    def size(self):
-        return self.b_0.size
+        return (self.b_inf_string != 0).any()
 
     def in_terminal_state(self):
         return self.terminal
@@ -327,10 +338,12 @@ class StochasticAutomaton(Environment):
         if estimator == 'string':
             self.b_inf_string = b_inf
 
-            if (self.b_inf_string == 0).all():
-                self.b_inf = np.ones_like(self.b_inf_string)
-            else:
-                self.b_inf = I_minus_B_inv.dot(self.b_inf_string)
+            # In most cases where an entry of b_inf is calculated
+            # to be 0, it should actually be 1, corresponding to
+            # summing over a distribution over a set with
+            # uncountably many values.
+            self.b_inf = I_minus_B_inv.dot(self.b_inf_string)
+            self.b_inf[self.b_inf == 0] = 1.0
 
             self.b_0 = b_0
             self.b_0_substring = self.b_0.dot(I_minus_B_inv)
@@ -364,8 +377,7 @@ class SpectralSA(StochasticAutomaton):
         self.b_inf = None
         self.B_o = None
 
-        self.observations = observations
-        self.n_observations = len(self.observations)
+        self._observations = observations
 
     def fit(self, data, n_components, estimator='prefix',
             basis=None, svd=None, hankels=None, sparse=True):
@@ -474,8 +486,7 @@ class CompressedSA(StochasticAutomaton):
         self.b_inf = None
         self.B_o = None
 
-        self.observations = observations
-        self.n_observations = len(self.observations)
+        self._observations = observations
 
     def fit(
             self, data, n_components, noise_std=None, estimator='prefix',
@@ -875,7 +886,6 @@ class SpectralKernelSA(KernelSA):
 
 
 # Below here is largely out of date.
-
 class SpectralSAWithActions(object):
     def __init__(self, actions, observations, max_dim=80):
 

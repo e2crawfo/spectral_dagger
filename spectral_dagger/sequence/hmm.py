@@ -31,17 +31,17 @@ class HMM(ProbabilisticAutomaton):
             The observations that can be emitted by the HMM.
 
         """
-        self.states = range(T.shape[0])
-        self.observations = range(O.shape[1])
+        self._states = range(T.shape[0])
+        self._observations = range(O.shape[1])
 
-        n_states = self.n_states = len(self.states)
-        n_obs = self.n_observations = len(self.observations)
+        n_states = len(self._states)
+        n_obs = len(self._observations)
 
-        self.init_dist = np.array(init_dist).copy()
-        self.init_dist.flags.writeable = False
-        assert(self.init_dist.size == n_states)
-        assert(np.isclose(sum(self.init_dist), 1.0))
-        assert np.all(self.init_dist >= 0) and np.all(self.init_dist <= 1)
+        self._init_dist = np.array(init_dist).copy()
+        self._init_dist.flags.writeable = False
+        assert(self._init_dist.size == n_states)
+        assert(np.isclose(sum(self._init_dist), 1.0))
+        assert np.all(self._init_dist >= 0) and np.all(self._init_dist <= 1)
 
         self._T = np.array(T).copy()
         self._T.flags.writeable = False
@@ -59,17 +59,18 @@ class HMM(ProbabilisticAutomaton):
 
         if stop_prob is None:
             stop_prob = np.zeros(n_states)
-        self.stop_prob = np.array(stop_prob).copy()
-        self.stop_prob.flags.writeable = False
-        assert(self.stop_prob.size == n_states)
-        assert np.all(self.stop_prob >= 0) and np.all(self.stop_prob <= 1)
+        self._stop_prob = np.array(stop_prob).copy()
+        self._stop_prob.flags.writeable = False
+        assert(self._stop_prob.size == n_states)
+        assert np.all(self._stop_prob >= 0) and np.all(self._stop_prob <= 1)
 
-        halt_correction = np.diag(1 - self.stop_prob)
+        halt_correction = np.diag(1 - self._stop_prob)
+        corrected_T = halt_correction.dot(self._T)
 
-        B_o = {o: np.diag(self._O[:, o]).dot(self._T).dot(halt_correction)
-               for o in self.observations}
+        B_o = {o: np.diag(self._O[:, o]).dot(corrected_T)
+               for o in self._observations}
         super(HMM, self).__init__(
-            self.init_dist, B_o, self.stop_prob, estimator='string')
+            self._init_dist, B_o, self._stop_prob, estimator='string')
         assert(is_hmm(self.b_0, self.B_o, self.b_inf_string))
 
     def __str__(self):
@@ -87,12 +88,20 @@ class HMM(ProbabilisticAutomaton):
         return s
 
     @property
+    def init_dist(self):
+        return self._init_dist
+
+    @property
     def T(self):
         return self._T
 
     @property
     def O(self):
         return self._O
+
+    @property
+    def stop_prob(self):
+        return self._stop_prob
 
 
 def is_hmm(b_0, B_o, b_inf):
@@ -159,7 +168,7 @@ def dummy_hmm(n_states):
     return HMM(init_dist, T, O)
 
 
-def bernoulli_hmm(n_states, n_obs, model_rng=None):
+def bernoulli_hmm(n_states, n_obs, rng=None):
     """ Create an HMM with operators chosen from Bernoulii distributions. """
     rng = process_rng(rng)
     O = rng.binomial(1, 0.5, (n_states, n_obs))

@@ -14,7 +14,7 @@ from spectral_dagger.sequence import ContinuousHMM
 from spectral_dagger.sequence import ExpMaxSA
 from spectral_dagger.sequence import ConvexOptSA
 from spectral_dagger.sequence import MixtureOfPFA
-from spectral_dagger.sequence import HMM, MarkovChain
+from spectral_dagger.sequence import HMM, MarkovChain, AdjustedMarkovChain
 from spectral_dagger.utils.math import normalize
 from spectral_dagger.datasets.pautomac import make_pautomac_like
 
@@ -311,8 +311,57 @@ def test_markov_chain():
         for i in range(horizon-1):
             reference *= T[seq[i], seq[i+1]]
 
-        assert np.isclose(reference, mc.get_prefix_prob(seq))
+        assert np.isclose(reference, mc.get_prefix_prob(seq, log=False))
 
         # ``prob`` should be approximately normally distributed.
         std = np.sqrt(reference * (1 - reference) / n_samples)
         assert np.isclose(reference, prob, atol=4*std)
+
+
+@pytest.mark.parametrize('allow_empty', [True, False])
+def test_markov_chain_halt(allow_empty):
+    seed = 10
+    sd.set_seed(seed)
+
+    init_dist = np.array([0.2, 0.8])
+    T = np.array([[0.9, 0.1], [0.3, 0.7]])
+    stop_prob = np.array([0.9, 0.8])
+
+    mc = MarkovChain(init_dist, T, stop_prob)
+    if not allow_empty:
+        mc = AdjustedMarkovChain(init_dist, T, stop_prob)
+
+    T = np.diag(1 - stop_prob).dot(T)
+
+    n_samples = 10000
+    threshold = 2.0 / n_samples
+    samples = mc.sample_episodes(n_samples)
+
+    if not allow_empty:
+        assert min(len(seq) for seq in samples) >= 1
+
+    empirical_probs = defaultdict(int)
+    for s in samples:
+        empirical_probs[tuple(s)] += 1.0 / n_samples
+
+    for seq, prob in six.iteritems(empirical_probs):
+        if prob <= threshold:
+            continue
+
+        reference = mc.get_string_prob(seq)
+        std = np.sqrt(reference * (1 - reference) / n_samples)
+        assert np.isclose(reference, prob, atol=4*std), (
+            "Disagreement for sample: %s" % str(seq))
+
+        if allow_empty:
+            s = init_dist.copy()
+            for symbol in seq:
+                s = s[symbol] * T[symbol, :]
+            by_hand = s.dot(stop_prob)
+        else:
+            by_hand = np.log(init_dist[seq[0]])
+            for i in range(len(seq)-1):
+                by_hand += np.log(T[seq[i], seq[i+1]])
+            by_hand += np.log(stop_prob[seq[-1]])
+            by_hand = np.exp(by_hand)
+        assert np.isclose(by_hand, reference)
