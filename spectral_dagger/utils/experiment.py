@@ -1,19 +1,23 @@
 from __future__ import print_function
-import numpy as np
-import pandas as pd
 import pprint
 import logging
 import abc
 import six
-import sklearn
+import os
+from collections import defaultdict
 
+import numpy as np
+import pandas as pd
 from scipy.stats import uniform
 
+import sklearn
 from sklearn.cross_validation import train_test_split
 from sklearn.metrics import make_scorer
-from sklearn.grid_search import RandomizedSearchCV
+from sklearn.grid_search import RandomizedSearchCV, GridSearchCV
+from sklearn.utils import check_random_state
 
 import spectral_dagger as sd
+from spectral_dagger.utils.misc import make_symlink, make_filename
 
 pp = pprint.PrettyPrinter()
 verbosity = 2
@@ -78,7 +82,7 @@ class Dataset(object):
 
 
 class UnsupervisedDataset(Dataset):
-    """ A generic dataset.
+    """ A dataset for unsupervised learning.
 
     Parameters/Attributes
     ---------------------
@@ -99,24 +103,67 @@ class UnsupervisedDataset(Dataset):
         return UnsupervisedDataset(self.X[key])
 
 
-class Experiment(object):
+class ExperimentDirectory(object):
+    """ A directory for storing data from an experiment.
 
-    @abc.abstractmethod
-    def run(self):
-        raise NotImplementedError()
+    Parameters
+    ----------
+    directory: string
+        Name of directory in which to store the new experiment directory.
+    exp_name: string
+        Name of the experiment.
+    data: dict
+        Data to stringify and add to the ``exp_name``.
+    use_time: bool
+        Whether to add time information to ``exp_name`` (for
+        identifying an experiment that ran at a given time).
+
+    """
+    def __init__(self, directory, exp_name, data=None, use_time=False):
+        self.directory = directory
+        self.exp_name = exp_name
+        self.data = data
+        self.use_time = use_time
+
+        # TODO: include data, time
+        self.exp_dir = make_filename(
+            exp_name, use_time=use_time, config_dict=data)
+
+        self.path = os.path.join(directory, self.exp_dir)
+        os.makedirs(self.path)
+
+        make_symlink(self.exp_dir, os.path.join(directory, 'latest'))
+
+    def path_for_file(self, filename, subdir=""):
+        """ Get a path for a file, creating necessary subdirs. """
+        sd_path = os.path.join(self.path, subdir)
+        if subdir and not os.path.isdir(sd_path):
+            os.makedirs(sd_path)
+        return os.path.join(self.path, subdir, filename)
 
 
 def default_score(estimator, X, y):
     return estimator.score(X, y)
 
 
-class DataExperiment(object):
-    """ Run an experiment which explores how the performance of one or more
-        base_estimators changes as some parameter of the data generation
-        process is varied.
+class Experiment(object):
+    """ Run machine learning experiment.
+
+        Two modes are available:
+            data: Explores how the performance of one or more
+                estimators changes as some parameter of the *data
+                generation process* is varied.
+
+            estimator: Explores how the performance of one or more
+                estimators changes as some parameter of the *estimators*
+                is varied (all tested estimators need to accept that
+                parameter).
 
         Parameters
         ----------
+        mode: one of ('data', 'estimator')
+            Controls whether the x-variable is supplied to the data
+            generation process or is used as an attribute on the estimators.
         base_estimators: Estimator class or list of Estimator classes.
             The base_estimators to be tested.
         x_var_name: string
@@ -137,19 +184,26 @@ class DataExperiment(object):
             is introspected.
         n_repeats: int
             Number of samples to take for each value of the x variable.
-        seed: int or RandomState
-            Random state for the experiment.
         data_kwargs: dict (optional)
             Key word arguments for the data generation function.
         search_kwargs: dict (optional)
             Key word arguments for the call to RandomizedSearchCV.
+        exp_dir: str (optional)
+            Name of an "experiments" directory. A new directory inside
+            ``exp_dir`` will be created for this experiment, and relevant
+            data will be stored in there (experimental results, plots, )
+        training_stats: bool (optional)
+            Whether to collect stats on the training performance of the best
+            parameter setting on each search. Defaults to False.
 
     """
     def __init__(
-            self, base_estimators, x_var_name, x_var_values,
-            generate_data, score, n_repeats=5, seed=1, data_kwargs=None,
-            search_kwargs=None):
+            self, mode, base_estimators, x_var_name, x_var_values,
+            generate_data, score=None, n_repeats=5, data_kwargs=None,
+            search_kwargs=None, exp_dir='.', training_stats=False):
 
+        assert mode in ['data', 'estimator']
+        self.mode = mode
         self.base_estimators = base_estimators
 
         self.x_var_name = x_var_name
@@ -175,39 +229,51 @@ class DataExperiment(object):
         else:
             self.scores = [default_score]
             self.score_names = ['score']
+        self.score = self.scores[0]
 
-        self.score = score[0]
         self.n_repeats = n_repeats
-        self.seed = seed
         self.data_kwargs = {} if data_kwargs is None else data_kwargs
 
         self.search_kwargs = dict(
             n_iter=10, n_jobs=4, cv=None, iid=False,
-            error_score=np.inf, random_state=seed,
-            pre_dispatch='n_jobs')
+            error_score=np.inf, pre_dispatch='n_jobs')
         if search_kwargs is not None:
             self.search_kwargs.update(search_kwargs)
 
-    def run(self):
-        print("Running experiment.")
-        print("Args: ")
-        print(locals())
+        self.exp_dir = exp_dir
+        self.training_stats = training_stats
 
-        rng = np.random.RandomState(self.seed)
+    def run(self, seed=None):
+        """ Run the experiment.
+
+        Parameters
+        ----------
+        seed: int or RandomState
+            Random state for the experiment.
+
+        """
+        exp_dir = ExperimentDirectory(
+            self.exp_dir, 'experiment', use_time=True)
+
+        rng = check_random_state(seed)
+        self.search_kwargs.update(dict(random_state=rng))
 
         results = []
+        searches = defaultdict(list)
         for x in self.x_var_values:
             for i in range(self.n_repeats):
-                data_seed = sd.gen_seed(rng)
                 data_kwargs = self.data_kwargs.copy()
-                data_kwargs.update(
-                    {self.x_var_name: x, 'seed': data_seed})
+                data_kwargs['seed'] = sd.gen_seed(rng)
+                if self.mode == 'data':
+                    data_kwargs[self.x_var_name] = x
 
                 train, test = self.generate_data(**data_kwargs)
 
                 for base_est in self.base_estimators:
                     est = sklearn.base.clone(base_est)
                     est.random_state = sd.gen_seed(rng)
+                    if self.mode == 'estimator':
+                        setattr(est, self.x_var_name, x)
 
                     print(
                         "Collecting data point. "
@@ -217,11 +283,30 @@ class DataExperiment(object):
 
                     dists = est.point_distribution(
                         context=data_kwargs, rng=rng)
-                    search = RandomizedSearchCV(
-                        est, dists, scoring=self.scores[0],
-                        **self.search_kwargs)
+
+                    if self.mode == 'estimator':
+                        dists.pop(self.x_var_name, None)
+
+                    if dists:
+                        search = RandomizedSearchCV(
+                            est, dists, scoring=self.scores[0],
+                            **self.search_kwargs)
+                    else:
+                        print ("``dists`` is an empty dictionary, "
+                               "no hyper-parameters to select.")
+                        search = GridSearchCV(
+                            est, dists, scoring=self.scores[0],
+                            cv=self.search_kwargs.get('cv', None))
                     search.fit(train.X, train.y)
+
+                    # TODO: this won't work if multiple
+                    # estimators have the same class
+                    searches[base_est.__class__].append(search)
                     learned_est = search.best_estimator_
+
+                    best_grid_score = max(
+                        search.grid_scores_,
+                        key=lambda gs: gs.mean_validation_score)
 
                     print("    Best parameter setting:"
                           " %s" % learned_est.get_params())
@@ -235,6 +320,17 @@ class DataExperiment(object):
                         print("    Test score %s: %f" % (sn, score))
                         results[-1][sn] = score
 
+                    if self.training_stats:
+                        train_score = best_grid_score.mean_validation_score
+                        train_score_std = np.std(
+                            best_grid_score.cv_validation_scores)
+
+                        print("    Training score: %f" % train_score)
+                        results[-1]['training_score'] = train_score
+
+                        print("    Training score std: %f" % train_score_std)
+                        results[-1]['training_score_std'] = train_score_std
+
                     for attr in learned_est.record_attrs:
                         value = getattr(learned_est, attr)
                         try:
@@ -245,13 +341,18 @@ class DataExperiment(object):
                         results[-1][attr] = value
                         print("    Value for attr %s: %s" % (attr, value))
 
+        self.searches = searches
+
         self.results = results
         self.df = pd.DataFrame.from_records(results)
+
+        results_filename = exp_dir.path_for_file("results")
+        self.df.to_csv(results_filename)
 
         return self.df
 
 
-if __name__ == "__main__":
+def data_experiment(display=False):
     """ Explore how lasso and ridge regression performance changes
     as the amount of training data changes. """
 
@@ -302,12 +403,83 @@ if __name__ == "__main__":
         def point_distribution(self, context, rng):
             return {'alpha': LogUniform(-4, -.5, 10, rng)}
 
-    experiment = DataExperiment(
-        [Ridge(0.1), Lasso(0.1)],
+    # Insert into global namespace for pickling.
+    globals()['Ridge'] = Ridge
+    globals()['Lasso'] = Lasso
+
+    experiment = Experiment(
+        'data', [Ridge(0.1), Lasso(0.1)],
         'train_size', np.linspace(0.1, 0.8, 8),
         generate_diabetes_data, [(mse_score, 'NMSE'), (mae_score, 'NMAE')],
-        search_kwargs=dict(cv=10, n_jobs=2))
+        search_kwargs=dict(cv=2, n_jobs=2), exp_dir='experiments')
     df = experiment.run()
 
+    plt.figure(figsize=(10, 10))
     plot_measures(df, ['NMSE', 'NMAE', 'alpha'], 'train_size', 'method')
-    plt.show()
+    if display:
+        plt.show()
+
+    return experiment, df
+
+
+def estimator_experiment(display=False):
+    """ Implement the sklearn LASSO example. """
+
+    import matplotlib.pyplot as plt
+    from sklearn import datasets, linear_model
+
+    def generate_diabetes_data(seed=None):
+        diabetes = datasets.load_diabetes()
+        X_train = diabetes.data[:150]
+        y_train = diabetes.target[:150]
+        X_test = diabetes.data[150:]
+        y_test = diabetes.target[150:]
+
+        return Dataset(X_train, y_train), Dataset(X_test, y_test)
+
+    class Ridge(linear_model.Ridge, Estimator):
+        record_attrs = ['alpha']
+
+        def point_distribution(self, context, rng):
+            return {}
+
+    class Lasso(linear_model.Lasso, Estimator):
+        record_attrs = ['alpha']
+
+        def point_distribution(self, context, rng):
+            return {}
+
+    # Insert into global namespace for pickling.
+    globals()['Ridge'] = Ridge
+    globals()['Lasso'] = Lasso
+
+    alphas = np.logspace(-4, -.5, 30)
+    experiment = Experiment(
+        'estimator', [Ridge(), Lasso()], 'alpha', alphas,
+        generate_diabetes_data, n_repeats=1,
+        search_kwargs=dict(n_jobs=1), exp_dir='experiments',
+        training_stats=True)
+
+    df = experiment.run()
+    scores = df[df['method'] == 'Lasso']['training_score'].values
+    scores_std = df[df['method'] == 'Lasso']['training_score_std'].values
+
+    plt.figure(figsize=(4, 3))
+    plt.semilogx(alphas, scores)
+    # plot error lines showing +/- std. errors of the scores
+    plt.semilogx(
+        alphas, np.array(scores) + np.array(scores_std) / np.sqrt(150), 'b--')
+    plt.semilogx(
+        alphas, np.array(scores) - np.array(scores_std) / np.sqrt(150), 'b--')
+    plt.ylabel('CV score')
+    plt.xlabel('alpha')
+
+    if display:
+        plt.show()
+
+    return experiment, df
+
+
+if __name__ == "__main__":
+    e, df = data_experiment(True)
+    e, df = estimator_experiment(True)

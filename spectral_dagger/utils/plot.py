@@ -11,10 +11,8 @@ logger = logging.getLogger(__name__)
 
 def plot_measures(
         results, measures, x_var, split_var,
-        measure_display=None,
-        x_var_display=None,
-        legend_outside=True,
-        kwarg_func=None, kwargs=None, fig=None):
+        measure_display=None, x_var_display=None, legend_outside=True,
+        logx=None, logy=None, kwarg_func=None, kwargs=None, fig=None):
     """ A function for plotting certain pandas DataFrames.
 
     Assumes the ``results`` data frame has a certain format. In particular,
@@ -27,7 +25,7 @@ def plot_measures(
     trial/simulation having its own index.
 
     ``measures`` should be a list of names of result fields in ``results``.
-    For each entry in results, this function will create a separate plot,
+    For each entry in ``measures``, this function will create a separate plot,
     with the plots stacked vertically in the figure.
 
     ``x_var`` should be a string giving the name of one of the context fields
@@ -61,6 +59,11 @@ def plot_measures(
     legend_outside: bool (optional)
         Whether to place the legend outside (to the right) of the axes.
         Othwerwise, loc=best will be used.
+    logx: float > 1 or None (optional)
+        If None, x-axis scaled as normal. Otherwise, scaled logarithmically
+        using ``logx`` as base.
+    logy: float > 1 or None (optional)
+        Similar to logx.
     kwarg_func: func (optional)
         A function which accepts one of the values from ``split_var`` and
         returns a dict of key word arguments for the call to plt.errorbar
@@ -98,7 +101,7 @@ def plot_measures(
         ax = fig.add_subplot(n_plots, 1, i+1)
         _plot_measure(
             results, measure, x_var, split_var, measure_str,
-            kwarg_func, kwargs, ax=ax)
+            logx, logy, kwarg_func, kwargs, ax=ax)
 
         if i == 0:
             if legend_outside:
@@ -118,8 +121,8 @@ def plot_measures(
 
 
 def _plot_measure(
-        results, measure, x_var, split_vars,
-        measure_display=None, kwarg_func=None, kwargs=None, ax=None):
+        results, measure, x_var, split_vars, measure_display=None,
+        logx=None, logy=None, kwarg_func=None, kwargs=None, ax=None):
 
     if ax is None:
         ax = plt.gca()
@@ -167,6 +170,11 @@ def _plot_measure(
     sv_series = pd.Series(
         zip(*[mean[sv] for sv in split_vars]), index=mean.index)
 
+    if logx is not None:
+        ax.set_xscale("log", nonposx='clip', basex=logx)
+    if logy is not None:
+        ax.set_yscale("log", nonposy='clip', basey=logy)
+
     for sv in sv_series.unique():
         data = mean[sv_series == sv]
 
@@ -205,7 +213,7 @@ def _plot_measure(
     return ax
 
 
-def test_single_split_var():
+def single_split_var(display=False):
     # An example of using plot_measures
     epsilon = 0.5
     x_values = np.linspace(-2, 2, 10)
@@ -239,10 +247,11 @@ def test_single_split_var():
         results, measures=['y', 'negative_y', 'y_squared'],
         x_var='x', split_var='name', kwarg_func=kwarg_func)
 
-    plt.show()
+    if display:
+        plt.show()
 
 
-def test_multiple_split_vars():
+def multiple_split_vars(display=False):
     # An example of using plot_measures
     epsilon = [0.5, 2.0]
     x_values = np.linspace(-2, 2, 10)
@@ -278,8 +287,9 @@ def test_multiple_split_vars():
         results, measures=['y', 'negative_y', 'y_squared'],
         x_var='x', split_var=['name', 'epsilon'], kwarg_func=kwarg_func)
 
-    plt.show()
+    if display:
+        plt.show()
 
 if __name__ == "__main__":
-    test_single_split_var()
-    test_multiple_split_vars()
+    single_split_var(True)
+    multiple_split_vars(True)
