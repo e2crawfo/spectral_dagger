@@ -1,4 +1,4 @@
-from .hankel import estimate_hankels, true_hankel_for_pfa
+from .hankel import estimate_hankels, estimate_kernel_hankels, true_hankel_for_pfa
 from .hankel import top_k_basis, fixed_length_basis
 from .hankel import construct_hankels_with_actions
 from .hankel import construct_hankels_with_actions_robust
@@ -21,4 +21,4 @@ from .em import ExpMaxSA
 from .convex_opt import ConvexOptSA
 from .lda import LatentDirichletSA
 
-from .mixture import MixtureOfPFA
+from .mixture import MixtureStochAuto

@@ -1,7 +1,7 @@
 import numpy as np
 
 from spectral_dagger.sequence import HMM
-from spectral_dagger.utils import indent
+from spectral_dagger.utils import indent, normalize
 
 
 class MarkovChain(HMM):
@@ -29,6 +29,7 @@ class MarkovChain(HMM):
 
         """
         T = np.array(T)
+        T[np.isclose(T.sum(1), 0), :] = np.ones(T.shape[1]) / T.shape[1]
         super(MarkovChain, self).__init__(
             init_dist, T, np.eye(T.shape[0]), stop_prob)
 
@@ -36,7 +37,7 @@ class MarkovChain(HMM):
         return str(self)
 
     def __str__(self):
-        s = "MarkovChain\n"
+        s = "MarkovChain(\n"
         s += indent("n_states/n_symbols: %d\n" % self.n_states, 1)
         s += indent("init_dist:\n", 1)
         s += indent(str(self.init_dist) + "\n", 2)
@@ -44,6 +45,7 @@ class MarkovChain(HMM):
         s += indent(str(self.T) + "\n", 2)
         s += indent("stop:\n", 1)
         s += indent(str(self.stop_prob) + "\n", 2)
+        s += ")"
         return s
 
     @property
@@ -111,3 +113,32 @@ class AdjustedMarkovChain(MarkovChain):
     @property
     def n_states(self):
         return self.markov_chain.n_states
+
+    @staticmethod
+    def from_sequences(sequences, learn_halt, n_symbols=None):
+        """ If ``learn_halt`` is true, data must be generated
+            from an "adjusted" Markov Chain. """
+        if n_symbols is None:
+            n_symbols = max(s for seq in sequences for s in seq) + 1
+
+        pi = np.zeros(n_symbols)
+        T = np.zeros((n_symbols, n_symbols))
+        halt = np.zeros(n_symbols)
+
+        for seq in sequences:
+            pi[seq[0]] += 1.0
+
+            for i in range(len(seq) - 1):
+                T[seq[i], seq[i+1]] += 1.0
+
+            if learn_halt:
+                halt[-1] += 1.0
+
+        pi = normalize(pi, ord=1)
+        if learn_halt:
+            halt /= T.sum(1) + halt
+        else:
+            learn_halt = np.zeros(n_symbols)
+        T = normalize(T, ord=1, axis=1)
+
+        return AdjustedMarkovChain(pi, T, halt)

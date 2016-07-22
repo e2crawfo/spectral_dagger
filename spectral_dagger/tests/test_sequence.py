@@ -13,7 +13,7 @@ from spectral_dagger.sequence import top_k_basis, fixed_length_basis
 from spectral_dagger.sequence import ContinuousHMM
 from spectral_dagger.sequence import ExpMaxSA
 from spectral_dagger.sequence import ConvexOptSA
-from spectral_dagger.sequence import MixtureOfPFA
+from spectral_dagger.sequence import MixtureStochAuto
 from spectral_dagger.sequence import HMM, MarkovChain, AdjustedMarkovChain
 from spectral_dagger.utils.math import normalize
 from spectral_dagger.datasets.pautomac import make_pautomac_like
@@ -99,9 +99,8 @@ def test_spectral_like(learning_alg):
         if basis is None:
             basis = top_k_basis(samples, np.inf, estimator)
 
-        sa = learning_alg(hmm.observations)
-        sa.fit(
-            samples, dimension, basis=basis, estimator=estimator)
+        sa = learning_alg(dimension, hmm.n_observations)
+        sa.fit(samples, basis=basis, estimator=estimator)
         return sa
 
     seed = 10
@@ -248,7 +247,7 @@ def test_cts_sa():
     return sa, prediction
 
 
-def test_mixture_pfa():
+def test_mixture_stoch_auto():
     n_components = 3
     n_states = 4
     n_obs = 5
@@ -264,7 +263,7 @@ def test_mixture_pfa():
         for i in range(n_components)]
 
     coefficients = normalize([1.0] * n_components, ord=1)
-    mixture_pfa = MixtureOfPFA(coefficients, pfas)
+    mixture_pfa = MixtureStochAuto(coefficients, pfas)
     # test that sampling doesn't crash
     mixture_pfa.sample_episodes(10, horizon=3)
 

@@ -6,8 +6,11 @@ from copy import deepcopy
 import logging
 
 from spectral_dagger import Environment, LearningAlgorithm, Space, Policy
-from spectral_dagger.sequence import hankel
+from spectral_dagger.sequence import (
+    estimate_hankels, estimate_kernel_hankels, top_k_basis,
+    construct_hankels_with_actions, construct_hankels_with_actions_robust)
 from spectral_dagger.utils import sample_multinomial
+from spectral_dagger.utils import normalize as _normalize
 
 
 logger = logging.getLogger(__name__)
@@ -85,13 +88,11 @@ class StochasticAutomaton(Environment):
 
     def _lookahead(self):
         """ Decide whether to halt, and if not, compute next-state probs. """
-        terminal_prob = self.b.dot(self.b_inf_string)
+        dist = self.get_obs_dist()
+        terminal_prob = dist[-1]
         self.terminal = self.run_rng.rand() < terminal_prob
 
-        probs = np.array([
-            self.b.dot(self.operator(o)).dot(self.b_inf)
-            for o in self.observations])
-
+        probs = dist[:-1]
         if probs.sum() == 0:
             raise Exception("Dividing by 0 when calculating next-step "
                             "probabilities for StochasticAutomaton.")
@@ -129,6 +130,24 @@ class StochasticAutomaton(Environment):
         """ Get probability of observation for next time step.  """
         prob = self.b.dot(self.operator(o)).dot(self.b_inf)
         return np.clip(prob, machine_eps, 1)
+
+    def get_termination_prob(self):
+        """ Get probability of terminating.  """
+        prob = self.b.dot(self.b_inf_string)
+        return np.clip(prob, machine_eps, 1)
+
+    def get_obs_dist(self):
+        """ Get distribution over observations for next time step.
+
+        The length of the returned array is ``n_observations + 1``.
+        The final value in the array is the probability of halting.
+
+        """
+        dist = [self.get_obs_prob(o) for o in self.observations]
+        dist.append(self.get_termination_prob())
+        dist = _normalize(dist, ord=1)
+
+        return dist
 
     def predict(self):
         """ Get observation with highest prob for next time step. """
@@ -300,7 +319,7 @@ class StochasticAutomaton(Environment):
                     self.get_obs_prob(obs)
                     for obs in self.observations])
                 pd = np.clip(pd, 0.0, np.inf)
-                pd /= pd.sum()
+                pd = _normalize(pd, ord=1)
 
                 true_pd = np.zeros(len(self.observations))
                 true_pd[o] = 1.0
@@ -372,14 +391,15 @@ class StochasticAutomaton(Environment):
 
 
 class SpectralSA(StochasticAutomaton):
-    def __init__(self, observations):
+    def __init__(self, n_components, n_observations):
         self.b_0 = None
         self.b_inf = None
         self.B_o = None
 
-        self._observations = observations
+        self.n_components = n_components
+        self._observations = range(n_observations)
 
-    def fit(self, data, n_components, estimator='prefix',
+    def fit(self, data, estimator='prefix',
             basis=None, svd=None, hankels=None, sparse=True):
         """ Fit a SA to the given data using a spectral algorithm.
 
@@ -411,10 +431,10 @@ class SpectralSA(StochasticAutomaton):
         else:
             if not basis:
                 logger.debug("Generating basis...")
-                basis = hankel.top_k_basis(data, MAX_BASIS_SIZE, estimator)
+                basis = top_k_basis(data, MAX_BASIS_SIZE, estimator)
 
             logger.debug("Estimating Hankels...")
-            hankels = hankel.estimate_hankels(
+            hankels = estimate_hankels(
                 data, basis, self.observations, estimator, sparse=sparse)
 
             # Note: all hankels are scipy csr matrices
@@ -425,7 +445,7 @@ class SpectralSA(StochasticAutomaton):
         self.hankel = hankel_matrix
         self.symbol_hankels = symbol_hankels
 
-        n_components = min(n_components, hankel_matrix.shape[0])
+        n_components = min(self.n_components, hankel_matrix.shape[0])
 
         if svd:
             U, Sigma, VT = svd
@@ -476,20 +496,23 @@ class SpectralSA(StochasticAutomaton):
             b_inf = b_inf.toarray()[:, 0]
 
         self.compute_start_end_vectors(b_0, b_inf, estimator)
-
         self.reset()
+
+        return self
 
 
 class CompressedSA(StochasticAutomaton):
-    def __init__(self, observations):
+    def __init__(self, n_components, n_observations, noise_std=None):
         self.b_0 = None
         self.b_inf = None
         self.B_o = None
 
-        self._observations = observations
+        self.n_components = n_components
+        self._observations = range(n_observations)
+        self.noise_std = noise_std
 
     def fit(
-            self, data, n_components, noise_std=None, estimator='prefix',
+            self, data, estimator='prefix',
             basis=None, phi=None, hankels=None):
         """ Fit a SA to the given data using a compression algorithm.
 
@@ -497,8 +520,6 @@ class CompressedSA(StochasticAutomaton):
         ----------
         data: list of list of observations
             Each sublist is a list of observations constituting a trajectory.
-        n_components: int > 0
-            Number of dimensions in feature space.
         noise_std: float > 0, optional
             Standard deviation of noise used to generate compression matrices.
             Defaults to 1 / sqrt(n_components).
@@ -524,27 +545,27 @@ class CompressedSA(StochasticAutomaton):
         else:
             if not basis:
                 logger.debug("Generating basis...")
-                basis = hankel.top_k_basis(data, MAX_BASIS_SIZE, estimator)
+                basis = top_k_basis(data, MAX_BASIS_SIZE, estimator)
 
             logger.debug("Estimating Hankels...")
-            hankels = hankel.estimate_hankels(
+            hankels = estimate_hankels(
                 data, basis, self.observations, estimator, sparse=True)
 
             # Note: all hankels are scipy csr matrices
             hp, hs, hankel_matrix, symbol_hankels = hankels
 
         self.basis = basis
-        self.n_components = n_components
-
         self.hankel = hankel_matrix
         self.symbol_hankels = symbol_hankels
 
         prefix_dict, suffix_dict = basis
 
+        n_components = self.n_components
+
         if phi is None:
             phi = self.build_rng.randn(len(suffix_dict), n_components)
             phi *= (1. / np.sqrt(n_components)
-                    if noise_std is None else noise_std)
+                    if self.noise_std is None else self.noise_std)
 
         self.phi = phi
 
@@ -609,6 +630,8 @@ class CompressedSA(StochasticAutomaton):
         self.compute_start_end_vectors(b_0, b_inf, estimator=estimator)
 
         self.reset()
+
+        return self
 
 
 class KernelInfo(object):
@@ -683,9 +706,7 @@ class KernelInfo(object):
 
         k = np.array([kernel((o - c) / lmbda) for c in kernel_centers])
         if normalize:
-            ksum = k.sum()
-            if ksum > 0:
-                k = k / k.sum()
+            k = _normalize(k, ord=1)
 
         return k
 
@@ -836,7 +857,7 @@ class SpectralKernelSA(KernelSA):
 
         """
         logger.debug("Estimating Hankels...")
-        hankels = hankel.estimate_kernel_hankels(
+        hankels = estimate_kernel_hankels(
             data, self.kernel_info, self.estimator)
 
         hp, hankel_matrix, symbol_hankels = hankels
@@ -884,6 +905,8 @@ class SpectralKernelSA(KernelSA):
 
         self.reset()
 
+        return self
+
 
 # Below here is largely out of date.
 class SpectralSAWithActions(object):
@@ -914,20 +937,20 @@ class SpectralSAWithActions(object):
         """
 
         logger.debug("Generating basis...")
-        basis = hankel.top_k_basis(data, max_basis_size)
+        basis = top_k_basis(data, max_basis_size)
 
         logger.debug("Estimating hankels...")
 
         # Note: all matrices returned by construct_hankels are csr_matrices
         if use_naive:
             logger.debug("...using naive estimator...")
-            hankels = hankel.construct_hankels_with_actions(
+            hankels = construct_hankels_with_actions(
                 data, basis, self.actions, self.observations)
 
             hp, hs, hankel_matrix, symbol_hankels = hankels
         else:
             logger.debug("...using robust estimator...")
-            hankels = hankel.construct_hankels_with_actions_robust(
+            hankels = construct_hankels_with_actions_robust(
                 data, basis, self.actions, self.observations)
 
             hp, hs, hankel_matrix, symbol_hankels = hankels

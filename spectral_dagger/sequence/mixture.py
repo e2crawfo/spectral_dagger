@@ -4,35 +4,37 @@ from spectral_dagger.utils import normalize
 from spectral_dagger import Environment, Space
 
 
-class MixtureOfPFA(Environment):
-    def __init__(self, coefficients, pfas):
-        assert (0 < coefficients).all()
-        assert (1 > coefficients).all()
+class MixtureStochAuto(Environment):
+    def __init__(self, coefficients, stoch_autos):
+        assert (0 <= coefficients).all()
+        assert (1 >= coefficients).all()
         assert coefficients.ndim == 1
         assert np.isclose(coefficients.sum(), 1)
         self.coefficients = coefficients
 
-        assert len(coefficients) == len(pfas)
-        self.pfas = pfas
+        assert len(coefficients) == len(stoch_autos)
+        self.stoch_autos = stoch_autos
 
-        # Create a separate set of PFAs for sampling since problems
+        # Create a separate set of SA's for sampling since problems
         # can arise if a single object is used for both sampling and
         # filtering simultaneously
-        self.sample_pfas = [pfa.deepcopy() for pfa in pfas]
+        self._sample_stoch_autos = [
+            stoch_auto.deepcopy() for stoch_auto in stoch_autos]
 
-        self.n_observations = pfas[0].n_observations
+        self.n_observations = stoch_autos[0].n_observations
+        self.observations = stoch_autos[0].observations
 
-        for pfa in self.pfas:
-            assert pfa.n_observations == self.n_observations
+        for stoch_auto in self.stoch_autos:
+            assert stoch_auto.n_observations == self.n_observations
 
         self.reset()
 
     def __str__(self):
-        s = "<MixtureOfPFA. coefficients: %s, n_obs: %d" % (
+        s = "<MixtureStochAuto. coefficients: %s, n_obs: %d" % (
             self.coefficients, self.n_observations)
 
-        for i, pfa in enumerate(self.pfas):
-            s += ", %d: %s" % (i, pfa)
+        for i, stoch_auto in enumerate(self.stoch_autos):
+            s += ", %d: %s" % (i, stoch_auto)
         s += ">"
 
         return s
@@ -46,27 +48,29 @@ class MixtureOfPFA(Environment):
 
     @property
     def observation_space(self):
-        return Space(set(self.mpfa.observations), "ObsSpace")
+        return Space(set(self.stoch_autos[0].observations), "ObsSpace")
 
     @property
     def can_terminate(self):
-        return all(pfa.can_terminate() for pfa in self.pfas)
+        return all(
+            stoch_auto.can_terminate() for stoch_auto in self.stoch_autos)
 
     def in_terminal_state(self):
         return self.choice.terminal
 
     def has_terminal_states(self):
-        return self.mpfa.can_terminate()
+        return self.stoch_autos[0].can_terminate()
 
     def has_reward(self):
         return False
 
     def reset(self, initial=None):
-        for pfa in self.pfas:
-            pfa.reset()
-        for pfa in self.sample_pfas:
-            pfa.reset()
-        self.choice = self.run_rng.choice(self.sample_pfas)
+        for stoch_auto in self.stoch_autos:
+            stoch_auto.reset()
+        for stoch_auto in self._sample_stoch_autos:
+            stoch_auto.reset()
+
+        self.choice = self.run_rng.choice(self._sample_stoch_autos)
         self.state_dist = self.coefficients.copy()
 
     def step(self):
@@ -78,30 +82,46 @@ class MixtureOfPFA(Environment):
 
     def update(self, o):
         """ Update state upon seeing an observation. """
-        weights = np.array([pfa.get_obs_prob(o) for pfa in self.pfas])
+        weights = np.array([
+            stoch_auto.get_obs_prob(o) for stoch_auto in self.stoch_autos])
         self.state_dist = normalize(weights * self.state_dist, ord=1)
-        for pfa in self.pfas:
-            pfa.update(o)
+
+        for stoch_auto in self.stoch_autos:
+            stoch_auto.update(o)
 
     def get_obs_prob(self, o):
-        """ Get probability of observation for next time step.  """
-        weights = np.array([pfa.get_obs_prob(o) for pfa in self.pfas])
+        """ Get probability of observation for next time step. """
+        weights = np.array([
+            stoch_auto.get_obs_prob(o) for stoch_auto in self.stoch_autos])
+
         return (self.state_dist * weights).sum()
+
+    def get_obs_dist(self):
+        """ Get distribution over observations for next time step. """
+        return np.array([self.get_obs_prob(o) for o in self.observations])
 
     def get_string_prob(self, string):
         """ Get probability of string. """
-        weights = np.array([pfa.get_string_prob(string) for pfa in self.pfas])
+        weights = np.array([
+            stoch_auto.get_string_prob(string)
+            for stoch_auto in self.stoch_autos])
+
         return (self.state_dist * weights).sum()
 
     def get_delayed_string_prob(self, string):
         """ Get probability of string. """
         weights = np.array([
-            pfa.get_delayed_string_prob(string) for pfa in self.pfas])
+            stoch_auto.get_delayed_string_prob(string)
+            for stoch_auto in self.stoch_autos])
+
         return (self.state_dist * weights).sum()
 
     def get_prefix_prob(self, prefix, init_state=None):
         """ Get probability of prefix. """
-        weights = np.array([pfa.get_prefix_prob(prefix) for pfa in self.pfas])
+        weights = np.array([
+            stoch_auto.get_prefix_prob(prefix)
+            for stoch_auto in self.stoch_autos])
+
         return (self.state_dist * weights).sum()
 
     def get_delayed_prefix_prob(self, prefix, t, init_state=None):
@@ -110,13 +130,18 @@ class MixtureOfPFA(Environment):
         get_delayed_prefix_prob(p, 0) is equivalent to get_prefix_prob(p).
 
         """
-        weights = np.array([pfa.get_prefix_prob(prefix) for pfa in self.pfas])
+        weights = np.array([
+            stoch_auto.get_prefix_prob(prefix)
+            for stoch_auto in self.stoch_autos])
+
         return (self.state_dist * weights).sum()
 
     def get_substring_expectation(self, substring):
         """ Get expected number of occurrences of a substring. """
         weights = np.array([
-            pfa.get_substring_expectation(substring) for pfa in self.pfas])
+            stoch_auto.get_substring_expectation(substring)
+            for stoch_auto in self.stoch_autos])
+
         return (self.state_dist * weights).sum()
 
     def get_WER(self, test_data):

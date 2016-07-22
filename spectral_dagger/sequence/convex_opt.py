@@ -5,7 +5,7 @@ import os
 
 import spectral_dagger.sequence
 from spectral_dagger.sequence import StochasticAutomaton
-from spectral_dagger.sequence import hankel
+from spectral_dagger.sequence import estimate_hankels, top_k_basis
 from spectral_dagger.sequence.stochastic_automaton import MAX_BASIS_SIZE
 
 
@@ -16,13 +16,12 @@ machine_eps = np.finfo(float).eps
 
 
 class ConvexOptSA(StochasticAutomaton):
-    def __init__(self, observations):
+    def __init__(self, n_observations):
         self.b_0 = None
         self.b_inf = None
         self.B_o = None
 
-        self.observations = observations
-        self.n_observations = len(self.observations)
+        self._observations = range(n_observations)
 
     def fit(self, data, tau, max_k=500, estimator='prefix',
             basis=None, hp_string=None, hankels=None, probabilistic=True,
@@ -82,16 +81,16 @@ class ConvexOptSA(StochasticAutomaton):
         else:
             if not basis:
                 logger.debug("Generating basis...")
-                basis = hankel.top_k_basis(data, MAX_BASIS_SIZE, estimator)
+                basis = top_k_basis(data, MAX_BASIS_SIZE, estimator)
 
             logger.debug("Estimating Hankels...")
-            hankels = hankel.estimate_hankels(
+            hankels = estimate_hankels(
                 data, basis, self.observations, estimator)
             _, hs, hankel_matrix, symbol_hankels = hankels
 
         if not hp_string:
             dummy_basis = (basis[0], {(): 0})
-            hp_string, _, _, _ = hankel.estimate_hankels(
+            hp_string, _, _, _ = estimate_hankels(
                 data, dummy_basis, self.observations, 'string')
         hp_string = hp_string.squeeze()
         if hp_string.sum() < machine_eps:
