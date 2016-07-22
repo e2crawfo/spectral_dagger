@@ -13,6 +13,30 @@ def as_title(title, title_format=_title_format):
     return title_format.format(title + ' ')
 
 
+def indent(s, n):
+    """ Indent a string.
+
+    Parameters
+    ----------
+    s: str
+        String to indent.
+    n: int > 0
+        Number of times to indent.
+
+    """
+    add_newline = False
+    if s[-1] == '\n':
+        add_newline = True
+        s = s[:-1]
+
+    _indent = " " * (4 * n)
+    s = s.replace('\n', '\n' + _indent)
+    s = _indent + s
+    if add_newline:
+        s += '\n'
+    return s
+
+
 def make_symlink(target, name):
     """ NB: ``target`` is just used as a simple string when creating
     the link. That is, ``target`` is the location of the file we want

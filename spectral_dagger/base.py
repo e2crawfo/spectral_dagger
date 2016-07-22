@@ -1,6 +1,7 @@
 import abc
 import numpy as np
 import time
+import six
 
 
 maxint = np.iinfo(np.int32).max
@@ -228,8 +229,8 @@ class State(DiscreteObject):
         super(State, self).__init__(id, name)
 
 
+@six.add_metaclass(abc.ABCMeta)
 class Environment(SpectralDaggerObject):
-    __metaclass__ = abc.ABCMeta
 
     @abc.abstractproperty
     def action_space(self):
@@ -439,8 +440,8 @@ class Environment(SpectralDaggerObject):
         return episodes
 
 
+@six.add_metaclass(abc.ABCMeta)
 class Policy(SpectralDaggerObject):
-    __metaclass__ = abc.ABCMeta
 
     def __init__(self):
         pass
@@ -527,6 +528,7 @@ def make_print_hook(delay=0.0):
     return delay_print_hook
 
 
+@six.add_metaclass(abc.ABCMeta)
 class LearningAlgorithm(SpectralDaggerObject):
     """
     Learning algorithms learn from some of data (e.g. sampled trajectories
@@ -534,7 +536,6 @@ class LearningAlgorithm(SpectralDaggerObject):
     should accept parameters of the learning algorithm. The fit function should
     take the data that the algorithm is to learn from and yield a policy.
     """
-    __metaclass__ = abc.ABCMeta
 
     @abc.abstractmethod
     def fit(self):
