@@ -15,7 +15,7 @@ from spectral_dagger.sequence import ExpMaxSA
 from spectral_dagger.sequence import ConvexOptSA
 from spectral_dagger.sequence import MixtureStochAuto
 from spectral_dagger.sequence import HMM, MarkovChain, AdjustedMarkovChain
-from spectral_dagger.utils.math import normalize
+from spectral_dagger.utils.math import normalize, rmse
 from spectral_dagger.datasets.pautomac import make_pautomac_like
 
 
@@ -364,3 +364,36 @@ def test_markov_chain_halt(allow_empty):
             by_hand += np.log(stop_prob[seq[-1]])
             by_hand = np.exp(by_hand)
         assert np.isclose(by_hand, reference)
+
+
+@pytest.mark.parametrize('from_dist', [True, False])
+def test_markov_chain_learn(from_dist):
+    seed = 10
+    sd.set_seed(seed)
+
+    init_dist = np.array([0.2, 0.8])
+    T = np.array([[0.9, 0.1], [0.3, 0.7]])
+    stop_prob = np.array([0.8, 0.8])
+
+    mc = AdjustedMarkovChain(init_dist, T, stop_prob)
+
+    n_samples = 10000
+    samples = mc.sample_episodes(n_samples)
+
+    words = list(set(tuple(s) for s in samples))
+    true_dist = np.array([mc.get_string_prob(w) for w in words])
+
+    if from_dist:
+        counts = defaultdict(int)
+        for s in samples:
+            counts[tuple(s)] += 1.0
+        dist = np.array([counts[tuple(w)]/n_samples for w in words])
+        learned_mc = AdjustedMarkovChain.from_distribution(
+            dist, words, learn_halt=True, n_symbols=2)
+    else:
+        learned_mc = AdjustedMarkovChain.from_sequences(
+            samples, learn_halt=True, n_symbols=2)
+    learned_dist = np.array([learned_mc.get_string_prob(w) for w in words])
+
+    error = rmse(true_dist, learned_dist)
+    assert error < 0.001

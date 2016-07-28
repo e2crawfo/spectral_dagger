@@ -132,7 +132,36 @@ class AdjustedMarkovChain(MarkovChain):
                 T[seq[i], seq[i+1]] += 1.0
 
             if learn_halt:
-                halt[-1] += 1.0
+                halt[seq[-1]] += 1.0
+
+        pi = normalize(pi, ord=1)
+        if learn_halt:
+            halt /= T.sum(1) + halt
+        else:
+            learn_halt = np.zeros(n_symbols)
+        T = normalize(T, ord=1, axis=1)
+
+        return AdjustedMarkovChain(pi, T, halt)
+
+    @staticmethod
+    def from_distribution(distribution, sequences, learn_halt, n_symbols=None):
+        """ If ``learn_halt`` is true, data must be generated
+            from an "adjusted" Markov Chain. """
+        if n_symbols is None:
+            n_symbols = max(s for seq in sequences for s in seq) + 1
+
+        pi = np.zeros(n_symbols)
+        T = np.zeros((n_symbols, n_symbols))
+        halt = np.zeros(n_symbols)
+
+        for d, seq in zip(distribution, sequences):
+            pi[seq[0]] += d
+
+            for i in range(len(seq) - 1):
+                T[seq[i], seq[i+1]] += d
+
+            if learn_halt:
+                halt[seq[-1]] += d
 
         pi = normalize(pi, ord=1)
         if learn_halt:
