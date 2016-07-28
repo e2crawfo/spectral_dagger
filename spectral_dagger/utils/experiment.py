@@ -265,12 +265,17 @@ class Experiment(object):
 
             for s in score:
                 if isinstance(s, tuple):
-                    self.scores.append(default_score if s[0] is None else s[0])
-                    self.score_names.append(s[1])
+                    score_func = default_score if s[0] is None else s[0]
+                    score_name = s[1]
                 else:
-                    self.scores.append(default_score if s is None else s)
-                    self.score_names.append(
+                    score_func = default_score if s is None else s
+                    score_name = (
                         s.__name__ if hasattr(s, "__name__") else str(s))
+
+                self.scores.append(score_func)
+                self.score_names.append(
+                    score_name if score_name.startswith('score')
+                    else 'score_' + score_name)
         else:
             self.scores = [default_score]
             self.score_names = ['score']
