@@ -23,11 +23,31 @@ def memoize(f):
     return memodict(f)
 
 
+def filename2language(filename):
+    language = filename
+    language = language[language.find('_')+1:]
+    if '-' in language:
+        language = language[:language.find('-')]
+    return language
+
+
+def filename2dsetname(filename):
+    dsetname = filename
+    if not dsetname.startswith("UD_"):
+        raise ValueError("%s is not a valid filename for a dsetname.")
+    return dsetname[3:]
+
+
+def dset_dirs():
+    dir_names = [
+        f for f in os.listdir(UNIDEP_PATH)
+        if (os.path.isdir(os.path.join(UNIDEP_PATH, f)) and
+            f.startswith("UD_"))]
+    return sorted(dir_names)
+
+
 def languages():
-    fnames = filter(
-        lambda x: os.path.isdir(os.path.join(UNIDEP_PATH, x)),
-        os.listdir(UNIDEP_PATH))
-    languages = set(fn.split('_')[-1].split('-')[0] for fn in fnames)
+    languages = set(filename2language(dn) for dn in dset_dirs())
     return sorted(list(languages))
 
 
@@ -35,15 +55,13 @@ def n_languages():
     return len(languages())
 
 
-def datasets():
-    fnames = filter(
-        lambda x: os.path.isdir(os.path.join(UNIDEP_PATH, x)),
-        os.listdir(UNIDEP_PATH))
-    return sorted([fn.split('_')[-1] for fn in fnames])
+def dset_names():
+    dset_names = set(filename2dsetname(dn) for dn in dset_dirs())
+    return sorted(list(dset_names))
 
 
-def n_datasets():
-    return len(datasets())
+def n_dsets():
+    return len(dset_names())
 
 
 def load_data(language, filt, get_all=True):
@@ -66,19 +84,23 @@ def load_data(language, filt, get_all=True):
     if language not in languages():
         raise ValueError("No data for language %s." % language)
 
-    pred = (lambda l, d: l in d) if get_all else (lambda l, d: l == d)
+    _dset_dirs = dset_dirs()
+
+    mapper = filename2language if get_all else filename2dsetname
+    tags = [mapper(d) for d in _dset_dirs]
 
     language_dirs = [
-        os.path.join(UNIDEP_PATH, 'UD_'+d)
-        for d in datasets() if pred(language, d)]
+        os.path.join(UNIDEP_PATH, d)
+        for t, d in zip(tags, _dset_dirs)
+        if t == language]
 
-    train_files = []
+    data_files = []
     for ld in language_dirs:
-        tf = filter(filt, os.listdir(ld))
-        train_files.extend([os.path.join(ld, t) for t in tf])
+        dfs = filter(filt, os.listdir(ld))
+        data_files.extend([os.path.join(ld, df) for df in dfs])
 
     return itertools.chain(
-        *[conllu.read_conllu(t) for t in train_files])
+        *[conllu.read_conllu(t) for t in data_files])
 
 
 def load_data_train(language, get_all=False):
@@ -161,7 +183,8 @@ class StatsPOS(object):
         s += "Train " + "*" * 20 + "\n"
         s += "Number of sequences: %d\n" % self.stats['train_n_seq']
         s += "Mean seq length: %f\n" % self.stats['train_mean_seq_len']
-        s += "Standard dev of seq length: %f\n" % self.stats['train_std_seq_len']
+        s += ("Standard dev of seq length: "
+              "%f\n" % self.stats['train_std_seq_len'])
 
         s += "Dev " + "*" * 20 + "\n"
         s += "Number of sequences: %d\n" % self.stats['dev_n_seq']
@@ -171,7 +194,8 @@ class StatsPOS(object):
         s += "Test " + "*" * 20 + "\n"
         s += "Number of sequences: %d\n" % self.stats['test_n_seq']
         s += "Mean seq length: %f\n" % self.stats['test_mean_seq_len']
-        s += "Standard dev of seq length: %f\n" % self.stats['test_std_seq_len']
+        s += ("Standard dev of seq length: "
+              "%f\n" % self.stats['test_std_seq_len'])
 
         return s
 
@@ -207,9 +231,83 @@ def map_nested(nested):
 
 
 class SequenceData(object):
-    def __init__(self, language, get_all=True):
+    """ Retrieves data for a language, maintaining separation between
+        train, dev and test sets. """
+    def __init__(self, language, fast=True, get_all=True):
         self.language = language
 
-        self.train = map_nested(load_POS_train(language, get_all))
-        self.dev = map_nested(load_POS_dev(language, get_all))
-        self.test = map_nested(load_POS_test(language, get_all))
+        if fast:
+            pos_dir = os.path.join(UNIDEP_PATH, 'unidep_pos')
+            lang_dir = os.path.join(pos_dir, language)
+            if not os.path.isdir(lang_dir):
+                print "POS data doesn't exist, extracting it..."
+                store_pos(language)
+                print "Done."
+
+            lang_dir = os.path.join(pos_dir, language)
+
+            self.train = []
+            train = os.path.join(lang_dir, 'train')
+            with open(train, 'r') as f:
+                for line in iter(f.readline, ''):
+                    self.train.append(list(int(i) for i in line.split(',')))
+
+            self.dev = []
+            dev = os.path.join(lang_dir, 'dev')
+            with open(dev, 'r') as f:
+                for line in iter(f.readline, ''):
+                    self.dev.append(list(int(i) for i in line.split(',')))
+
+            self.test = []
+            test = os.path.join(lang_dir, 'test')
+            with open(test, 'r') as f:
+                for line in iter(f.readline, ''):
+                    self.test.append(list(int(i) for i in line.split(',')))
+
+        else:
+            self.train = map_nested(load_POS_train(language, get_all))
+            self.dev = map_nested(load_POS_dev(language, get_all))
+            self.test = map_nested(load_POS_test(language, get_all))
+
+    @property
+    def all(self):
+        return self.train + self.dev + self.test
+
+
+def store_pos(langs=None):
+    """ Read all Universal Dependency files, create separate files
+        which only store the POS data, with symbols encoded as integers.
+
+        Loading files with only the POS info is orders of magnitude faster
+        than loading the original files with all the info.
+
+    """
+    pos_dir = os.path.join(UNIDEP_PATH, 'unidep_pos')
+
+    if not os.path.isdir(pos_dir):
+        os.makedirs(pos_dir)
+
+    if langs is None:
+        langs = languages()
+    if isinstance(langs, str):
+        langs = [langs]
+
+    for language in langs:
+        sd = SequenceData(language, fast=False, get_all=True)
+
+        lang_dir = os.path.join(pos_dir, language)
+        if not os.path.isdir(lang_dir):
+            os.makedirs(lang_dir)
+
+        train = os.path.join(lang_dir, 'train')
+        with open(train, 'w') as f:
+            for seq in sd.train:
+                f.write(str(seq)[1:-1] + '\n')
+        dev = os.path.join(lang_dir, 'dev')
+        with open(dev, 'w') as f:
+            for seq in sd.dev:
+                f.write(str(seq)[1:-1] + '\n')
+        test = os.path.join(lang_dir, 'test')
+        with open(test, 'w') as f:
+            for seq in sd.test:
+                f.write(str(seq)[1:-1] + '\n')
