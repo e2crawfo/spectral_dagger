@@ -3,7 +3,8 @@ import numpy as np
 
 from spectral_dagger.datasets.pautomac import (
     pautomac_available, problem_indices,
-    load_pautomac_model, pautomac_score)
+    load_pautomac_model, pautomac_score,
+    make_pautomac_like)
 
 
 @pytest.mark.skipif(
@@ -37,3 +38,18 @@ def test_pautomac_score():
         score = pautomac_score(model, problem_idx)
 
         assert np.isclose(score, target, atol=0.05, rtol=0.0)
+
+
+@pytest.mark.parametrize("kind", ["pfa", "hmm"])
+@pytest.mark.parametrize("halts", [False, True, 0.9, 2])
+def test_make_pautomac_like(kind, halts):
+    n_states = 10
+    n_symbols = 5
+    symbol_density = 0.5
+    transition_density = 0.5
+
+    model = make_pautomac_like(
+        kind, n_states, n_symbols,
+        symbol_density, transition_density,
+        alpha=1.0, halts=halts)
+    model.sample_episodes(5, horizon=np.inf if halts else 5)

@@ -5,7 +5,6 @@ import numpy as np
 from collections import defaultdict
 import six
 from itertools import product
-import operator
 
 from spectral_dagger import process_rng, set_seed
 from spectral_dagger.sequence import ProbabilisticAutomaton
@@ -178,92 +177,107 @@ def pautomac_score(model, problem_idx):
     return 2**(-expected_llh)
 
 
-def _populate_prob_table(lengths, sparsity, rng):
-    """ Create a probability table with dimensions given by `lengths`.
+def _populate_prob_table(shape, density, alpha=1.0, rng=None):
+    """ Create a probability table.
 
-    For every possible combination of the first n-1 indices, where `lengths`
-    has length n, the probability table contains a row that is a normalized
-    probability distribution. The nonzero entries in this row are chosen
-    randomly before the table is created according to the sparsity.
-    The values for the non-zero values are chosen from a Dirichlet
-    distribution. If some combination of the first n-1 indices has no
-    nonzero values, we create one for it artificially.
+    If len(shape)==2, we can think of the return value as a transition matrix.
+
+    ``shape`` describes the shape of the returned probability table.
+    Each ``row`` of the returned probability table (i.e. keeping the first
+    n-1 dimensions fixed, moving along the n-th dimension) will be a discrete
+    probability distribution. This distribution is selected by choosing
+    ``density * shape[-1]`` of the values to be non-zero, and then selecting
+    values for those non-zero location according to a Dirichlet distribution
+    with parameter ``alpha``.
 
     Parameters
     ----------
-    lengths: list of integers
-        Size of each dimension.
-    sparsity: 0 < float < 1
+    shape: list of integers
+        Shape of probability table. We require len(shape) > 1.
+    density: 0 < float < 1
         Percentage of non-zero entries.
+    alpha: float > 0 or np vector > 0
+        Parameters for dirichlet distribution.
+        If a scalar, a symmetric dirichlet is used.
     rng: np.random.RandomState
         Pseudo-random number generator.
 
+    Returns
+    -------
+    probability table (ndarray)
+    nonzero_indices (list)
+
     """
-    lengths_prod = reduce(operator.mul, lengths, 1)
-    n_nonzero = int(round(sparsity * lengths_prod))
+    assert len(shape) > 1
+    rng = process_rng(rng)
 
-    nonzero_set = set(rng.choice(
-        lengths_prod, n_nonzero, replace=False))
-    nonzero_indices = [
-        p for i, p in enumerate(product(*[range(l) for l in lengths]))
-        if i in nonzero_set]
+    n_nonzero_per_row = int(round(shape[-1] * density))
+    try:
+        len(alpha)
+    except TypeError:
+        alpha = alpha * np.ones(n_nonzero_per_row)
 
-    nonzero_table = {
-        t: [] for t in product(*[range(l) for l in lengths[:-1]])}
-    for t in nonzero_indices:
-        nonzero_table[t[:-1]].append(t[-1])
+    row_indices = product(*[range(l) for l in shape[:-1]])
 
-    probs = np.zeros(lengths)
-    for t_trunc, indices in six.iteritems(nonzero_table):
-        if not indices:
-            indices = [rng.choice(lengths[-1])]
-            nonzero_indices.append(t_trunc + (indices[0],))
-
-        row = rng.dirichlet([1] * len(indices))
-        for i, idx in enumerate(indices):
-            probs[t_trunc + (idx,)] = row[i]
+    probs = np.zeros(shape)
+    nonzero_indices = []
+    for idx in row_indices:
+        row_values = rng.dirichlet(alpha)
+        row_indices = rng.choice(
+            shape[-1], n_nonzero_per_row, replace=False)
+        probs[idx][row_indices] = row_values
+        nonzero_indices.extend(idx + (i,) for i in row_indices)
 
     return probs, nonzero_indices
 
 
 def make_pautomac_like(
         kind, n_states, n_symbols,
-        symbol_sparsity, transition_sparsity, halts=False, rng=None):
+        symbol_density, transition_density,
+        alpha=1.0, halts=False, rng=None):
     """ Create a PFA using the same algo as the Pautomac competition.
 
-    N.B: doesn't correctly handle the case where halts=True. """
+    If ``halts`` is a number, it is treated as the alpha a parameter
+    in a Beta(alpha, 1) distribution used for choosing halting probabilities.
 
+    """
+    assert kind in ['pfa', 'hmm'], "Cannot generate PFA of kind '%s'." % kind
     assert int(n_states) == n_states and n_states > 0
     assert int(n_symbols) == n_symbols and n_symbols > 0
-    assert 0 < symbol_sparsity < 1
-    assert 0 < transition_sparsity < 1
+    assert 0 < symbol_density < 1
+    assert 0 < transition_density < 1
+    assert alpha > 0
 
     rng = process_rng(rng)
 
     symbols = range(n_symbols)
 
-    n_start_states = int(round(transition_sparsity * n_states))
+    n_start_states = int(round(transition_density * n_states))
     start_states = rng.choice(n_states, n_start_states, replace=False)
 
     b_0 = np.zeros(n_states)
-    b_0[start_states] = rng.dirichlet([1] * n_start_states)
+    b_0[start_states] = rng.dirichlet(alpha * np.ones(n_start_states))
 
     if halts:
-        n_halt_states = int(round(transition_sparsity * n_states))
-        halt_states = rng.choice(n_states, n_halt_states, replace=False)
+        if isinstance(halts, (float, int)):
+            emission_probs, _ = _populate_prob_table(
+                (n_states, n_symbols), symbol_density, alpha, rng)
+            halt_probs = rng.beta(halts, 1, n_states)
+            emission_probs *= (1 - halt_probs).reshape(-1, 1)
+        else:
+            emission_probs, _ = _populate_prob_table(
+                (n_states, n_symbols+1), symbol_density, alpha, rng)
+            halt_probs = emission_probs[:, -1]
+            emission_probs = emission_probs[:, :-1]
     else:
-        n_halt_states = 0
-        halt_states = []
-
-    b_inf_string = np.zeros(n_states)
-    b_inf_string[halt_states] = rng.dirichlet([1] * n_halt_states)
-
-    emission_probs, _ = _populate_prob_table(
-        (n_states, n_symbols), symbol_sparsity, rng)
+        emission_probs, _ = _populate_prob_table(
+            (n_states, n_symbols), symbol_density, alpha, rng)
+        halt_probs = np.zeros(n_states)
+    b_inf_string = halt_probs
 
     if kind == 'pfa':
         transition_probs, nonzero_indices = _populate_prob_table(
-            (n_states, n_symbols, n_states), transition_sparsity, rng)
+            (n_states, n_symbols, n_states), transition_density, alpha, rng)
         B_o = {
             symbol: np.zeros((n_states, n_states)) for symbol in symbols}
 
@@ -276,7 +290,7 @@ def make_pautomac_like(
 
     elif kind == 'hmm':
         transition_probs, _ = _populate_prob_table(
-            (n_states, n_states), transition_sparsity, rng)
+            (n_states, n_states), transition_density, alpha, rng)
 
         B_o = {
             s: np.diag(emission_probs[:, s]).dot(transition_probs)
