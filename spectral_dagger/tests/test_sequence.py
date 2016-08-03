@@ -52,7 +52,7 @@ def reduced_rank_hmm(rng):
 
 
 def do_test_hmm_learning(
-        hmm, learning_alg, horizon=3, n_samples=4000, tol=0.1, **kwargs):
+        hmm, learning_alg, horizon=3, n_samples=10000, tol=0.1, **kwargs):
 
     samples = hmm.sample_episodes(n_samples, horizon=horizon)
 
@@ -110,35 +110,29 @@ def test_spectral_like(learning_alg):
     hmm = simple_hmm()
     dimension = 6
 
+    print("String estimator.")
     do_test_hmm_learning(
         hmm, learn, estimator='string', dimension=dimension)
+    print("Prefix estimator.")
     do_test_hmm_learning(
         hmm, learn, estimator='prefix', dimension=dimension)
+    print("Substring estimator.")
     do_test_hmm_learning(
         hmm, learn, estimator='substring', dimension=dimension)
 
     rr_hmm = reduced_rank_hmm(sd.rng('build'))
     dimension = np.linalg.matrix_rank(rr_hmm.T)
 
-    basis = fixed_length_basis(rr_hmm.observations, 2, False)
-    do_test_hmm_learning(
-        rr_hmm, learn, horizon=5,
-        estimator='prefix', dimension=dimension, basis=basis)
+    params = product([1, 2], [3, 5], [True, False])
 
-    basis = fixed_length_basis(rr_hmm.observations, 1, False)
-    do_test_hmm_learning(
-        rr_hmm, learn, horizon=3,
-        estimator='prefix', dimension=dimension, basis=basis)
-
-    basis = fixed_length_basis(rr_hmm.observations, 2, True)
-    do_test_hmm_learning(
-        rr_hmm, learn, horizon=5,
-        estimator='prefix', dimension=dimension, basis=basis)
-
-    basis = fixed_length_basis(rr_hmm.observations, 1, True)
-    do_test_hmm_learning(
-        rr_hmm, learn, horizon=3,
-        estimator='prefix', dimension=dimension, basis=basis)
+    for bl, horizon, include_empty in params:
+        if 2 * bl + 1 <= horizon:
+            print("Basis with length %d, horizon=%d, "
+                  "include_empty: %r." % (bl, horizon, include_empty))
+            basis = fixed_length_basis(rr_hmm.observations, bl, include_empty)
+            do_test_hmm_learning(
+                rr_hmm, learn, horizon=horizon,
+                estimator='prefix', dimension=dimension, basis=basis)
 
 
 @pytest.mark.skipif(True, reason="Incomplete implementation.")

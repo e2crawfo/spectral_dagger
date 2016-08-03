@@ -400,15 +400,18 @@ class SpectralSA(StochasticAutomaton):
         self._observations = range(n_observations)
 
     def fit(self, data, estimator='prefix',
-            basis=None, svd=None, hankels=None, sparse=True):
+            basis=None, svd=None, hankels=None, sparse=False):
         """ Fit a SA to the given data using a spectral algorithm.
 
         Parameters
         ----------
-        data: list of list of observations
-            Each sublist is a list of observations constituting a trajectory.
+        data: (list of sequences) or (sequence->probability) dictionary.
+            In the first case, each sequence is a tuple or list of obs.
+            In the second case, we have a dictionary where the keys are
+            sequences stored as tuples of obs, which are mapped to the
+            probability of the sequence occuring.
         n_components: int
-            Number of dimensions in feature space.
+            Number of dimensions of SA.
         estimator: string
             'string', 'prefix', or 'substring'.
         basis: length-2 tuple
