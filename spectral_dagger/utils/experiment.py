@@ -23,8 +23,7 @@ from spectral_dagger.utils.misc import (
 pp = pprint.PrettyPrinter()
 verbosity = 2
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 def update_attrs(obj, attrs):
@@ -328,11 +327,17 @@ class Experiment(object):
         searches = defaultdict(list)
         identifier = 0
 
+        handler = logging.FileHandler(
+            filename=self.exp_dir.path_for_file("log"), mode='w')
+        handler.setFormatter(logging.Formatter())
+        handler.setLevel(logging.DEBUG)
+        logging.getLogger('').addHandler(handler)  # add to root logger
+
         for x in self.x_var_values:
             for i in range(self.n_repeats):
                 results = []
 
-                print(as_title("Drawing new dataset...   "))
+                logger.info(as_title("Drawing new dataset...   "))
                 data_kwargs = self.data_kwargs.copy()
                 data_kwargs['seed'] = sd.gen_seed(rng)
                 if self.mode == 'data':
@@ -348,7 +353,7 @@ class Experiment(object):
                     train, test, context = data
 
                 if context is not None and 'true_model' in context:
-                    print("Testing ground-truth model...")
+                    logger.info("Testing ground-truth model...")
 
                     results.append({
                         'round': i, self.x_var_name: x,
@@ -356,7 +361,7 @@ class Experiment(object):
 
                     for s, sn in zip(self.scores, self.score_names):
                         score = s(context['true_model'], test.X, test.y)
-                        print("    Test score %s: %f" % (sn, score))
+                        logger.info("    Test score %s: %f" % (sn, score))
                         results[-1][sn] = score
 
                 for base_est in self.base_estimators:
@@ -374,7 +379,7 @@ class Experiment(object):
                                 "called %s." % (est, self.x_var_name))
                         setattr(est, self.x_var_name, x)
 
-                    print(
+                    logger.info(
                         "Collecting data point. "
                         "method: %s, %s: %s, repeat: %d, seed: %d."
                         "" % (base_est.name, self.x_var_name,
@@ -400,8 +405,9 @@ class Experiment(object):
                         search = RandomizedSearchCV(
                             est, dists, scoring=self.scores[0],
                             **self.search_kwargs)
-                        print("    Running RandomizedSearchCV for "
-                              "%d iters." % n_iter)
+                        logger.info(
+                            "    Running RandomizedSearchCV for "
+                            "%d iters." % n_iter)
                     else:
                         # These are arguments for RandomizedSearchCV
                         # but not GridSearchCV
@@ -412,8 +418,9 @@ class Experiment(object):
                         search = GridSearchCV(
                             est, dists, scoring=self.scores[0],
                             **_search_kwargs)
-                        print("    Running GridSearchCV for "
-                              "%d iters." % n_points)
+                        logger.info(
+                            "    Running GridSearchCV for "
+                            "%d iters." % n_points)
 
                     search_time = time.time() - then
 
@@ -421,7 +428,7 @@ class Experiment(object):
                     search.fit(train.X, train.y)
                     fit_time = time.time() - then
 
-                    print("    Best params: %s" % search.best_params_)
+                    logger.info("    Best params: %s" % search.best_params_)
 
                     searches[base_est.name].append(search)
                     learned_est = search.best_estimator_
@@ -431,10 +438,10 @@ class Experiment(object):
                         'method': base_est.name,
                         'fit_time': fit_time, 'search_time': search_time})
 
-                    print("    Running tests...")
+                    logger.info("    Running tests...")
                     for s, sn in zip(self.scores, self.score_names):
                         score = s(learned_est, test.X, test.y)
-                        print("    Test score %s: %f" % (sn, score))
+                        logger.info("    Test score %s: %f" % (sn, score))
                         results[-1][sn] = score
 
                     if self.training_stats:
@@ -446,10 +453,11 @@ class Experiment(object):
                         train_score_std = np.std(
                             best_grid_score.cv_validation_scores)
 
-                        print("    Training score: %f" % train_score)
+                        logger.info("    Training score: %f" % train_score)
                         results[-1]['training_score'] = train_score
 
-                        print("    Training score std: %f" % train_score_std)
+                        logger.info(
+                            "    Training score std: %f" % train_score_std)
                         results[-1]['training_score_std'] = train_score_std
 
                     for attr in learned_est.record_attrs:
@@ -460,7 +468,8 @@ class Experiment(object):
                             pass
 
                         results[-1][attr] = value
-                        print("    Value for attr %s: %s" % (attr, value))
+                        logger.info(
+                            "    Value for attr %s: %s" % (attr, value))
 
                     identifier += 1
 
@@ -470,6 +479,8 @@ class Experiment(object):
                     self.df = self.df.append(results, ignore_index=True)
 
                 self.df.to_csv(self.exp_dir.path_for_file(filename))
+
+        logging.getLogger('').removeHandler(handler)
 
         self.searches = searches
 
