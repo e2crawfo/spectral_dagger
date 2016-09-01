@@ -1,6 +1,6 @@
 import numpy as np
+from sklearn.utils import check_random_state
 
-from spectral_dagger import process_rng
 from spectral_dagger.utils import normalize, indent
 from spectral_dagger.sequence import ProbabilisticAutomaton
 
@@ -39,30 +39,35 @@ class HMM(ProbabilisticAutomaton):
 
         self._init_dist = np.array(init_dist).copy()
         self._init_dist.flags.writeable = False
-        assert(self._init_dist.size == n_states)
-        assert(np.isclose(sum(self._init_dist), 1.0))
-        assert np.all(self._init_dist >= 0) and np.all(self._init_dist <= 1)
+        assert self._init_dist.size == n_states, str(self._init_dist)
+        assert np.isclose(sum(self._init_dist), 1.0), str(self._init_dist)
+        assert (
+            np.all(self._init_dist >= 0) and
+            np.all(self._init_dist <= 1)), str(self._init_dist)
 
         self._T = np.array(T).copy()
         self._T.flags.writeable = False
 
-        assert np.allclose(np.sum(self._T, axis=1), 1.0)
-        assert np.all(self._T >= 0) and np.all(self._T <= 1)
-        assert self._T.shape == (n_states, n_states)
+        assert self._T.shape == (n_states, n_states), str(self._T)
+        assert np.allclose(np.sum(self._T, axis=1), 1.0), str(self._T)
+        assert np.all(self._T >= 0) and np.all(self._T <= 1), str(self._T)
 
         self._O = np.array(O).copy()
         self._O.flags.writeable = False
 
-        assert np.allclose(np.sum(self._O, axis=1), 1.0)
-        assert np.all(self._O >= 0) and np.all(self._O <= 1)
-        assert self._O.shape == (n_states, n_obs)
+        assert self._O.shape == (n_states, n_obs), str(self._O)
+        assert np.allclose(np.sum(self._O, axis=1), 1.0), str(self._O)
+        assert np.all(self._O >= 0) and np.all(self._O <= 1), str(self._O)
 
         if stop_prob is None:
             stop_prob = np.zeros(n_states)
         self._stop_prob = np.array(stop_prob).copy()
         self._stop_prob.flags.writeable = False
-        assert(self._stop_prob.size == n_states)
-        assert np.all(self._stop_prob >= 0) and np.all(self._stop_prob <= 1)
+
+        assert self._stop_prob.size == n_states, str(self._stop_prob)
+        assert (
+            np.all(self._stop_prob >= 0) and
+            np.all(self._stop_prob <= 1)), str(self._stop_prob)
 
         halt_correction = np.diag(1 - self._stop_prob)
         corrected_T = halt_correction.dot(self._T)
@@ -71,7 +76,7 @@ class HMM(ProbabilisticAutomaton):
                for o in self._observations}
         super(HMM, self).__init__(
             self._init_dist, B_o, self._stop_prob, estimator='string')
-        assert(is_hmm(self.b_0, self.B_o, self.b_inf_string))
+        assert is_hmm(self.b_0, self.B_o, self.b_inf_string), str(self)
 
     def __str__(self):
         s = "HiddenMarkovModel\n"
@@ -170,7 +175,7 @@ def dummy_hmm(n_states):
 
 def bernoulli_hmm(n_states, n_obs, rng=None):
     """ Create an HMM with operators chosen from Bernoulii distributions. """
-    rng = process_rng(rng)
+    rng = check_random_state(rng)
     O = rng.binomial(1, 0.5, (n_states, n_obs))
     for row in O:
         if sum(row) == 0:

@@ -1,3 +1,4 @@
+from __future__ import print_function
 import numpy as np
 from scipy.sparse import csr_matrix
 from scipy.optimize import minimize
@@ -41,7 +42,8 @@ class StochasticAutomaton(Environment):
 
     def __str__(self):
         return ("<StochasticAutomaton. "
-                "n_obs: %d, n_states: %d>" % (self.n_observations, self.size))
+                "n_obs: %d, n_states: %d>" % (self.n_observations,
+                                              self.n_states))
 
     def __repr__(self):
         return str(self)
@@ -53,10 +55,6 @@ class StochasticAutomaton(Environment):
     @property
     def n_observations(self):
         return len(self._observations)
-
-    @property
-    def size(self):
-        return self.n_states
 
     @property
     def observations(self):
@@ -90,7 +88,7 @@ class StochasticAutomaton(Environment):
         """ Decide whether to halt, and if not, compute next-state probs. """
         dist = self.get_obs_dist()
         terminal_prob = dist[-1]
-        self.terminal = self.run_rng.rand() < terminal_prob
+        self.terminal = self.random_state.rand() < terminal_prob
 
         probs = dist[:-1]
         if probs.sum() == 0:
@@ -109,7 +107,7 @@ class StochasticAutomaton(Environment):
         if self.terminal:
             return None
 
-        sample = sample_multinomial(self.probs, self.run_rng)
+        sample = sample_multinomial(self.probs, self.random_state)
         o = self.observations[sample]
         self.update(o)
         self._lookahead()
@@ -162,13 +160,13 @@ class StochasticAutomaton(Environment):
             np.count_nonzero(probs > self.get_obs_prob(o)),
             np.count_nonzero(probs < self.get_obs_prob(o)))
 
-    def get_string_prob(self, string, init_state=None, log=False):
+    def get_string_prob(self, string, log=False, initial_state=None):
         """ Get probability of string. """
 
-        if init_state is None:
+        if initial_state is None:
             self.b = self.b_0.copy()
         else:
-            self.b = init_state
+            self.b = initial_state
 
         log_prob = 0.0
 
@@ -188,29 +186,24 @@ class StochasticAutomaton(Environment):
             prob = np.e**log_prob
             return np.clip(prob, machine_eps, 1)
 
-    def get_delayed_string_prob(self, string, t, init_state=None, log=False):
+    def get_delayed_string_prob(self, string, t, log=False):
         """ Get probability of observing string at a delay of ``t``.
 
         get_delayed_string_prob(s, 0) is equivalent to get_string_prob(s).
 
         """
-        if init_state is None:
-            b = self.b_0.copy()
-        else:
-            b = init_state
-
+        b = self.b_0.copy()
         for i in range(t):
             b = b.dot(self.B)
 
-        return self.get_string_prob(string, init_dist=b, log=log)
+        return self.get_string_prob(string, log=log, initial_state=b)
 
-    def get_prefix_prob(self, prefix, init_state=None, log=False):
+    def get_prefix_prob(self, prefix, log=False, initial_state=None):
         """ Get probability of prefix. """
-
-        if init_state is None:
+        if initial_state is None:
             self.b = self.b_0.copy()
         else:
-            self.b = init_state
+            self.b = initial_state
 
         log_prob = 0.0
 
@@ -226,21 +219,17 @@ class StochasticAutomaton(Environment):
             prob = np.e**log_prob
             return np.clip(prob, machine_eps, 1)
 
-    def get_delayed_prefix_prob(self, prefix, t, init_state=None, log=False):
+    def get_delayed_prefix_prob(self, prefix, t, log=False):
         """ Get probability of observing prefix at a delay of ``t``.
 
         get_delayed_prefix_prob(p, 0) is equivalent to get_prefix_prob(p).
 
         """
-        if init_state is None:
-            b = self.b_0.copy()
-        else:
-            b = init_state
-
+        b = self.b_0.copy()
         for i in range(t):
             b = b.dot(self.B)
 
-        return self.get_prefix_prob(prefix, init_dist=b, log=log)
+        return self.get_prefix_prob(prefix, log=log, initial_state=b)
 
     def get_substring_expectation(self, substring):
         """ Get expected number of occurrences of a substring. """
@@ -264,50 +253,49 @@ class StochasticAutomaton(Environment):
         prob = 2**log_prob
         return np.clip(prob, machine_eps, 1)
 
-    def get_WER(self, test_data):
+    def WER(self, test_data):
         """ Get word error rate for the test data. """
-        errors = 0.0
+        n_errors = 0.0
         n_predictions = 0.0
 
         for seq in test_data:
             self.reset()
 
             for o in seq:
-                prediction = self.predict()
-                self.update(o)
+                dist = self.get_obs_dist()
+                prediction = np.argmax(dist)
 
-                if prediction != o:
-                    errors += 1
+                n_errors += int(prediction != o)
                 n_predictions += 1
 
-        return errors / n_predictions
+                self.update(o)
 
-    def get_log_likelihood(self, test_data, base=2):
+            dist = self.get_obs_dist()
+            prediction = np.argmax(dist)
+            n_errors += int(prediction != self.n_observations)
+            n_predictions += 1
+
+        return n_errors / n_predictions
+
+    def mean_log_likelihood(self, test_data, string=True):
         """ Get average log likelihood for the test data. """
         llh = 0.0
 
         for seq in test_data:
-            if self.can_terminate:
-                if base == 2:
-                    seq_llh = np.log2(self.get_string_prob(seq))
-                else:
-                    seq_llh = np.log(self.get_string_prob(seq))
+            if string:
+                seq_llh = self.get_string_prob(seq, log=True)
             else:
-                if base == 2:
-                    seq_llh = np.log2(self.get_prefix_prob(seq))
-                else:
-                    seq_llh = np.log(self.get_prefix_prob(seq))
+                seq_llh = self.get_prefix_prob(seq, log=True)
 
             llh += seq_llh
 
         return llh / len(test_data)
 
-    def get_perplexity(self, test_data, base=2):
+    def perplexity(self, test_data):
         """ Get model perplexity on the test data.  """
+        return np.exp(-self.mean_log_likelihood(test_data))
 
-        return 2**(-self.get_log_likelihood(test_data, base=base))
-
-    def get_1norm_error(self, test_data):
+    def mean_one_norm_error(self, test_data):
         error = 0.0
         n_predictions = 0.0
 
@@ -315,19 +303,14 @@ class StochasticAutomaton(Environment):
             self.reset()
 
             for o in seq:
-                pd = np.array([
-                    self.get_obs_prob(obs)
-                    for obs in self.observations])
-                pd = np.clip(pd, 0.0, np.inf)
-                pd = _normalize(pd, ord=1)
-
-                true_pd = np.zeros(len(self.observations))
-                true_pd[o] = 1.0
-
-                error += np.linalg.norm(pd - true_pd, ord=1)
-
+                dist = self.get_obs_dist()
+                error += 2 * (1 - dist[o])
                 self.update(o)
                 n_predictions += 1
+
+            dist = self.get_obs_dist()
+            error += 2 * (1 - dist[self.n_observations])
+            n_predictions += 1
 
         return error / n_predictions
 
@@ -391,16 +374,20 @@ class StochasticAutomaton(Environment):
 
 
 class SpectralSA(StochasticAutomaton):
-    def __init__(self, n_components, n_observations):
+    def __init__(self, n_states, n_observations, estimator='prefix'):
         self.b_0 = None
         self.b_inf = None
         self.B_o = None
 
-        self.n_components = n_components
+        self._n_states = n_states
         self._observations = range(n_observations)
+        self.estimator = estimator
 
-    def fit(self, data, estimator='prefix',
-            basis=None, svd=None, hankels=None, sparse=False):
+    @property
+    def n_states(self):
+        return self.b_0.size if self.b_0 is not None else self._n_states
+
+    def fit(self, data, basis=None, svd=None, hankels=None, sparse=False):
         """ Fit a SA to the given data using a spectral algorithm.
 
         Parameters
@@ -410,10 +397,6 @@ class SpectralSA(StochasticAutomaton):
             In the second case, we have a dictionary where the keys are
             sequences stored as tuples of obs, which are mapped to the
             probability of the sequence occuring.
-        n_components: int
-            Number of dimensions of SA.
-        estimator: string
-            'string', 'prefix', or 'substring'.
         basis: length-2 tuple
             Contains prefix and suffix dictionaries.
         svd: length-3 tuple
@@ -423,6 +406,8 @@ class SpectralSA(StochasticAutomaton):
             Contains hp, hs, hankel, symbol_hankels. If provided, then
             estimating the Hankel matrices is skipped. If provided, then
             a basis must also be provided.
+        sparse: bool
+            Whether to perform computation using sparse matrices.
 
         """
         if hankels:
@@ -434,11 +419,11 @@ class SpectralSA(StochasticAutomaton):
         else:
             if not basis:
                 logger.debug("Generating basis...")
-                basis = top_k_basis(data, MAX_BASIS_SIZE, estimator)
+                basis = top_k_basis(data, MAX_BASIS_SIZE, self.estimator)
 
             logger.debug("Estimating Hankels...")
             hankels = estimate_hankels(
-                data, basis, self.observations, estimator, sparse=sparse)
+                data, basis, self.observations, self.estimator, sparse=sparse)
 
             # Note: all hankels are scipy csr matrices
             hp, hs, hankel_matrix, symbol_hankels = hankels
@@ -448,7 +433,7 @@ class SpectralSA(StochasticAutomaton):
         self.hankel = hankel_matrix
         self.symbol_hankels = symbol_hankels
 
-        n_components = min(self.n_components, hankel_matrix.shape[0])
+        n_states = min(self.n_states, hankel_matrix.shape[0])
 
         if svd:
             U, Sigma, VT = svd
@@ -459,14 +444,14 @@ class SpectralSA(StochasticAutomaton):
 
             # H = U Sigma V^T
             U, Sigma, VT = randomized_svd(
-                hankel_matrix, n_components, n_oversamples, n_iter,
-                random_state=self.build_rng)
+                hankel_matrix, n_states, n_oversamples, n_iter,
+                random_state=self.random_state)
 
         V = VT.T
 
-        U = U[:, :n_components]
-        V = V[:, :n_components]
-        Sigma = np.diag(Sigma[:n_components])
+        U = U[:, :n_states]
+        V = V[:, :n_states]
+        Sigma = np.diag(Sigma[:n_states])
 
         # P^+ = (HV)^+ = (U Sigma)^+ = Sigma^+ U+ = Sigma^-1 U.T
         P_plus = np.linalg.pinv(Sigma).dot(U.T)
@@ -498,39 +483,30 @@ class SpectralSA(StochasticAutomaton):
         if sparse:
             b_inf = b_inf.toarray()[:, 0]
 
-        self.compute_start_end_vectors(b_0, b_inf, estimator)
+        self.compute_start_end_vectors(b_0, b_inf, self.estimator)
         self.reset()
 
         return self
 
 
-class CompressedSA(StochasticAutomaton):
-    def __init__(self, n_components, n_observations, noise_std=None):
-        self.b_0 = None
-        self.b_inf = None
-        self.B_o = None
+class CompressedSA(SpectralSA):
+    def __init__(
+            self, n_states, n_observations,
+            noise_std=None, estimator='prefix'):
 
-        self.n_components = n_components
-        self._observations = range(n_observations)
         self.noise_std = noise_std
+        super(CompressedSA, self).__init__(n_states, n_observations, estimator)
 
-    def fit(
-            self, data, estimator='prefix',
-            basis=None, phi=None, hankels=None):
+    def fit(self, data, basis=None, phi=None, hankels=None):
         """ Fit a SA to the given data using a compression algorithm.
 
         Parameters
         ----------
         data: list of list of observations
             Each sublist is a list of observations constituting a trajectory.
-        noise_std: float > 0, optional
-            Standard deviation of noise used to generate compression matrices.
-            Defaults to 1 / sqrt(n_components).
-        estimator: string
-            'string', 'prefix', or 'substring'.
         basis: length-2 tuple
             Contains prefix and suffix dictionaries.
-        phi: (n_suffix, n_components) ndarray, optional
+        phi: (n_suffix, n_states) ndarray, optional
             A pre-computed projection matrix. If not provided, then a
             projection matrix is drawn randomly.
         hankels: length-4 tuple
@@ -548,11 +524,11 @@ class CompressedSA(StochasticAutomaton):
         else:
             if not basis:
                 logger.debug("Generating basis...")
-                basis = top_k_basis(data, MAX_BASIS_SIZE, estimator)
+                basis = top_k_basis(data, MAX_BASIS_SIZE, self.estimator)
 
             logger.debug("Estimating Hankels...")
             hankels = estimate_hankels(
-                data, basis, self.observations, estimator, sparse=True)
+                data, basis, self.observations, self.estimator, sparse=True)
 
             # Note: all hankels are scipy csr matrices
             hp, hs, hankel_matrix, symbol_hankels = hankels
@@ -563,23 +539,23 @@ class CompressedSA(StochasticAutomaton):
 
         prefix_dict, suffix_dict = basis
 
-        n_components = self.n_components
+        n_states = self.n_states
 
         if phi is None:
-            phi = self.build_rng.randn(len(suffix_dict), n_components)
-            phi *= (1. / np.sqrt(n_components)
+            phi = self.random_state.randn(len(suffix_dict), n_states)
+            phi *= (1. / np.sqrt(n_states)
                     if self.noise_std is None else self.noise_std)
 
         self.phi = phi
 
         hp = np.zeros(len(prefix_dict))
 
-        proj_hankel = np.zeros((len(prefix_dict), n_components))
+        proj_hankel = np.zeros((len(prefix_dict), n_states))
         proj_sym_hankels = {}
         for obs in self.observations:
-            proj_sym_hankels[obs] = np.zeros((len(prefix_dict), n_components))
+            proj_sym_hankels[obs] = np.zeros((len(prefix_dict), n_states))
 
-        b_0 = np.zeros(n_components)
+        b_0 = np.zeros(n_states)
 
         for seq in data:
             for i in range(len(seq)+1):
@@ -630,8 +606,7 @@ class CompressedSA(StochasticAutomaton):
 
         b_inf = inv_proj_hankel.dot(hp)
 
-        self.compute_start_end_vectors(b_0, b_inf, estimator=estimator)
-
+        self.compute_start_end_vectors(b_0, b_inf, estimator=self.estimator)
         self.reset()
 
         return self
@@ -839,24 +814,26 @@ class KernelSA(StochasticAutomaton):
 
 
 class SpectralKernelSA(KernelSA):
-    def __init__(self, kernel_info):
+    def __init__(self, n_states, kernel_info):
         self.b_0 = None
         self.b_inf = None
         self.B_o = None
 
         self.kernel_info = kernel_info
 
+        self._n_states = n_states
         self.estimator = "prefix"
 
-    def fit(self, data, n_components):
+    def n_states(self):
+        return self.b_0.size if self.b_0 is not None else self._n_states
+
+    def fit(self, data):
         """ Fit a KernelSA to the given data using a spectral algorithm.
 
         Parameters
         ----------
         data: list of list
             Each sublist is a list of observations constituting a trajectory.
-        n_components: int
-            Number of dimensions in feature space.
 
         """
         logger.debug("Estimating Hankels...")
@@ -868,7 +845,7 @@ class SpectralKernelSA(KernelSA):
         self.hankel = hankel_matrix
         self.symbol_hankels = symbol_hankels
 
-        n_components = min(n_components, hankel_matrix.shape[0])
+        n_states = min(self.n_states, hankel_matrix.shape[0])
 
         logger.debug("Performing SVD...")
         n_oversamples = 10
@@ -876,14 +853,14 @@ class SpectralKernelSA(KernelSA):
 
         # H = U Sigma V^T
         U, Sigma, VT = randomized_svd(
-            hankel_matrix, n_components, n_oversamples, n_iter,
-            random_state=self.build_rng)
+            hankel_matrix, n_states, n_oversamples, n_iter,
+            random_state=self.random_state)
 
         V = VT.T
 
-        U = U[:, :n_components]
-        V = V[:, :n_components]
-        Sigma = np.diag(Sigma[:n_components])
+        U = U[:, :n_states]
+        V = V[:, :n_states]
+        Sigma = np.diag(Sigma[:n_states])
 
         # P^+ = (HV)^+ = (USigma)^+ = Sigma^+ U+ = Sigma^-1 U.T
         P_plus = np.linalg.pinv(Sigma).dot(U.T)
@@ -970,7 +947,7 @@ class SpectralSAWithActions(object):
         # H = U S V^T
         U, S, VT = randomized_svd(
             hankel_matrix, self.max_dim, n_oversamples, n_iter,
-            random_state=self.build_rng)
+            random_state=self.random_state)
 
         V = VT.T
 
@@ -1075,7 +1052,7 @@ class SpectralSAWithActions(object):
 
         return state / state.dot(self.b_inf)
 
-    def get_WER(self, test_data):
+    def WER(self, test_data):
         """Returns word error rate for the test data"""
         errors = 0
         n_predictions = 0
@@ -1095,7 +1072,7 @@ class SpectralSAWithActions(object):
 
         return errors/float(n_predictions)
 
-    def get_log_likelihood(self, test_data, base=2):
+    def mean_log_likelihood(self, test_data, base=2):
         """Returns average log likelihood for the test data"""
         llh = 0
 
@@ -1247,12 +1224,12 @@ if __name__ == "__main__":
     exploration_policy = UniformRandomPolicy(pomdp.actions)
     trajectories = []
 
-    print "Sampling trajectories..."
+    print("Sampling trajectories...")
     trajectories = pomdp.sample_episodes(
         n_trajectories, exploration_policy, horizon)
 
     for use_naive in [True, False]:
-        print "Training model..."
+        print("Training model...")
 
         sauto = SpectralSAWithActions(
             pomdp.actions, pomdp.observations, max_dim)
@@ -1266,15 +1243,15 @@ if __name__ == "__main__":
         n_below = []
         top_three_count = 0
 
-        print "Running tests..."
+        print("Running tests...")
 
         display = False
 
         for t in range(n_tests):
 
             if display:
-                print "\nStart test"
-                print "*" * 20
+                print("\nStart test")
+                print("*" * 20)
 
             exploration_policy.reset()
             sauto.reset()
@@ -1298,29 +1275,30 @@ if __name__ == "__main__":
                 exploration_policy.update(actual_obs, action)
 
                 if display:
-                    print "\nStep %d" % i
-                    print "*" * 20
-                    print pomdp_string
-                    print "Chosen action: ", action
-                    print "Predicted observation: ", predicted_obs
-                    print "Actual observation: ", actual_obs
-                    print "SA Rank of Actual Observation: ", rank
+                    print("\nStep %d", i)
+                    print("*" * 20)
+                    print(pomdp_string)
+                    print("Chosen action: ", action)
+                    print("Predicted observation: ", predicted_obs)
+                    print("Actual observation: ", actual_obs)
+                    print("SA Rank of Actual Observation: ", rank)
 
-        print (
+        print(
             "Average num below: ", np.mean(n_below),
             "of", len(pomdp.observations))
-        print "Probability in top 3: %f" % (
+        print(
+            "Probability in top 3: %f",
             float(top_three_count) / (test_length * n_tests))
 
         n_test_trajectories = 40
         test_trajectories = []
 
-        print "Sampling test trajectories for WER..."
+        print("Sampling test trajectories for WER...")
         trajectories = pomdp.sample_episodes(
             n_test_trajectories, exploration_policy, horizon)
 
-        print "Word error rate: ", sauto.get_WER(test_trajectories)
+        print("Word error rate: ", sauto.WER(test_trajectories))
 
-        llh = sauto.get_log_likelihood(test_trajectories, base=2)
-        print "Average log likelihood: ", llh
-        print "Perplexity: ", 2**(-llh)
+        llh = sauto.mean_log_likelihood(test_trajectories, base=2)
+        print("Average log likelihood: ", llh)
+        print("Perplexity: ", 2**(-llh))

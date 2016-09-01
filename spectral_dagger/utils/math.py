@@ -1,10 +1,9 @@
 import numpy as np
-
-from spectral_dagger import process_rng
+from sklearn.utils import check_random_state
 
 
 def sample_multinomial(p_vals, rng=None):
-    rng = process_rng(rng)
+    rng = check_random_state(rng)
     sample = rng.multinomial(1, p_vals)
     return np.where(sample > 0)[0][0]
 

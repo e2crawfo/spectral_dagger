@@ -91,13 +91,16 @@ def plot_measures(
     logger.info(results)
     logger.info(results.describe())
 
-    fig.subplots_adjust(left=0.1, right=0.75, top=0.9, bottom=0.1)
+    fig.subplots_adjust(left=0.1, right=0.75, top=0.8, bottom=0.1)
 
     n_plots = len(measures)
     axes = []
     for i, measure in enumerate(measures):
-        measure_str = (
-            measure if measure_display is None else measure_display[i])
+        try:
+            measure_str = measure_display[i]
+        except:
+            measure_str = measure
+
         ax = fig.add_subplot(n_plots, 1, i+1)
         _plot_measure(
             results, measure, x_var, split_var, measure_str,
@@ -112,10 +115,9 @@ def plot_measures(
             else:
                 ax.legend(loc='best')
 
-        if i == n_plots - 1:
-            ax.set_xlabel(x_var if x_var_display is None else x_var_display)
-
         axes.append(ax)
+
+    ax.set_xlabel(x_var if x_var_display is None else x_var_display)
 
     return fig, axes
 
@@ -154,9 +156,10 @@ def _plot_measure(
             elif len(values) == 1:
                 ci = values[0], values[0]
             else:
-                raise Exception(
-                    "No values for measure %s with "
-                    "index %s." % (measure, name))
+                ci = (np.nan, np.nan)
+                # raise Exception(
+                #     "No values for measure %s with "
+                #     "index %s." % (measure, name))
 
             ci_lower[name] = ci[0]
             ci_upper[name] = ci[1]

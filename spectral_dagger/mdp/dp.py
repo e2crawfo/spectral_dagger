@@ -13,7 +13,7 @@ class PolicyIteration(LearningAlgorithm):
         if policy is None:
             pi = {}
             for s in mdp.states:
-                pi[s] = mdp.actions[self.build_rng.randint(mdp.n_actions)]
+                pi[s] = mdp.actions[self.random_state.randint(mdp.n_actions)]
 
             policy = MDPPolicy(mdp, pi)
 

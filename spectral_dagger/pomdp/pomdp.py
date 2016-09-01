@@ -182,7 +182,7 @@ class BeliefStatePolicy(Policy):
         self.b = None
 
         if pi is None:
-            def f(b, rng=self.run_rng):
+            def f(b, rng=self.random_state):
                 return rng.choice(pomdp.actions)
 
             pi = f

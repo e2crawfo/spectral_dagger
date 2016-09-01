@@ -1,7 +1,7 @@
 import numpy as np
 import six
+from sklearn.utils import check_random_state
 
-from spectral_dagger import process_rng
 from spectral_dagger.sequence import StochasticAutomaton
 from spectral_dagger.utils import normalize
 
@@ -15,7 +15,8 @@ class ProbabilisticAutomaton(StochasticAutomaton):
 
     def __str__(self):
         return ("<ProbabilisticAutomaton. "
-                "n_obs: %d, n_states: %d>" % (self.n_observations, self.size))
+                "n_obs: %d, n_states: %d>" % (
+                    self.n_observations, self.n_states))
 
 
 def is_pfa(b_0, B_o, b_inf):
@@ -84,7 +85,7 @@ def perturb_pfa_additive(pfa, std, rng=None):
         Standard deviation of perturbation for the operators.
 
     """
-    rng = process_rng(rng)
+    rng = check_random_state(rng)
 
     # Only perturb locations that are already non-zero.
     Bo_prime = {}
@@ -115,7 +116,7 @@ def perturb_pfa_multiplicative(pfa, std, rng=None):
         Standard deviation of perturbation for the operators.
 
     """
-    rng = process_rng(rng)
+    rng = check_random_state(rng)
 
     # Only perturb locations that are already non-zero.
     Bo_prime = {}
@@ -144,7 +145,7 @@ def perturb_pfa_bernoulli(pfa, p, increment=None, rng=None):
         The amount to increment when the Bernoulli is non-zero.
 
     """
-    rng = process_rng(rng)
+    rng = check_random_state(rng)
     increment = (
         increment if increment is not None
         else np.mean(np.mean(np.hstack(pfa.B_o.values()))))

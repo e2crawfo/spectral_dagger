@@ -79,8 +79,11 @@ class AdjustedMarkovChain(MarkovChain):
         new_bottom_row = np.array([0.0] * n_symbols + [1.0]).reshape(1, -1)
         new_T = np.concatenate((new_T, new_bottom_row), axis=0)
 
+        new_O = np.concatenate((np.eye(n_symbols), np.zeros((1, n_symbols))))
+        new_O[-1, 0] = 1.0
+
         super(MarkovChain, self).__init__(
-            new_init_dist, new_T, np.eye(n_symbols + 1), new_stop_prob)
+            new_init_dist, new_T, new_O, new_stop_prob)
 
     def __repr__(self):
         return str(self)
@@ -135,10 +138,16 @@ class AdjustedMarkovChain(MarkovChain):
                 halt[seq[-1]] += 1.0
 
         pi = normalize(pi, ord=1)
+        sums = T.sum(1) + halt
+        T[sums == 0, :] = 1.0
+
         if learn_halt:
-            halt /= T.sum(1) + halt
+            sums[sums == 0] = n_symbols + 1
+            halt[sums == 0] = 1.0
+            halt /= sums
         else:
             learn_halt = np.zeros(n_symbols)
+
         T = normalize(T, ord=1, axis=1)
 
         return AdjustedMarkovChain(pi, T, halt)

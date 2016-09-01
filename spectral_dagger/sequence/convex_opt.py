@@ -16,14 +16,15 @@ machine_eps = np.finfo(float).eps
 
 
 class ConvexOptSA(StochasticAutomaton):
-    def __init__(self, n_observations):
+    def __init__(self, n_observations, estimator='prefix'):
         self.b_0 = None
         self.b_inf = None
         self.B_o = None
 
         self._observations = range(n_observations)
+        self.estimator = estimator
 
-    def fit(self, data, tau, max_k=500, estimator='prefix',
+    def fit(self, data, tau, max_k=500,
             basis=None, hp_string=None, hankels=None, probabilistic=True,
             rank_tol=0.0):
         """ Fit a SA to the given data using a convex optimization algorithm.

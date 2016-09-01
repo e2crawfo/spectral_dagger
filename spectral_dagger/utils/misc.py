@@ -1,9 +1,21 @@
 import os
 import string
 import datetime
+from contextlib import contextmanager
 
 _title_width = 80
 _title_format = "\n{{0:=<{0}.{0}s}}".format(_title_width)
+
+
+@contextmanager
+def remove_file(name):
+    try:
+        yield
+    finally:
+        try:
+            os.remove(name)
+        except:
+            pass
 
 
 def as_title(title, title_format=_title_format):

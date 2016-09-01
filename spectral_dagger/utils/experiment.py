@@ -8,17 +8,24 @@ from collections import defaultdict
 import time
 import numpy as np
 import pandas as pd
-from scipy.stats import uniform
+from collections import namedtuple
+import argparse
+import matplotlib.pyplot as plt
+from matplotlib.markers import MarkerStyle
+import seaborn
+import dill
+import sys
+import dill
 
 import sklearn
-from sklearn.cross_validation import train_test_split
-from sklearn.metrics import make_scorer
+from sklearn.base import BaseEstimator
 from sklearn.grid_search import RandomizedSearchCV, GridSearchCV
 from sklearn.utils import check_random_state
 
 import spectral_dagger as sd
 from spectral_dagger.utils.misc import (
     make_symlink, make_filename, indent, as_title)
+from spectral_dagger.utils.plot import plot_measures
 
 pp = pprint.PrettyPrinter()
 verbosity = 2
@@ -26,25 +33,44 @@ verbosity = 2
 logger = logging.getLogger(__name__)
 
 
-def update_attrs(obj, attrs):
-    for k, v in six.iteritems(attrs):
-        setattr(obj, k, v)
-
-
 @six.add_metaclass(abc.ABCMeta)
-class CrossValidator(object):
+class Estimator(BaseEstimator):
+    """ If deriving classes define an attribute ``record_attrs``
+        giving a list of strings, then those attributes will be queried
+        by the Experiment class every time a cross-validation search
+        finishes. Can be useful for recording the values of hyper-parameters
+        chosen by cross-validation.
 
-    @abc.abstractproperty
-    def record_attrs(self):
-        raise NotImplementedError()
+    """
+    record_attrs = []
+
+    def _init(self, _locals):
+        if 'self' in _locals:
+            del _locals['self']
+
+        for k, v in six.iteritems(_locals):
+            setattr(self, k, v)
+
+    def get_estimated_params(self):
+        estimated_params = {}
+        for attr in dir(self):
+            if attr.endswith('_') and not attr.startswith('_'):
+                estimated_params[attr] = getattr(self, attr)
+        return estimated_params
 
     @abc.abstractmethod
-    def point_distribution(self, context, rng):
+    def point_distribution(self, context):
         raise NotImplementedError()
 
-    @abc.abstractproperty
-    def name(self):
-        raise NotImplementedError()
+    @property
+    def directory(self):
+        return self._directory
+
+    @directory.setter
+    def directory(self, directory):
+        self._directory = directory
+        if not os.path.isdir(directory):
+            os.makedirs(directory)
 
 
 class Dataset(object):
@@ -69,8 +95,9 @@ class Dataset(object):
             if len(y) == 1:
                 y = [y]
             self.y = y
-
             assert len(self.X) == len(self.y)
+        else:
+            self.y = None
 
     def __len__(self):
         return len(self.X)
@@ -92,12 +119,25 @@ class Dataset(object):
 
 class ExperimentDirectory(object):
     """ A directory for storing data from an experiment. """
+
     def __init__(self, directory, exp_dir):
+        """
+        Parameters
+        ----------
+        directory: str
+            Name of the parent of the experiment directory.
+        exp_dir: str
+            Name of the experiment directory.
+
+        """
         self.directory = directory
         self.exp_dir = exp_dir
-        self.path = os.path.join(directory, self.exp_dir)
+        self._path = os.path.join(directory, self.exp_dir)
 
-        assert os.path.isdir(self.path)
+        assert os.path.isdir(self._path), (
+            "Creating an ExperimentDirectory object, but the "
+            "corresponding directory on the filesystem (%s) "
+            "does not exist." % self._path)
 
     def __str__(self):
         return "ExperimentDirectory(%s, %s)" % (self.directory, self.exp_dir)
@@ -105,12 +145,17 @@ class ExperimentDirectory(object):
     def __repr__(self):
         return str(self)
 
-    def path_for_file(self, filename, subdir=""):
+    def path_for(self, path, is_dir=False):
         """ Get a path for a file, creating necessary subdirs. """
-        sd_path = os.path.join(self.path, subdir)
-        if subdir and not os.path.isdir(sd_path):
-            os.makedirs(sd_path)
-        return os.path.join(self.path, subdir, filename)
+        if is_dir:
+            filename = ""
+        else:
+            path, filename = os.path.split(path)
+
+        full_path = os.path.join(self._path, path)
+        if not os.path.isdir(full_path):
+            os.makedirs(full_path)
+        return os.path.join(full_path, filename)
 
     @staticmethod
     def create_new(directory, exp_name, data=None, use_time=False):
@@ -147,7 +192,7 @@ def get_latest_exp_dir(directory):
 
 def get_latest_results(directory, filename='results'):
     exp_dir = get_latest_exp_dir(directory)
-    return pd.read_csv(exp_dir.path_for_file(filename))
+    return pd.read_csv(exp_dir.path_for(filename))
 
 
 def default_score(estimator, X, y=None):
@@ -172,6 +217,11 @@ def get_n_points(dists):
     return n_points
 
 
+def save_object(filename, obj):
+    with open(filename, 'wb') as f:
+        dill.dump(obj, f, protocol=dill.HIGHEST_PROTOCOL)
+
+
 class Experiment(object):
     """ Run machine learning experiment.
 
@@ -182,8 +232,8 @@ class Experiment(object):
 
             estimator: Explores how the performance of one or more
                 estimators changes as some parameter of the *estimators*
-                is varied (all tested estimators need to accept that
-                parameter).
+                is varied (tested estimators need to accept the varied
+                parameter in their __init__).
 
         Results are saved as a csv file after running each estimator
         on a new dataset. So even if execution is terminated part-way through
@@ -196,8 +246,7 @@ class Experiment(object):
             generation process or is used as an attribute on the estimators.
         base_estimators: instance sklearn.Estimator or list of such instances
             The base_estimators to be tested. The Estimator classes must
-            provide the method ``point_distribution``. See the CrossValidator
-            mixin class.
+            provide the method ``point_distribution``.
         x_var_name: string
             Name to use for the x variable (aka independent variable).
         x_var_values: list-like
@@ -228,21 +277,26 @@ class Experiment(object):
             Name of an "experiments" directory. A new directory inside
             ``exp_dir`` will be created for this experiment, and relevant
             data will be stored in there (experimental results, plots, etc).
+        save_estimators: bool (optional, default=False)
+            Whether to store estimators (uses cPickle).
+        save_datasets: bool (optional, default=False)
+            Whether to store datasets (uses cPickle).
         name: str (optional)
             Name for the experiment.
         exp_dir: ExperimentDirectory instance (optional)
             Instead of creating a new directory for the experiment,
             use an existing one.
-        training_stats: bool (optional)
-            Whether to collect stats on the training performance of the best
-            parameter setting on each search. Defaults to False.
+        params: dict (optional)
+            A dictionary of parameters to be written to file, helping to
+            identify the conditions that the experiment was run under.
 
     """
     def __init__(
             self, mode, base_estimators, x_var_name, x_var_values,
             generate_data, score=None, n_repeats=5, data_kwargs=None,
-            search_kwargs=None, directory='.', name='experiment', exp_dir=None,
-            training_stats=False):
+            search_kwargs=None, directory='.', save_estimators=False,
+            save_datasets=False, name='experiment', exp_dir=None,
+            params=None):
         self._constructor_params = locals().copy()
         del self._constructor_params['self']
 
@@ -270,14 +324,14 @@ class Experiment(object):
                     score_func = default_score if s is None else s
                     score_name = (
                         s.__name__ if hasattr(s, "__name__") else str(s))
+                    score_name = (score_name if score_name.startswith('score')
+                                  else 'score_' + score_name)
 
                 self.scores.append(score_func)
-                self.score_names.append(
-                    score_name if score_name.startswith('score')
-                    else 'score_' + score_name)
+                self.score_names.append(score_name)
         else:
             self.scores = [default_score]
-            self.score_names = ['score']
+            self.score_names = ['default_score']
         self.score = self.scores[0]
 
         self.n_repeats = n_repeats
@@ -294,10 +348,20 @@ class Experiment(object):
                 directory, name, use_time=True)
         self.exp_dir = exp_dir
 
-        with open(self.exp_dir.path_for_file('parameters'), 'w') as f:
-            f.write(str(self))
+        self.save_estimators = save_estimators
+        self.save_datasets = save_datasets
 
-        self.training_stats = training_stats
+        self.params = params
+
+        try:
+            self.script_path = os.path.abspath(
+                sys.modules['__main__'].__file__)
+        except AttributeError:
+            self.script_path = "None"
+        self._constructor_params['script_path'] = self.script_path
+
+        with open(self.exp_dir.path_for('parameters'), 'w') as f:
+            f.write(str(self))
 
     def __str__(self):
         s = "Experiment(\n"
@@ -309,176 +373,64 @@ class Experiment(object):
     def __repr__(self):
         return str(self)
 
-    def run(self, filename='results', seed=None):
+    def run(self, filename='results', random_state=None):
         """ Run the experiment.
 
         Parameters
         ----------
         filename: str
             Name of the file to write results to.
-        seed: int or RandomState
+        random_state: int seed, RandomState instance, or None (default)
             Random state for the experiment.
 
         """
-        rng = check_random_state(seed)
-        self.search_kwargs.update(dict(random_state=rng))
+        rng = check_random_state(random_state)
+        estimator_rng = check_random_state(sd.gen_seed(rng))
+        data_rng = check_random_state(sd.gen_seed(rng))
+        search_rng = check_random_state(sd.gen_seed(rng))
+
+        self.search_kwargs.update(dict(random_state=search_rng))
 
         self.df = None
         searches = defaultdict(list)
-        identifier = 0
 
         handler = logging.FileHandler(
-            filename=self.exp_dir.path_for_file("log"), mode='w')
+            filename=self.exp_dir.path_for("log.txt"), mode='w')
         handler.setFormatter(logging.Formatter())
         handler.setLevel(logging.DEBUG)
         logging.getLogger('').addHandler(handler)  # add to root logger
 
         for x in self.x_var_values:
-            for i in range(self.n_repeats):
+            for r in range(self.n_repeats):
                 results = []
 
-                logger.info(as_title("Drawing new dataset...   "))
-                data_kwargs = self.data_kwargs.copy()
-                data_kwargs['seed'] = sd.gen_seed(rng)
-                if self.mode == 'data':
-                    data_kwargs[self.x_var_name] = x
-
-                data = self.generate_data(**data_kwargs)
-                assert isinstance(data, tuple) and (
-                    len(data) == 2 or len(data) == 3)
-                if len(data) == 2:
-                    train, test = data
-                    context = None
-                else:
-                    train, test, context = data
+                train, test, context = self._draw_dataset(x, r, data_rng)
 
                 if context is not None and 'true_model' in context:
                     logger.info("Testing ground-truth model...")
 
                     results.append({
-                        'round': i, self.x_var_name: x,
+                        'round': r, self.x_var_name: x,
                         'method': context['true_model'].name})
 
                     for s, sn in zip(self.scores, self.score_names):
                         score = s(context['true_model'], test.X, test.y)
-                        logger.info("    Test score %s: %f" % (sn, score))
+                        logger.info("    Test score %s: %f." % (sn, score))
                         results[-1][sn] = score
 
                 for base_est in self.base_estimators:
-                    est = sklearn.base.clone(base_est)
-                    est.random_state = sd.gen_seed(rng)
-                    est.directory = (
-                        self.exp_dir.path_for_file(
-                            'estimators/%d' % identifier))
-                    est_params = est.get_params()
+                    _results, _search = self._train_and_test(
+                        base_est, x, r, train, test, context,
+                        search_rng, estimator_rng)
+                    searches[base_est.name].append(_search)
+                    results.append(_results)
 
-                    if self.mode == 'estimator':
-                        if self.x_var_name not in est_params:
-                            raise ValueError(
-                                "Estimator %s does not accept a parameter "
-                                "called %s." % (est, self.x_var_name))
-                        setattr(est, self.x_var_name, x)
-
-                    logger.info(
-                        "Collecting data point. "
-                        "method: %s, %s: %s, repeat: %d, seed: %d."
-                        "" % (base_est.name, self.x_var_name,
-                              str(x), i, est.random_state))
-
-                    dists = est.point_distribution(context=context, rng=rng)
-
-                    if self.mode == 'estimator':
-                        dists.pop(self.x_var_name, None)
-                    for key in dists:
-                        if key not in est_params:
-                            raise ValueError(
-                                "Point distribution contains field "
-                                "``%s`` which is not a parameter of "
-                                "the estimator %s." % (key, est))
-
-                    n_points = get_n_points(dists)
-                    n_iter = self.search_kwargs.get('n_iter', 10)
-
-                    then = time.time()
-
-                    if n_points >= n_iter:
-                        search = RandomizedSearchCV(
-                            est, dists, scoring=self.scores[0],
-                            **self.search_kwargs)
-                        logger.info(
-                            "    Running RandomizedSearchCV for "
-                            "%d iters." % n_iter)
-                    else:
-                        # These are arguments for RandomizedSearchCV
-                        # but not GridSearchCV
-                        _search_kwargs = self.search_kwargs.copy()
-                        _search_kwargs.pop('random_state', None)
-                        _search_kwargs.pop('n_iter', None)
-
-                        search = GridSearchCV(
-                            est, dists, scoring=self.scores[0],
-                            **_search_kwargs)
-                        logger.info(
-                            "    Running GridSearchCV for "
-                            "%d iters." % n_points)
-
-                    search_time = time.time() - then
-
-                    then = time.time()
-                    search.fit(train.X, train.y)
-                    fit_time = time.time() - then
-
-                    logger.info("    Best params: %s" % search.best_params_)
-
-                    searches[base_est.name].append(search)
-                    learned_est = search.best_estimator_
-
-                    results.append({
-                        'round': i, self.x_var_name: x,
-                        'method': base_est.name,
-                        'fit_time': fit_time, 'search_time': search_time})
-
-                    logger.info("    Running tests...")
-                    for s, sn in zip(self.scores, self.score_names):
-                        score = s(learned_est, test.X, test.y)
-                        logger.info("    Test score %s: %f" % (sn, score))
-                        results[-1][sn] = score
-
-                    if self.training_stats:
-                        best_grid_score = max(
-                            search.grid_scores_,
-                            key=lambda gs: gs.mean_validation_score)
-
-                        train_score = best_grid_score.mean_validation_score
-                        train_score_std = np.std(
-                            best_grid_score.cv_validation_scores)
-
-                        logger.info("    Training score: %f" % train_score)
-                        results[-1]['training_score'] = train_score
-
-                        logger.info(
-                            "    Training score std: %f" % train_score_std)
-                        results[-1]['training_score_std'] = train_score_std
-
-                    for attr in learned_est.record_attrs:
-                        value = getattr(learned_est, attr)
-                        try:
-                            value = float(value)
-                        except ValueError:
-                            pass
-
-                        results[-1][attr] = value
-                        logger.info(
-                            "    Value for attr %s: %s" % (attr, value))
-
-                    identifier += 1
-
+                # Save a snapshot of the results so far.
                 if self.df is None:
                     self.df = pd.DataFrame.from_records(results)
                 else:
                     self.df = self.df.append(results, ignore_index=True)
-
-                self.df.to_csv(self.exp_dir.path_for_file(filename))
+                self.df.to_csv(self.exp_dir.path_for(filename))
 
         logging.getLogger('').removeHandler(handler)
 
@@ -486,139 +438,314 @@ class Experiment(object):
 
         return self.df
 
+    def _draw_dataset(self, x, r, data_rng):
+        logger.info(as_title("Drawing new dataset...   "))
+        data_kwargs = self.data_kwargs.copy()
+        data_kwargs['random_state'] = sd.gen_seed(data_rng)
+        if self.mode == 'data':
+            data_kwargs[self.x_var_name] = x
 
-def data_experiment(display=False):
-    """ Explore how lasso and ridge regression performance changes
-    as the amount of training data changes. """
+        data = self.generate_data(**data_kwargs)
+        assert isinstance(data, tuple) and (
+            len(data) == 2 or len(data) == 3)
 
-    import matplotlib.pyplot as plt
-    from sklearn import datasets, linear_model
-    from plot import plot_measures
+        if self.save_datasets:
+            filename = (
+                'datasets/{x_var_name}={x_var_value}_round={round}'.format(
+                    x_var_name=self.x_var_name,
+                    x_var_value=x, round=r))
+            filepath = self.exp_dir.path_for(filename)
+            save_object(filepath, data)
 
-    def generate_diabetes_data(train_size, seed):
-        diabetes = datasets.load_diabetes()
-        X_train, X_test, y_train, y_test = train_test_split(
-            diabetes.data, diabetes.target,
-            train_size=train_size, test_size=0.2, random_state=seed)
+        if len(data) == 2:
+            train, test = data
+            context = None
+        else:
+            train, test, context = data
 
-        return Dataset(X_train, y_train), Dataset(X_test, y_test)
+        return train, test, context
 
-    mse_score = make_scorer(
-        sklearn.metrics.mean_squared_error, greater_is_better=False)
-    mae_score = make_scorer(
-        sklearn.metrics.mean_absolute_error, greater_is_better=False)
+    def _train_and_test(
+            self, base_est, x, r, train, test, context,
+            search_rng, estimator_rng):
 
-    class LogUniform(object):
-        def __init__(self, low, high, base=np.e, random_state=None):
-            assert low < high
-            self.low = low
-            self.high = high
-            self.uniform = uniform(loc=low, scale=high-low)
-            self.uniform.random_state = random_state
-            self.base = base
+        est = sklearn.base.clone(base_est)
+        est_seed = sd.gen_seed(estimator_rng)
+        est.random_state = est_seed
 
-        def rvs(self, size=1):
-            return self.base ** self.uniform.rvs(size)
+        dirname = (
+            'estimators/{est_name}_'
+            '{x_var_name}={x_var_value}_'
+            'round={round}'.format(
+                est_name=est.name, x_var_name=self.x_var_name,
+                x_var_value=x, round=r))
+        dirpath = self.exp_dir.path_for(dirname, is_dir=True)
 
-    class Ridge(linear_model.Ridge, CrossValidator):
-        record_attrs = ['alpha']
-        name = "Ridge"
+        if 'directory' in est.get_params():
+            est.directory = dirpath
 
-        def point_grid(self, context, rng):
-            return {'alpha': np.logspace(-4, -.5, 30)}
+        est_params = est.get_params()
 
-        def point_distribution(self, context, rng):
-            return {'alpha': LogUniform(-4, -.5, 10, rng)}
+        if self.mode == 'estimator':
+            if self.x_var_name not in est_params:
+                raise ValueError(
+                    "Estimator %s does not accept a parameter "
+                    "called %s." % (est, self.x_var_name))
+            setattr(est, self.x_var_name, x)
 
-    class Lasso(linear_model.Lasso, CrossValidator):
-        record_attrs = ['alpha']
-        name = "Lasso"
+        logger.info(
+            "Collecting data point. "
+            "method: %s, %s: %s, repeat: %d, seed: %d."
+            "" % (base_est.name, self.x_var_name,
+                  str(x), r, est_seed))
 
-        def point_grid(self, context, rng):
-            return {'alpha': np.logspace(-4, -.5, 30)}
+        try:
+            dists = est.point_distribution(context=context)
+        except KeyError as e:
+            raise KeyError(
+                "Key {key} required by estimator {est} was "
+                "not in context {context} supplied by the data "
+                "generation function.".format(
+                    key=e, est=est, context=context))
 
-        def point_distribution(self, context, rng):
-            return {'alpha': LogUniform(-4, -.5, 10, rng)}
+        for name, dist in six.iteritems(dists):
+            if hasattr(dist, 'rvs'):
+                dist.random_state = search_rng
 
-    # Insert into global namespace for pickling.
-    globals()['Ridge'] = Ridge
-    globals()['Lasso'] = Lasso
+        # Make sure we don't CV over the independent variable.
+        if self.mode == 'estimator':
+            dists.pop(self.x_var_name, None)
 
-    experiment = Experiment(
-        'data', [Ridge(0.1), Lasso(0.1)],
-        'train_size', np.linspace(0.1, 0.8, 8),
-        generate_diabetes_data, [(mse_score, 'NMSE'), (mae_score, 'NMAE')],
-        search_kwargs=dict(cv=2, n_jobs=2), directory='experiments')
-    df = experiment.run()
+        for key in dists:
+            if key not in est_params:
+                raise ValueError(
+                    "Point distribution contains field "
+                    "``%s`` which is not a parameter of "
+                    "the estimator %s." % (key, est))
 
-    plt.figure(figsize=(10, 10))
-    plot_measures(df, ['NMSE', 'NMAE', 'alpha'], 'train_size', 'method')
-    if display:
-        plt.show()
+        n_points = get_n_points(dists)
+        n_iter = min(
+            self.search_kwargs.get('n_iter', 10), n_points)
 
-    return experiment, df
+        if n_points > n_iter:
+            search = RandomizedSearchCV(
+                est, dists, scoring=self.scores[0],
+                **self.search_kwargs)
+            logger.info("    Running RandomizedSearchCV for "
+                        "%d iters..." % n_iter)
+        else:
+            # These are arguments for RandomizedSearchCV
+            # but not GridSearchCV
+            _search_kwargs = self.search_kwargs.copy()
+            _search_kwargs.pop('random_state', None)
+            _search_kwargs.pop('n_iter', None)
+
+            search = GridSearchCV(
+                est, dists, scoring=self.scores[0],
+                **_search_kwargs)
+            logger.info(
+                "    Running GridSearchCV for "
+                "%d iters..." % n_iter)
+
+        then = time.time()
+        search.fit(train.X, train.y)
+        search_time = time.time() - then
+
+        logger.info("    Best params: %s." % search.best_params_)
+        logger.info("    Search time: "
+                    "%s seconds per point." % (search_time/n_iter))
+
+        learned_est = search.best_estimator_
+
+        if self.save_estimators:
+            estpath = os.path.join(dirpath, 'estimator')
+            save_object(estpath, learned_est)
+
+        results = {
+            'round': r, self.x_var_name: x,
+            'method': base_est.name,
+            'search_time_per_point': search_time/n_iter}
+
+        best_grid_score = max(
+            search.grid_scores_,
+            key=lambda gs: gs.mean_validation_score)
+
+        train_score = best_grid_score.mean_validation_score
+        train_score_std = np.std(
+            best_grid_score.cv_validation_scores)
+
+        logger.info("    Training score mean: %f." % train_score)
+        results['training_score'] = train_score
+
+        logger.info(
+            "    Training score std: %f." % train_score_std)
+        results['training_score_std'] = train_score_std
+
+        record_attrs = (
+            [] if not hasattr(learned_est, 'record_attrs')
+            else learned_est.record_attrs)
+
+        for attr in record_attrs:
+            value = getattr(learned_est, attr)
+            try:
+                value = float(value)
+            except ValueError:
+                pass
+
+            results[attr] = value
+            logger.info(
+                "    Value for attr %s: %s." % (attr, value))
+
+        logger.info("    Running tests...")
+        then = time.time()
+        for s, sn in zip(self.scores, self.score_names):
+            score = s(learned_est, test.X, test.y)
+            logger.info("    Test score %s: %f." % (sn, score))
+            results[sn] = score
+        test_time = time.time() - then
+        logger.info("    Test time: %s seconds." % test_time)
+        results['test_time'] = test_time
+
+        return results, search
 
 
-def estimator_experiment(display=False):
-    """ Implement the sklearn LASSO example. """
-
-    import matplotlib.pyplot as plt
-    from sklearn import datasets, linear_model
-
-    def generate_diabetes_data(seed=None):
-        diabetes = datasets.load_diabetes()
-        X_train = diabetes.data[:150]
-        y_train = diabetes.target[:150]
-        X_test = diabetes.data[150:]
-        y_test = diabetes.target[150:]
-
-        return Dataset(X_train, y_train), Dataset(X_test, y_test)
-
-    class Ridge(linear_model.Ridge, CrossValidator):
-        record_attrs = ['alpha']
-        name = "Ridge"
-
-        def point_distribution(self, context, rng):
-            return {}
-
-    class Lasso(linear_model.Lasso, CrossValidator):
-        record_attrs = ['alpha']
-        name = "Lasso"
-
-        def point_distribution(self, context, rng):
-            return {}
-
-    # Insert into global namespace for pickling.
-    globals()['Ridge'] = Ridge
-    globals()['Lasso'] = Lasso
-
-    alphas = np.logspace(-4, -.5, 30)
-    experiment = Experiment(
-        'estimator', [Ridge(), Lasso()], 'alpha', alphas,
-        generate_diabetes_data, n_repeats=1,
-        search_kwargs=dict(n_jobs=1), directory='experiments',
-        training_stats=True)
-
-    df = experiment.run()
-    scores = df[df['method'] == 'Lasso']['training_score'].values
-    scores_std = df[df['method'] == 'Lasso']['training_score_std'].values
-
-    plt.figure(figsize=(4, 3))
-    plt.semilogx(alphas, scores)
-    # plot error lines showing +/- std. errors of the scores
-    plt.semilogx(
-        alphas, np.array(scores) + np.array(scores_std) / np.sqrt(150), 'b--')
-    plt.semilogx(
-        alphas, np.array(scores) - np.array(scores_std) / np.sqrt(150), 'b--')
-    plt.ylabel('CV score')
-    plt.xlabel('alpha')
-
-    if display:
-        plt.show()
-
-    return experiment, df
+ExperimentSpec = namedtuple('ExperimentSpec', 'title score score_display '
+                            'x_var_name x_var_values '
+                            'x_var_display n_repeats kwargs')
 
 
-if __name__ == "__main__":
-    e, df = data_experiment(True)
-    e, df = estimator_experiment(True)
+def run_experiment_and_plot(
+        mode, estimators, data_generator, specs, quick_specs,
+        data_kwargs, spec_names='all', search_kwargs=None,
+        directory='/data/experiments', random_state=None,
+        labels=None, params=None):
+    """ A utility function which handles much of the boilerplate required to set
+        up a script running a set of experiments and plotting the results.
+
+    """
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--plot', action='store_true',
+        help='If supplied, will plot the most recent set of experiments '
+             'rather running a new set.')
+    parser.add_argument(
+        '--time', action='store_true',
+        help='If supplied, will plot timing '
+             'information as well as score information.')
+    parser.add_argument(
+        '--show', action='store_true',
+        help='If supplied, displays the plots as they are created.')
+    parser.add_argument(
+        '--quick', action='store_true',
+        help='If supplied, run a set of small test experiments.')
+    parser.add_argument(
+        '--n-jobs', type=int, default=1,
+        help="Number of jobs to use for cross validation.")
+    parser.add_argument(
+        '-r', action='store_true',
+        help="If supplied, exceptions encountered during "
+             "cross-validation will propagated all the way up. Otherwise, "
+             "the exceptions are caught and the candidate parameter setting "
+             "receives a score of negative infinity.")
+
+    logging.basicConfig(level=logging.INFO, format='')
+
+    args = parser.parse_args()
+    if args.quick:
+        specs = quick_specs
+
+    labels = {} if labels is None else labels
+    search_kwargs = {} if search_kwargs is None else search_kwargs
+    search_kwargs.update(
+        n_jobs=args.n_jobs,
+        error_score='raise' if args.r else -np.inf)
+
+    if spec_names == 'all':
+        spec_names = specs.keys()
+    else:
+        spec_names = spec_names.split(' ')
+
+    experiments = []
+    figs = []
+
+    for spec_name in spec_names:
+        print("Running experiment %s." % spec_name)
+
+        spec = specs[spec_name]
+        title = spec.title
+        score = spec.score
+        score_display = spec.score_display
+        x_var_name = spec.x_var_name
+        x_var_values = spec.x_var_values
+        x_var_display = spec.x_var_display
+        n_repeats = spec.n_repeats
+
+        _data_kwargs = data_kwargs.copy()
+        _data_kwargs.update(spec.kwargs)
+
+        experiment_name = "%s:%s" % (spec_name, x_var_name)
+
+        if not args.plot:
+            experiment = Experiment(
+                mode, estimators, x_var_name, x_var_values,
+                data_generator, score,
+                n_repeats=n_repeats, data_kwargs=_data_kwargs,
+                search_kwargs=search_kwargs, directory=directory,
+                name=experiment_name, params=params)
+
+            df = experiment.run(
+                'results_%s.csv' % experiment_name, random_state=random_state)
+            exp_dir = experiment.exp_dir
+            with open(exp_dir.path_for('experiment.pkl'), 'wb') as f:
+                dill.dump(experiment, f, protocol=dill.HIGHEST_PROTOCOL)
+        else:
+            exp_dir = get_latest_exp_dir(directory)
+            df = pd.read_csv(
+                exp_dir.path_for('results_%s.csv' % experiment_name))
+            try:
+                with open(exp_dir.path_for('experiment.pkl'), 'rb') as f:
+                    experiment = dill.load(f)
+            except:
+                experiment = None
+
+        experiments.append(experiment)
+
+        markers = MarkerStyle.filled_markers
+        colors = seaborn.color_palette("hls", 16)
+
+        def plot_kwarg_func(sv):
+            idx = hash(str(sv))
+            marker = markers[idx % len(markers)]
+            c = colors[idx % len(colors)]
+            label = labels.get(sv, sv)
+            return dict(label=label, c=c, marker=marker)
+
+        measure_names = (
+            experiment.score_names if experiment is not None else
+            [mn for mn in df.columns if 'score' in mn])
+
+        if args.time:
+            measure_names += [mn for mn in df.columns if 'time' in mn]
+
+        plt.figure(figsize=(10, 5))
+        fig, axes = plot_measures(
+            df, measure_names, x_var_name, 'method',
+            legend_outside=True,
+            kwarg_func=plot_kwarg_func,
+            measure_display=score_display,
+            x_var_display=x_var_display)
+        axes[0].set_title(title)
+
+        # plt.rc('text', usetex=True)
+        plt.rc('font', family='serif', size=22)
+
+        fig.subplots_adjust(left=0.1, right=0.85, top=0.94, bottom=0.12)
+
+        plt.savefig(exp_dir.path_for('plot_%s.pdf' % x_var_name))
+
+        if args.show:
+            plt.show()
+
+        figs.append(fig)
+
+    return experiments, figs

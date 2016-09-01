@@ -99,8 +99,8 @@ def test_spectral_like(learning_alg):
         if basis is None:
             basis = top_k_basis(samples, np.inf, estimator)
 
-        sa = learning_alg(dimension, hmm.n_observations)
-        sa.fit(samples, basis=basis, estimator=estimator)
+        sa = learning_alg(dimension, hmm.n_observations, estimator=estimator)
+        sa.fit(samples, basis=basis)
         return sa
 
     seed = 10
@@ -163,8 +163,8 @@ def test_convex_opt():
     def learn(hmm, samples, dimension, basis=None):
         if basis is None:
             basis = top_k_basis(samples, np.inf, 'prefix')
-        sa = ConvexOptSA(hmm.observations)
-        sa.fit(samples, dimension, basis=basis, estimator='prefix')
+        sa = ConvexOptSA(hmm.observations, estimator='prefix')
+        sa.fit(samples, dimension, basis=basis)
         return sa
 
     seed = 10

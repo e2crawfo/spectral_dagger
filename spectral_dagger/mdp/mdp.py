@@ -98,7 +98,7 @@ class MDP(Environment):
 
         """
         init_dist = self.init_dist if init_dist is None else init_dist
-        init_state = self.states[sample_multinomial(init_dist, self.run_rng)]
+        init_state = self.states[sample_multinomial(init_dist, self.random_state)]
         self.current_state = init_state
         return init_state
 
@@ -110,7 +110,7 @@ class MDP(Environment):
 
         dist = self._T[action, self.current_state]
         self.current_state = self.states[
-            sample_multinomial(dist, self.run_rng)]
+            sample_multinomial(dist, self.random_state)]
 
         reward = self.get_reward(action, prev_state, self.current_state)
 

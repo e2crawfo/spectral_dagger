@@ -2,69 +2,34 @@ import abc
 import numpy as np
 import time
 import six
+from sklearn.utils import check_random_state
 
 
 maxint = np.iinfo(np.int32).max
-_rngs = {None: np.random.RandomState()}
 
 
-def process_rng(rng):
-    if isinstance(rng, int):
-        return np.random.RandomState(rng)
-    elif rng is None:
-        return _rngs[None]
-    elif not isinstance(rng, np.random.RandomState):
-        raise ValueError(
-            "``rng`` must be None or an instance of np.random.RandomState")
-    return rng
-
-
-def rng(key=None, rng=None):
-    if rng is not None:
-        rng = process_rng(rng)
-        _rngs[key] = rng
-        return rng
-
-    rng = _rngs.get(key, False)
-    if rng is False:
-        rng = process_rng(gen_seed())
-        _rngs[key] = rng
-        return rng
-    else:
-        return rng
-
-
-def clear_rngs():
-    default_rng = _rngs[None]
-    _rngs.clear()
-    _rngs[None] = default_rng
-
-
-def clear_rng(key):
-    del _rngs[key]
-
-
-def gen_seed(rng=None):
-    if rng is None:
-        rng = _rngs[None]
-    return rng.randint(maxint)
-
-
-def set_seed(seed):
-    clear_rngs()
-    _rngs[None] = process_rng(seed)
-    return _rngs[None]
+def gen_seed(random_state):
+    return random_state.randint(maxint)
 
 
 class SpectralDaggerObject(object):
+    _random_state = np.random.RandomState()
 
     @property
-    def build_rng(self):
-        return rng('build')
+    def random_state(self):
+        return self._random_state
 
-    @property
-    def run_rng(self):
-        return rng('run')
+    @random_state.setter
+    def random_state(self, random_state=None):
+        self._random_state = check_random_state(random_state)
+
+
+def set_random_state(random_state=None):
+    """ Sets the default random state. Does not affect objects that have
+        their own random state set.
+
+    """
+    SpectralDaggerObject._random_state = check_random_state(random_state)
 
 
 class Space(object):
@@ -310,7 +275,7 @@ class Environment(SpectralDaggerObject):
 
     def sample_episodes(
             self, n_eps, policy=None, horizon=np.inf,
-            reset_env=True, hook=None, rng=None):
+            reset_env=True, hook=None, random_state=None):
         """ Sample a batch of episodes.
 
         Parameters
@@ -335,13 +300,14 @@ class Environment(SpectralDaggerObject):
         hook: function (optional)
             A function that is called every time step with the results from
             that time step. Useful e.g. for logging or displaying.
-        rng: RandomState instance (optional)
-            Random number generator to use for the episodes. If not supplied,
-            self.rng is used.
+        random_state: int seed, RandomState instance, or None (default)
+            Random number generator to use for the episodes.
 
         """
-        if rng is not None:
-            self.rng, rng = rng, self.rng
+        old_random_state = None
+        if random_state is not None:
+            old_random_state = self.random_state
+            self.random_state = random_state
 
         if policy is None:
             policies = []
@@ -434,8 +400,8 @@ class Environment(SpectralDaggerObject):
 
             episodes.append(episode)
 
-        if rng is not None:
-            self.rng, rng = rng, self.rng
+        if old_random_state is not None:
+            self.random_state = old_random_state
 
         return episodes
 

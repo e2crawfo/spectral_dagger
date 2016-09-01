@@ -17,14 +17,16 @@ import six
 
 
 def estimate_hankels(data, basis, observations, estimator, sparse=False):
-    mapping = build_frequencies(data, estimator, basis)
-
-    def f(seq):
-        return mapping.get(seq, 0.0)
-
+    f = build_frequencies(data, estimator, basis)
     ret = hankels_from_callable(f, basis, observations, sparse=sparse)
 
     return ret
+
+
+def set_if_nonzero(f, a, i, j, seq):
+    value = f(seq)
+    if value != 0.0:
+        a[i, j] = value
 
 
 def hankels_from_callable(f, basis, observations, sparse=False):
@@ -43,17 +45,18 @@ def hankels_from_callable(f, basis, observations, sparse=False):
         symbol_hankels[o] = lil_matrix((size_P, size_S))
 
     for prefix, idx in six.iteritems(prefix_dict):
-        hp[idx, 0] = f(prefix)
+        set_if_nonzero(f, hp, idx, 0, prefix)
 
     for suffix, idx in six.iteritems(suffix_dict):
-        hs[0, idx] = f(suffix)
+        set_if_nonzero(f, hs, 0, idx, suffix)
 
     for prefix, pidx in six.iteritems(prefix_dict):
         for suffix, sidx in six.iteritems(suffix_dict):
-            hankel[pidx, sidx] = f(prefix + suffix)
+            set_if_nonzero(f, hankel, pidx, sidx, prefix + suffix)
 
             for o in observations:
-                symbol_hankels[o][pidx, sidx] = f(prefix + (o,) + suffix)
+                set_if_nonzero(
+                    f, symbol_hankels[o], pidx, sidx, prefix + (o,) + suffix)
     if sparse:
         hp = csr_matrix(hp)
         hs = csr_matrix(hs)
@@ -67,30 +70,34 @@ def hankels_from_callable(f, basis, observations, sparse=False):
         return hp.toarray(), hs.toarray(), hankel.toarray(), symbol_hankels
 
 
-def string_generator(data):
+def string_generator(data, f):
     for seq in data:
-        yield tuple(seq)
+        seq = tuple(seq)
+        yield (tuple(seq), f[seq])
 
 
-def prefix_generator(data):
+def prefix_generator(data, f):
     for seq in data:
         seq = tuple(seq)
         for end in range(len(seq)+1):
-            yield seq[:end]
+            yield (seq[:end], f[seq])
 
 
-def substring_generator(data):
+def substring_generator(data, f):
     for seq in data:
         seq = tuple(seq)
         for end in range(len(seq)+1):
             for start in range(end+1):
-                yield seq[start:end]
+                yield (seq[start:end], f[seq])
 
 
 def build_frequencies(data, estimator, basis=None):
     """ If ``basis`` is not None, then we will only store frequencies for
         sequences that would be required to populate a set of Hankel matrices
         that made use of that basis.
+
+        ``data`` can either be a list of sequences, or a mapping from
+        sequences to probabilities.
 
     """
     generators = {
@@ -105,12 +112,16 @@ def build_frequencies(data, estimator, basis=None):
     if basis is not None:
         prefix_dict, suffix_dict = basis
 
-    f = defaultdict(float)
-    n_samples = len(data)
+    assert isinstance(data, (list, dict, np.ndarray))
+    mapping = (
+        data if isinstance(data, dict)
+        else defaultdict(lambda: 1.0/len(data)))
 
-    for element in generator(data):
+    built_mapping = defaultdict(float)
+
+    for element, value in generator(data, mapping):
         do_store = (
-            basis is None or element in f or
+            basis is None or element in built_mapping or
             element in prefix_dict or element in suffix_dict)
 
         if not do_store:
@@ -124,7 +135,10 @@ def build_frequencies(data, estimator, basis=None):
                         break
 
         if do_store:
-            f[element] += 1.0 / n_samples
+            built_mapping[element] += value
+
+    def f(seq):
+        return built_mapping.get(seq, 0.0)
 
     return f
 
@@ -520,25 +534,38 @@ def top_k_basis(data, k, estimator='string', max_length=np.inf, square=True):
     return prefix_dict, suffix_dict
 
 
-def fixed_length_basis(observations, length, with_empty=True):
+def fixed_length_basis(
+        observations, prefix_length, suffix_length=None, with_empty=True):
     """ Returns basis consisting of all sequences of a given length.
 
     Parameters
     ----------
     observations: list
         All possible observations.
-    length: int > 0
-        The length of the sequences in the basis.
+    prefix_length: int > 0
+        The length of the prefix sequences in the basis.
+    suffix_length: int > 0 (optional)
+        The length of the suffix sequences in the basis. If omitted,
+        ``prefix_length`` is used.
     with_empty: bool
         Whether to include the empty string in the basis.
 
     """
     prefix_dict = {}
-
     if with_empty:
         prefix_dict[()] = 0
 
-    for seq in product(*[observations for i in range(length)]):
+    for seq in product(*[observations for i in range(prefix_length)]):
         prefix_dict[seq] = len(prefix_dict)
 
-    return prefix_dict, prefix_dict.copy()
+    suffix_length = suffix_length or prefix_length
+    if suffix_length == prefix_length:
+        suffix_dict = prefix_dict.copy()
+    else:
+        suffix_dict = {}
+        if with_empty:
+            suffix_dict[()] = 0
+        for seq in product(*[observations for i in range(suffix_length)]):
+            suffix_dict[seq] = len(suffix_dict)
+
+    return prefix_dict, suffix_dict

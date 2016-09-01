@@ -1,6 +1,6 @@
 import numpy as np
 
-from spectral_dagger.utils import normalize
+from spectral_dagger.utils import normalize, sample_multinomial
 from spectral_dagger import Environment, Space
 
 
@@ -65,13 +65,16 @@ class MixtureStochAuto(Environment):
         return False
 
     def reset(self, initial=None):
+        # For filtering
         for stoch_auto in self.stoch_autos:
             stoch_auto.reset()
+        self.state_dist = self.coefficients.copy()
+
+        # For generating
         for stoch_auto in self._sample_stoch_autos:
             stoch_auto.reset()
-
-        self.choice = self.run_rng.choice(self._sample_stoch_autos)
-        self.state_dist = self.coefficients.copy()
+        choice_idx = sample_multinomial(self.coefficients, self.random_state)
+        self.choice = self._sample_stoch_autos[choice_idx]
 
     def step(self):
         if self.choice.terminal:
@@ -96,35 +99,50 @@ class MixtureStochAuto(Environment):
 
         return (self.state_dist * weights).sum()
 
+    def get_termination_prob(self):
+        """ Get probability of terminating.  """
+        weights = np.array([
+            stoch_auto.get_termination_prob()
+            for stoch_auto in self.stoch_autos])
+
+        return (self.state_dist * weights).sum()
+
     def get_obs_dist(self):
         """ Get distribution over observations for next time step. """
-        return np.array([self.get_obs_prob(o) for o in self.observations])
+        dist = [self.get_obs_prob(o) for o in self.observations]
+        dist.append(self.get_termination_prob())
+        dist = normalize(dist, ord=1)
 
-    def get_string_prob(self, string):
+        return dist
+
+    def get_string_prob(self, string, log=True):
         """ Get probability of string. """
         weights = np.array([
             stoch_auto.get_string_prob(string)
             for stoch_auto in self.stoch_autos])
 
-        return (self.state_dist * weights).sum()
+        p = (self.coefficients * weights).sum()
+        return np.log(p) if log else p
 
-    def get_delayed_string_prob(self, string):
+    def get_delayed_string_prob(self, string, log=True):
         """ Get probability of string. """
         weights = np.array([
             stoch_auto.get_delayed_string_prob(string)
             for stoch_auto in self.stoch_autos])
 
-        return (self.state_dist * weights).sum()
+        p = (self.coefficients * weights).sum()
+        return np.log(p) if log else p
 
-    def get_prefix_prob(self, prefix, init_state=None):
+    def get_prefix_prob(self, prefix, log=True):
         """ Get probability of prefix. """
         weights = np.array([
             stoch_auto.get_prefix_prob(prefix)
             for stoch_auto in self.stoch_autos])
 
-        return (self.state_dist * weights).sum()
+        p = (self.coefficients * weights).sum()
+        return np.log(p) if log else p
 
-    def get_delayed_prefix_prob(self, prefix, t, init_state=None):
+    def get_delayed_prefix_prob(self, prefix, t, log=True):
         """ Get probability of observing prefix at a delay of ``t``.
 
         get_delayed_prefix_prob(p, 0) is equivalent to get_prefix_prob(p).
@@ -134,7 +152,8 @@ class MixtureStochAuto(Environment):
             stoch_auto.get_prefix_prob(prefix)
             for stoch_auto in self.stoch_autos])
 
-        return (self.state_dist * weights).sum()
+        p = (self.coefficients * weights).sum()
+        return np.log(p) if log else p
 
     def get_substring_expectation(self, substring):
         """ Get expected number of occurrences of a substring. """
@@ -142,46 +161,51 @@ class MixtureStochAuto(Environment):
             stoch_auto.get_substring_expectation(substring)
             for stoch_auto in self.stoch_autos])
 
-        return (self.state_dist * weights).sum()
+        return (self.coefficients * weights).sum()
 
-    def get_WER(self, test_data):
+    def WER(self, test_data):
         """ Get word error rate for the test data. """
-        errors = 0.0
+        n_errors = 0.0
         n_predictions = 0.0
 
         for seq in test_data:
             self.reset()
 
             for o in seq:
-                prediction = self.predict()
-                self.update(o)
+                dist = self.get_obs_dist()
+                prediction = np.argmax(dist)
 
-                if prediction != o:
-                    errors += 1
+                n_errors += int(prediction != o)
                 n_predictions += 1
 
-        return errors / n_predictions
+                self.update(o)
 
-    def get_log_likelihood(self, test_data, base=2):
+            dist = self.get_obs_dist()
+            prediction = np.argmax(dist)
+            n_errors += int(prediction != self.n_observations)
+            n_predictions += 1
+
+        return n_errors / n_predictions
+
+    def mean_log_likelihood(self, test_data, string=True):
         """ Get average log likelihood for the test data. """
         llh = 0.0
 
         for seq in test_data:
-            if base == 2:
-                seq_llh = np.log2(self.get_string_prob(seq))
+            if string:
+                seq_llh = self.get_string_prob(seq, log=True)
             else:
-                seq_llh = np.log(self.get_string_prob(seq))
+                seq_llh = self.get_prefix_prob(seq, log=True)
 
             llh += seq_llh
 
         return llh / len(test_data)
 
-    def get_perplexity(self, test_data, base=2):
+    def perplexity(self, test_data):
         """ Get model perplexity on the test data.  """
+        return np.exp(-self.mean_log_likelihood(test_data))
 
-        return 2**(-self.get_log_likelihood(test_data, base=base))
-
-    def get_1norm_error(self, test_data):
+    def mean_one_norm_error(self, test_data):
         error = 0.0
         n_predictions = 0.0
 
@@ -189,18 +213,13 @@ class MixtureStochAuto(Environment):
             self.reset()
 
             for o in seq:
-                pd = np.array([
-                    self.get_obs_prob(obs)
-                    for obs in self.observations])
-                pd = np.clip(pd, 0.0, np.inf)
-                pd /= pd.sum()
-
-                true_pd = np.zeros(len(self.observations))
-                true_pd[o] = 1.0
-
-                error += np.linalg.norm(pd - true_pd, ord=1)
-
+                dist = self.get_obs_dist()
+                error += 2 * (1 - dist[o])
                 self.update(o)
                 n_predictions += 1
+
+            dist = self.get_obs_dist()
+            error += 2 * (1 - dist[self.n_observations])
+            n_predictions += 1
 
         return error / n_predictions
