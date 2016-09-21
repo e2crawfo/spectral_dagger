@@ -164,7 +164,7 @@ def pautomac_score(model, problem_idx):
     ground_truth = load_pautomac_ground_truth(problem_idx)
 
     model_probs = np.array([
-        model.get_string_prob(seq) for seq in test_data])
+        model.string_prob(seq) for seq in test_data])
 
     # The PAutomaC paper (Verwer et al. 2012) requests that the
     # submitted probabilities be normalized to sum to 1. The ground

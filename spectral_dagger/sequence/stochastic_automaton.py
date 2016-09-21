@@ -6,11 +6,10 @@ from sklearn.utils.extmath import randomized_svd
 from copy import deepcopy
 import logging
 
-from spectral_dagger import Environment, LearningAlgorithm, Space, Policy
+from spectral_dagger import Space
 from spectral_dagger.sequence import (
-    estimate_hankels, estimate_kernel_hankels, top_k_basis,
-    construct_hankels_with_actions, construct_hankels_with_actions_robust)
-from spectral_dagger.utils import sample_multinomial
+    SequenceModel, Multinomial, estimate_hankels,
+    estimate_kernel_hankels, top_k_basis)
 from spectral_dagger.utils import normalize as _normalize
 
 
@@ -20,7 +19,7 @@ machine_eps = np.finfo(float).eps
 MAX_BASIS_SIZE = 100
 
 
-class StochasticAutomaton(Environment):
+class StochasticAutomaton(SequenceModel):
     """ A Stochastic Automaton.
 
     Notes: Defines both ``update`` and ``step`` methods, so it can be either be
@@ -72,9 +71,6 @@ class StochasticAutomaton(Environment):
     def can_terminate(self):
         return (self.b_inf_string != 0).any()
 
-    def in_terminal_state(self):
-        return self.terminal
-
     def has_terminal_states(self):
         return self.can_terminate
 
@@ -84,35 +80,13 @@ class StochasticAutomaton(Environment):
     def operator(self, o):
         return self.B_o[o]
 
-    def _lookahead(self):
-        """ Decide whether to halt, and if not, compute next-state probs. """
-        dist = self.get_obs_dist()
-        terminal_prob = dist[-1]
-        self.terminal = self.random_state.rand() < terminal_prob
+    def check_terminal(self, obs):
+        return obs == self.n_observations
 
-        probs = dist[:-1]
-        if probs.sum() == 0:
-            raise Exception("Dividing by 0 when calculating next-step "
-                            "probabilities for StochasticAutomaton.")
-
-        # Normalize probs since we've already sampled whether to terminate.
-        self.probs = probs / probs.sum()
-        assert not any(np.isnan(self.probs))
-
-    def reset(self, initial=None):
-        self.b = self.b_0.copy()
-        self._lookahead()
-
-    def step(self):
-        if self.terminal:
-            return None
-
-        sample = sample_multinomial(self.probs, self.random_state)
-        o = self.observations[sample]
-        self.update(o)
-        self._lookahead()
-
-        return o
+    def _reset(self, initial=None):
+        """ Reset internal history. """
+        self.b = self.b_0.copy() if initial is None else initial
+        self._cond_obs_dist = None
 
     def update(self, o):
         """ Update state upon seeing an observation. """
@@ -123,55 +97,45 @@ class StochasticAutomaton(Environment):
             self.b = np.zeros_like(self.b)
         else:
             self.b = numer / denom
+        self._cond_obs_dist = None
 
-    def get_obs_prob(self, o):
+    def cond_obs_dist(self):
+        if self._cond_obs_dist is None:
+            p = [self.b.dot(self.operator(obs)).dot(self.b_inf)
+                 for obs in self.observations]
+
+            termination_prob = self.b.dot(self.b_inf_string)
+            p.append(termination_prob)
+
+            p = [np.clip(_p, machine_eps, 1) for _p in p]
+
+            p = _normalize(p, ord=1)
+            self._cond_obs_dist = Multinomial(p)
+
+        return self._cond_obs_dist
+
+    def cond_obs_prob(self, o):
         """ Get probability of observation for next time step.  """
-        prob = self.b.dot(self.operator(o)).dot(self.b_inf)
-        return np.clip(prob, machine_eps, 1)
+        return self.cond_obs_dist()[o]
 
-    def get_termination_prob(self):
+    def cond_termination_prob(self):
         """ Get probability of terminating.  """
-        prob = self.b.dot(self.b_inf_string)
-        return np.clip(prob, machine_eps, 1)
+        return self.cond_obs_dist()[-1]
 
-    def get_obs_dist(self):
-        """ Get distribution over observations for next time step.
-
-        The length of the returned array is ``n_observations + 1``.
-        The final value in the array is the probability of halting.
-
-        """
-        dist = [self.get_obs_prob(o) for o in self.observations]
-        dist.append(self.get_termination_prob())
-        dist = _normalize(dist, ord=1)
-
-        return dist
-
-    def predict(self):
+    def cond_predict(self):
         """ Get observation with highest prob for next time step. """
-        return max(self.observations, key=self.get_obs_prob)
+        return np.argmax(self.cond_obs_dist())
 
-    def get_obs_rank(self, o):
-        """ Get probability rank of observation for next time step. """
-        probs = np.array(
-            [self.get_obs_prob(obs) for obs in self.observations])
-
-        return (
-            np.count_nonzero(probs > self.get_obs_prob(o)),
-            np.count_nonzero(probs < self.get_obs_prob(o)))
-
-    def get_string_prob(self, string, log=False, initial_state=None):
+    def string_prob(self, string, log=False, initial_state=None):
         """ Get probability of string. """
+        old_b = self.b
 
-        if initial_state is None:
-            self.b = self.b_0.copy()
-        else:
-            self.b = initial_state
+        self.reset(initial_state)
 
         log_prob = 0.0
 
         for o in string:
-            obs_prob = self.get_obs_prob(o)
+            obs_prob = self.cond_obs_prob(o)
             obs_prob = max(machine_eps, obs_prob)
             log_prob += np.log(obs_prob)
             self.update(o)
@@ -179,6 +143,8 @@ class StochasticAutomaton(Environment):
         end_prob = self.b.dot(self.b_inf_string)
         end_prob = max(machine_eps, end_prob)
         log_prob += np.log(end_prob)
+
+        self.b = old_b
 
         if log:
             return np.clip(log_prob, -np.inf, 0.0)
@@ -189,29 +155,30 @@ class StochasticAutomaton(Environment):
     def get_delayed_string_prob(self, string, t, log=False):
         """ Get probability of observing string at a delay of ``t``.
 
-        get_delayed_string_prob(s, 0) is equivalent to get_string_prob(s).
+        get_delayed_string_prob(s, 0) is equivalent to string_prob(s).
 
         """
         b = self.b_0.copy()
         for i in range(t):
             b = b.dot(self.B)
 
-        return self.get_string_prob(string, log=log, initial_state=b)
+        return self.string_prob(string, log=log, initial_state=b)
 
-    def get_prefix_prob(self, prefix, log=False, initial_state=None):
+    def prefix_prob(self, prefix, log=False, initial_state=None):
         """ Get probability of prefix. """
-        if initial_state is None:
-            self.b = self.b_0.copy()
-        else:
-            self.b = initial_state
+        old_b = self.b
+
+        self.reset(initial_state)
 
         log_prob = 0.0
 
         for o in prefix:
-            obs_prob = self.get_obs_prob(o)
+            obs_prob = self.cond_obs_prob(o)
             obs_prob = max(machine_eps, obs_prob)
             log_prob += np.log(obs_prob)
             self.update(o)
+
+        self.b = old_b
 
         if log:
             return np.clip(log_prob, -np.inf, 0.0)
@@ -222,97 +189,41 @@ class StochasticAutomaton(Environment):
     def get_delayed_prefix_prob(self, prefix, t, log=False):
         """ Get probability of observing prefix at a delay of ``t``.
 
-        get_delayed_prefix_prob(p, 0) is equivalent to get_prefix_prob(p).
+        get_delayed_prefix_prob(p, 0) is equivalent to prefix_prob(p).
 
         """
         b = self.b_0.copy()
         for i in range(t):
             b = b.dot(self.B)
 
-        return self.get_prefix_prob(prefix, log=log, initial_state=b)
+        return self.prefix_prob(prefix, log=log, initial_state=b)
 
-    def get_substring_expectation(self, substring):
+    def get_substring_expectation(self, substring, initial_state=None):
         """ Get expected number of occurrences of a substring. """
 
-        if not self.can_terminate():
+        if not self.can_terminate:
             raise RuntimeError(
                 "This stochastic automaton will never halt, so the "
                 "expected number of occurrences of any substring will "
                 "be infinite.")
+        old_b = self.b
+        if initial_state is None:
+            self.b = self.b_0_substring.copy()
+        else:
+            self.b = initial_state
 
-        self.b = self.b_0_substring.copy()
-
-        log_prob = 0.0
+        log_val = 0.0
 
         for o in substring:
-            obs_prob = self.get_obs_prob(o)
-            obs_prob = max(machine_eps, obs_prob)
-            log_prob += np.log2(obs_prob)
+            obs_val = self.cond_obs_val(o)
+            obs_val = max(machine_eps, obs_val)
+            log_val += np.log(obs_val)
             self.update(o)
 
-        prob = 2**log_prob
-        return np.clip(prob, machine_eps, 1)
+        self.b = old_b
 
-    def WER(self, test_data):
-        """ Get word error rate for the test data. """
-        n_errors = 0.0
-        n_predictions = 0.0
-
-        for seq in test_data:
-            self.reset()
-
-            for o in seq:
-                dist = self.get_obs_dist()
-                prediction = np.argmax(dist)
-
-                n_errors += int(prediction != o)
-                n_predictions += 1
-
-                self.update(o)
-
-            dist = self.get_obs_dist()
-            prediction = np.argmax(dist)
-            n_errors += int(prediction != self.n_observations)
-            n_predictions += 1
-
-        return n_errors / n_predictions
-
-    def mean_log_likelihood(self, test_data, string=True):
-        """ Get average log likelihood for the test data. """
-        llh = 0.0
-
-        for seq in test_data:
-            if string:
-                seq_llh = self.get_string_prob(seq, log=True)
-            else:
-                seq_llh = self.get_prefix_prob(seq, log=True)
-
-            llh += seq_llh
-
-        return llh / len(test_data)
-
-    def perplexity(self, test_data):
-        """ Get model perplexity on the test data.  """
-        return np.exp(-self.mean_log_likelihood(test_data))
-
-    def mean_one_norm_error(self, test_data):
-        error = 0.0
-        n_predictions = 0.0
-
-        for seq in test_data:
-            self.reset()
-
-            for o in seq:
-                dist = self.get_obs_dist()
-                error += 2 * (1 - dist[o])
-                self.update(o)
-                n_predictions += 1
-
-            dist = self.get_obs_dist()
-            error += 2 * (1 - dist[self.n_observations])
-            n_predictions += 1
-
-        return error / n_predictions
+        val = np.exp(log_val)
+        return np.clip(val, machine_eps, 1)
 
     def compute_start_end_vectors(self, b_0, b_inf, estimator):
         """ Calculate other start and end vectors for all estimator types.
@@ -758,7 +669,7 @@ class KernelSA(StochasticAutomaton):
 
         return self._B
 
-    def reset(self, initial=None):
+    def _reset(self, initial=None):
         self.b = self.b_0.copy()
 
     def update(self, o=None, a=None):
@@ -886,419 +797,3 @@ class SpectralKernelSA(KernelSA):
         self.reset()
 
         return self
-
-
-# Below here is largely out of date.
-class SpectralSAWithActions(object):
-    def __init__(self, actions, observations, max_dim=80):
-
-        self.n_actions = len(actions)
-        self.actions = actions
-
-        self.n_observations = len(observations)
-        self.observations = observations
-
-        self.B_ao = {}
-        self.max_dim = max_dim
-
-    @property
-    def action_space(self):
-        return Space(set(self.actions), "ActionSpace")
-
-    @property
-    def observation_space(self):
-        return Space(set(self.observations), "ObsSpace")
-
-    def fit(self, data, max_basis_size, n_components, use_naive=False):
-        """
-        data should be a list of lists. Each sublist corresponds to a
-        trajectory.  Each entry of the trajectory should be a 2-tuple,
-        giving the action followed by the observation.
-        """
-
-        logger.debug("Generating basis...")
-        basis = top_k_basis(data, max_basis_size)
-
-        logger.debug("Estimating hankels...")
-
-        # Note: all matrices returned by construct_hankels are csr_matrices
-        if use_naive:
-            logger.debug("...using naive estimator...")
-            hankels = construct_hankels_with_actions(
-                data, basis, self.actions, self.observations)
-
-            hp, hs, hankel_matrix, symbol_hankels = hankels
-        else:
-            logger.debug("...using robust estimator...")
-            hankels = construct_hankels_with_actions_robust(
-                data, basis, self.actions, self.observations)
-
-            hp, hs, hankel_matrix, symbol_hankels = hankels
-
-        self.hankel = hankel_matrix
-        self.symbol_hankels = symbol_hankels
-
-        n_components = min(n_components, hankel_matrix.shape[0])
-
-        logger.debug("Performing SVD...")
-        n_oversamples = 10
-        n_iter = 5
-
-        # H = U S V^T
-        U, S, VT = randomized_svd(
-            hankel_matrix, self.max_dim, n_oversamples, n_iter,
-            random_state=self.random_state)
-
-        V = VT.T
-
-        U = U[:, :n_components]
-        V = V[:, :n_components]
-        S = np.diag(S[:n_components])
-
-        # P^+ = (HV)^+ = (US)^+ = S^+ U+ = S^-1 U.T
-        P_plus = csr_matrix((np.linalg.pinv(S)).dot(U.T))
-
-        # S^+ = (V.T)^+ = V
-        S_plus = csr_matrix(V)
-
-        logger.debug("Computing operators...")
-
-        for pair in symbol_hankels:
-            symbol_hankel = P_plus.dot(symbol_hankels[pair])
-            symbol_hankel = symbol_hankel.dot(S_plus)
-            self.B_ao[pair] = symbol_hankel.toarray()
-
-        # computing stopping and starting vectors
-
-        # P b_inf = hp => b_inf = P^+ hp
-        self.b_inf = P_plus.dot(hp)
-        self.b_inf = self.b_inf.toarray()[:, 0]
-
-        # See Lemma 6.1.1 in Borja's thesis
-        B = sum(self.B_ao.values())
-        self.b_inf = np.linalg.pinv(np.eye(n_components)-B).dot(self.b_inf)
-
-        # b_0 S = hs => b_0 = hs S^+
-        self.b_0 = hs.dot(S_plus)
-        self.b_0 = self.b_0.toarray()[0, :]
-
-        self.reset()
-
-        return self.b_0, self.B_ao, self.b_inf
-
-    def update(self, obs, action):
-        """Update state upon seeing an action observation pair"""
-        B_ao = self.B_ao[action, obs]
-        numer = self.b.dot(B_ao)
-        denom = numer.dot(self.b_inf)
-
-        if np.isclose(denom, 0):
-            self.b = np.zeros_like(self.b)
-        else:
-            self.b = numer / denom
-
-    def reset(self):
-        self.b = self.b_0.copy()
-
-    def predict(self, action):
-        """
-        Return the symbol that the model expects next,
-        given that action is executed.
-        """
-        def predict(o):
-            return self.get_obs_prob(action, o)
-        return max(self.observations, key=predict)
-
-    def get_obs_prob(self, a, o):
-        """
-        Returns the probablilty of observing o given
-        we take action a in the current state. Interprets `o` as a
-        prefix.
-        """
-        prob = self.b.dot(self.B_ao[(a, o)]).dot(self.b_inf)
-
-        return np.clip(prob, np.finfo(float).eps, 1)
-
-    def get_obs_rank(self, a, o):
-        """
-        Get the rank of the given observation, in terms of probability,
-        given we take action a in the current state.
-        """
-        probs = np.array(
-            [self.get_obs_prob(a, obs) for obs in self.observations])
-
-        return (
-            np.count_nonzero(probs > self.get_obs_prob(a, o)),
-            np.count_nonzero(probs < self.get_obs_prob(a, o)))
-
-    def get_seq_prob(self, seq):
-        """Returns the probability of a sequence given current state"""
-
-        state = self.b
-        for (a, o) in seq:
-            state = state.dot(self.B_ao[(a, o)])
-
-        prob = state.dot(self.b_inf)
-
-        return np.clip(prob, np.finfo(float).eps, 1)
-
-    def get_state_for_seq(self, seq, initial_state=None):
-        """Returns the probability of a sequence given current state"""
-
-        state = self.b.T if initial_state is None else initial_state
-
-        for (a, o) in seq:
-            state = state.dot(self.B_ao[(a, o)])
-
-        return state / state.dot(self.b_inf)
-
-    def WER(self, test_data):
-        """Returns word error rate for the test data"""
-        errors = 0
-        n_predictions = 0
-
-        for seq in test_data:
-            self.reset()
-
-            for a, o in seq:
-                prediction = self.predict(a)
-
-                if prediction != o:
-                    errors += 1
-
-                self.update(o, a)
-
-                n_predictions += 1
-
-        return errors/float(n_predictions)
-
-    def mean_log_likelihood(self, test_data, base=2):
-        """Returns average log likelihood for the test data"""
-        llh = 0
-
-        for seq in test_data:
-            seq_llh = 0
-
-            self.reset()
-
-            for (a, o) in seq:
-                if base == 2:
-                    seq_llh += np.log2(self.get_obs_prob(a, o))
-                else:
-                    seq_llh += np.log(self.get_obs_prob(a, o))
-
-                self.update(o, a)
-
-            llh += seq_llh
-
-        return llh / len(test_data)
-
-
-class SpectralClassifier(LearningAlgorithm):
-    """
-    A learning algorithm which learns to select actions in a
-    POMDP setting based on observed trajectories and expert actions.
-    Uses the observed trajectories to learn a SA for the POMDP that
-    gave rise to the trajectories, and then uses a classifier to learn
-    a mapping between states of the SA to expert actions.
-
-    Parameters
-    ----------
-    predictor: any
-        Must implement the sklearn Estimator and Predictor interfaces.
-        http://scikit-learn.org/stable/developers/contributing.html
-    max_basis_size: int
-        The maximum size of the basis for the spectral learner.
-    n_components: int
-        The number of components to use in the spectral learner.
-
-    """
-    def __init__(self, predictor, max_basis_size=500, n_components=50):
-
-        self.predictor = predictor
-        self.max_basis_size = max_basis_size
-        self.n_components = n_components
-
-    def fit(self, pomdp, trajectories, actions):
-        """ Returns a policy trained on the given data.
-
-        Parameters
-        ----------
-        pomdp: POMDP
-            The pomdp that the data was generated from.
-        trajectories: list of lists of action-observation pairs
-            Each sublist corresponds to a trajectory.
-        actions: list of lists of actions
-            Each sublist contains the actions generated by the expert in
-            response to trajectories. The the j-th entry of the i-th sublist
-            gives the action chosen by the expert in response to the first
-            j-1 action-observation pairs in the i-th trajectory in
-            `trajectories`. The actions in this data structure are not
-            necessarily the same as the actions in `trajectories`.
-
-        """
-        self.sauto = SpectralSAWithActions(pomdp.actions, pomdp.observations)
-
-        self.sauto.fit(trajectories, self.max_basis_size, self.n_components)
-
-        sauto_states = []
-        flat_actions = []
-
-        for t, response_actions in zip(trajectories, actions):
-            self.sauto.reset()
-
-            for (a, o), response_action in zip(t, response_actions):
-                sauto_states.append(self.sauto.b)
-                flat_actions.append(response_action)
-
-                self.sauto.update(o, a)
-
-        # Most sklearn predictors operate on strings or numbers
-        action_lookup = {str(a): a for a in set(flat_actions)}
-        str_actions = [str(a) for a in flat_actions]
-
-        self.predictor.fit(sauto_states, str_actions)
-
-        def f(sauto_state):
-            sauto_state = sauto_state.reshape(1, -1)
-            action_string = self.predictor.predict(sauto_state)[0]
-            return action_lookup[action_string]
-
-        return SpectralPolicy(self.sauto, f)
-
-
-class SpectralPolicy(Policy):
-    def __init__(self, sauto, f):
-        self.sauto = sauto
-        self.f = f
-
-    @property
-    def action_space(self):
-        return self.sauto.action_space
-
-    @property
-    def observation_space(self):
-        return self.sauto.observation_space
-
-    def reset(self, init_dist=None):
-        if init_dist is not None:
-            raise Exception(
-                "Cannot supply initialization distribution to SA. "
-                "An SA only works with the initialization distribution "
-                "on which it was trained.")
-
-        self.sauto.reset()
-
-    def update(self, observation, action, reward=None):
-        self.sauto.update(observation, action)
-
-    def get_action(self):
-        return self.f(self.sauto.b)
-
-
-if __name__ == "__main__":
-    from spectral_dagger.envs import EgoGridWorld
-    from spectral_dagger.mdp import UniformRandomPolicy
-
-    # Sample a bunch of trajectories, run the learning algorithm on them
-    n_trajectories = 20000
-    horizon = 3
-    n_components = 40
-    max_basis_size = 1000
-    max_dim = 150
-
-    world = np.array([
-        ['x', 'x', 'x', 'x', 'x'],
-        ['x', ' ', ' ', 'G', 'x'],
-        ['x', ' ', ' ', ' ', 'x'],
-        ['x', ' ', 'x', ' ', 'x'],
-        ['x', ' ', ' ', ' ', 'x'],
-        ['x', 'S', ' ', ' ', 'x'],
-        ['x', 'x', 'x', 'x', 'x']]
-    )
-
-    n_colors = 2
-
-    pomdp = EgoGridWorld(n_colors, world)
-
-    exploration_policy = UniformRandomPolicy(pomdp.actions)
-    trajectories = []
-
-    print("Sampling trajectories...")
-    trajectories = pomdp.sample_episodes(
-        n_trajectories, exploration_policy, horizon)
-
-    for use_naive in [True, False]:
-        print("Training model...")
-
-        sauto = SpectralSAWithActions(
-            pomdp.actions, pomdp.observations, max_dim)
-
-        b_0, B_ao, b_inf = sauto.fit(
-            trajectories, max_basis_size, n_components, use_naive)
-
-        test_length = 10
-        n_tests = 2000
-
-        n_below = []
-        top_three_count = 0
-
-        print("Running tests...")
-
-        display = False
-
-        for t in range(n_tests):
-
-            if display:
-                print("\nStart test")
-                print("*" * 20)
-
-            exploration_policy.reset()
-            sauto.reset()
-            pomdp.reset()
-
-            for i in range(test_length):
-                action = exploration_policy.get_action()
-                predicted_obs = sauto.predict(action)
-
-                pomdp_string = str(pomdp)
-
-                actual_obs, _ = pomdp.update(action)
-
-                rank = sauto.get_obs_rank(action, actual_obs)
-
-                n_below.append(rank[1])
-                if rank[0] < 3:
-                    top_three_count += 1
-
-                sauto.update(actual_obs, action)
-                exploration_policy.update(actual_obs, action)
-
-                if display:
-                    print("\nStep %d", i)
-                    print("*" * 20)
-                    print(pomdp_string)
-                    print("Chosen action: ", action)
-                    print("Predicted observation: ", predicted_obs)
-                    print("Actual observation: ", actual_obs)
-                    print("SA Rank of Actual Observation: ", rank)
-
-        print(
-            "Average num below: ", np.mean(n_below),
-            "of", len(pomdp.observations))
-        print(
-            "Probability in top 3: %f",
-            float(top_three_count) / (test_length * n_tests))
-
-        n_test_trajectories = 40
-        test_trajectories = []
-
-        print("Sampling test trajectories for WER...")
-        trajectories = pomdp.sample_episodes(
-            n_test_trajectories, exploration_policy, horizon)
-
-        print("Word error rate: ", sauto.WER(test_trajectories))
-
-        llh = sauto.mean_log_likelihood(test_trajectories, base=2)
-        print("Average log likelihood: ", llh)
-        print("Perplexity: ", 2**(-llh))

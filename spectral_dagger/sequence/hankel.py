@@ -145,9 +145,9 @@ def build_frequencies(data, estimator, basis=None):
 
 def _true_probability_for_pfa(pfa, string, estimator):
     if estimator == 'string':
-        prob = pfa.get_string_prob(string)
+        prob = pfa.string_prob(string)
     elif estimator == 'prefix':
-        prob = pfa.get_prefix_prob(string)
+        prob = pfa.prefix_prob(string)
     elif estimator == 'substring':
         prob = pfa.get_substring_expectation(string)
     else:

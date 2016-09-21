@@ -5,15 +5,15 @@ from scipy.linalg import orth
 from itertools import product
 from collections import defaultdict
 import six
+from sklearn.utils import check_random_state
 
-import spectral_dagger as sd
 from spectral_dagger.sequence import SpectralSA, CompressedSA
 from spectral_dagger.sequence import SpectralKernelSA, KernelInfo
 from spectral_dagger.sequence import top_k_basis, fixed_length_basis
 from spectral_dagger.sequence import ContinuousHMM
 from spectral_dagger.sequence import ExpMaxSA
 from spectral_dagger.sequence import ConvexOptSA
-from spectral_dagger.sequence import MixtureStochAuto
+from spectral_dagger.sequence import MixtureSeqGen
 from spectral_dagger.sequence import HMM, MarkovChain, AdjustedMarkovChain
 from spectral_dagger.utils.math import normalize, rmse
 from spectral_dagger.datasets.pautomac import make_pautomac_like
@@ -29,7 +29,9 @@ def simple_hmm():
 
 
 @pytest.fixture
-def reduced_rank_hmm(rng):
+def reduced_rank_hmm(random_state=None):
+    rng = check_random_state(random_state)
+
     n = 6
     r = 3
 
@@ -52,7 +54,7 @@ def reduced_rank_hmm(rng):
 
 
 def do_test_hmm_learning(
-        hmm, learning_alg, horizon=3, n_samples=10000, tol=0.1, **kwargs):
+        hmm, learning_alg, horizon=3, n_samples=1000, tol=0.1, **kwargs):
 
     samples = hmm.sample_episodes(n_samples, horizon=horizon)
 
@@ -64,8 +66,8 @@ def do_test_hmm_learning(
 
     print("*" * 20)
     for seq in test_seqs:
-        ground_truth = hmm.get_string_prob(seq)
-        pred = sa.get_string_prob(seq)
+        ground_truth = hmm.string_prob(seq)
+        pred = sa.string_prob(seq)
         print("Seq: ", seq)
         print("String estimate:")
         print("Ground truth: %f" % ground_truth)
@@ -75,8 +77,8 @@ def do_test_hmm_learning(
 
         error += np.abs(ground_truth - pred)
 
-        ground_truth = hmm.get_prefix_prob(seq)
-        pred = sa.get_prefix_prob(seq)
+        ground_truth = hmm.prefix_prob(seq)
+        pred = sa.prefix_prob(seq)
         print("Seq: ", seq)
         print("Prefix estimate:")
         print("Ground truth: %f" % ground_truth)
@@ -104,7 +106,7 @@ def test_spectral_like(learning_alg):
         return sa
 
     seed = 10
-    sd.set_seed(seed)
+    np.random.seed(seed)
 
     print("Learning with: %s" % learning_alg)
     hmm = simple_hmm()
@@ -120,7 +122,7 @@ def test_spectral_like(learning_alg):
     do_test_hmm_learning(
         hmm, learn, estimator='substring', dimension=dimension)
 
-    rr_hmm = reduced_rank_hmm(sd.rng('build'))
+    rr_hmm = reduced_rank_hmm()
     dimension = np.linalg.matrix_rank(rr_hmm.T)
 
     params = product([1, 2], [3, 5], [True, False])
@@ -145,12 +147,12 @@ def test_em():
         return em_sa
 
     seed = 10
-    sd.set_seed(seed)
+    np.random.seed(seed)
 
     hmm = simple_hmm()
     do_test_hmm_learning(hmm, learn)
 
-    rr_hmm = reduced_rank_hmm(sd.rng('build'))
+    rr_hmm = reduced_rank_hmm()
     do_test_hmm_learning(rr_hmm, learn, horizon=5)
 
 
@@ -168,7 +170,7 @@ def test_convex_opt():
         return sa
 
     seed = 10
-    sd.set_seed(seed)
+    np.random.seed(seed)
 
     hmm = simple_hmm()
 
@@ -189,7 +191,7 @@ def test_convex_opt():
     #             print results[-1]
     # print "Best: ", min(results, key=lambda x: x['error'])
 
-    rr_hmm = reduced_rank_hmm(sd.rng('build'))
+    rr_hmm = reduced_rank_hmm()
 
     basis = fixed_length_basis(rr_hmm.observations, 3, False)
     do_test_hmm_learning(hmm, learn, 3, basis=basis, tau=0.001)
@@ -198,6 +200,7 @@ def test_convex_opt():
     do_test_hmm_learning(hmm, learn, 3, basis=basis, tau=0.001)
 
 
+@pytest.mark.xfail(reason="Incomplete implementation.")
 def test_cts_sa():
     T = normalize(10 * np.eye(4) + np.ones((4, 4)), ord=1)
     O = [stats.multivariate_normal(np.ones(2), cov=0.1*np.eye(2)),
@@ -206,8 +209,7 @@ def test_cts_sa():
          stats.multivariate_normal(np.array([-1, 1]), cov=0.1*np.eye(2))]
 
     seed = 10
-    sd.set_seed(seed)
-    rng = sd.rng('build')
+    np.random.seed(seed)
 
     init_dist = normalize([10, 1, 1, 1], ord=1)
     cts_hmm = ContinuousHMM(init_dist, T, O)
@@ -230,68 +232,75 @@ def test_cts_sa():
         return cov_inv.dot(-x)
 
     kernel_centers = all_data[
-        rng.choice(len(all_data), size=n_centers, replace=False), :]
+        np.random.choice(len(all_data), size=n_centers, replace=False), :]
     lmbda = 0.5
 
     kernel_info = KernelInfo(kernel, kernel_centers, kernel_gradient, lmbda)
-    sa = SpectralKernelSA(kernel_info)
-    sa.fit(eps, n_components=cts_hmm.n_states)
+    sa = SpectralKernelSA(cts_hmm.n_states, kernel_info)
+    sa.fit(eps)
     sa.reset()
     prediction = sa.predict()
     return sa, prediction
 
 
-def test_mixture_stoch_auto():
+def test_mixture_seq_gen():
     n_components = 3
     n_states = 4
     n_obs = 5
-    o_sparse, t_sparse = 0.5, 0.5
+    o_density, t_density = 0.5, 0.5
 
     seed = 10
-    sd.set_seed(seed)
-    rng = sd.rng('build')
+    np.random.seed(seed)
 
     pfas = [
         make_pautomac_like(
-            'hmm', n_states, n_obs, o_sparse, t_sparse, rng=rng)
+            'hmm', n_states, n_obs, o_density, t_density, halts=False)
         for i in range(n_components)]
 
     coefficients = normalize([1.0] * n_components, ord=1)
-    mixture_pfa = MixtureStochAuto(coefficients, pfas)
+    mixture_pfa = MixtureSeqGen(coefficients, pfas)
+
     # test that sampling doesn't crash
     mixture_pfa.sample_episodes(10, horizon=3)
 
     obs_probs = [
-        mixture_pfa.get_obs_prob(o) for o in range(n_obs)]
+        mixture_pfa.cond_obs_prob(o) for o in range(n_obs)]
     assert np.isclose(sum(obs_probs), 1)
 
     mixture_pfa.update(max(range(n_obs), key=obs_probs.__getitem__))
 
     obs_probs = [
-        mixture_pfa.get_obs_prob(o) for o in range(n_obs)]
+        mixture_pfa.cond_obs_prob(o) for o in range(n_obs)]
     assert np.isclose(sum(obs_probs), 1)
 
     mixture_pfa.update(max(range(n_obs), key=obs_probs.__getitem__))
 
     obs_probs = [
-        mixture_pfa.get_obs_prob(o) for o in range(n_obs)]
+        mixture_pfa.cond_obs_prob(o) for o in range(n_obs)]
     assert np.isclose(sum(obs_probs), 1)
 
     prefix_probs = [
-        mixture_pfa.get_prefix_prob(string)
+        mixture_pfa.prefix_prob(string)
+        for string in product(*[range(n_obs)]*3)]
+    assert np.isclose(sum(prefix_probs), 1)
+
+    mixture_pfa.reset()
+
+    prefix_probs = [
+        mixture_pfa.prefix_prob(string)
         for string in product(*[range(n_obs)]*3)]
     assert np.isclose(sum(prefix_probs), 1)
 
 
 def test_markov_chain():
     seed = 10
-    sd.set_seed(seed)
+    np.random.seed(seed)
 
     T = np.array([[0.9, 0.1], [0.3, 0.7]])
     init_dist = np.array([0.2, 0.8])
     horizon = 3
     mc = MarkovChain(init_dist, T)
-    n_samples = 10000
+    n_samples = 1000
 
     samples = mc.sample_episodes(n_samples, horizon=horizon)
 
@@ -304,7 +313,8 @@ def test_markov_chain():
         for i in range(horizon-1):
             reference *= T[seq[i], seq[i+1]]
 
-        assert np.isclose(reference, mc.get_prefix_prob(seq, log=False))
+        model_guess = mc.prefix_prob(seq, log=False)
+        assert np.isclose(reference, model_guess)
 
         # ``prob`` should be approximately normally distributed.
         std = np.sqrt(reference * (1 - reference) / n_samples)
@@ -314,11 +324,11 @@ def test_markov_chain():
 @pytest.mark.parametrize('allow_empty', [True, False])
 def test_markov_chain_halt(allow_empty):
     seed = 10
-    sd.set_seed(seed)
+    np.random.seed(seed)
 
     init_dist = np.array([0.2, 0.8])
     T = np.array([[0.9, 0.1], [0.3, 0.7]])
-    stop_prob = np.array([0.9, 0.8])
+    stop_prob = np.array([0.5, 0.5])
 
     mc = MarkovChain(init_dist, T, stop_prob)
     if not allow_empty:
@@ -326,8 +336,8 @@ def test_markov_chain_halt(allow_empty):
 
     T = np.diag(1 - stop_prob).dot(T)
 
-    n_samples = 10000
-    threshold = 2.0 / n_samples
+    n_samples = 1000
+    threshold = 0.5 / n_samples
     samples = mc.sample_episodes(n_samples)
 
     if not allow_empty:
@@ -337,14 +347,10 @@ def test_markov_chain_halt(allow_empty):
     for s in samples:
         empirical_probs[tuple(s)] += 1.0 / n_samples
 
+    n_tested = 0
+    n_ignored = 0
     for seq, prob in six.iteritems(empirical_probs):
-        if prob <= threshold:
-            continue
-
-        reference = mc.get_string_prob(seq)
-        std = np.sqrt(reference * (1 - reference) / n_samples)
-        assert np.isclose(reference, prob, atol=4*std), (
-            "Disagreement for sample: %s" % str(seq))
+        reference = mc.string_prob(seq)
 
         if allow_empty:
             s = init_dist.copy()
@@ -359,23 +365,35 @@ def test_markov_chain_halt(allow_empty):
             by_hand = np.exp(by_hand)
         assert np.isclose(by_hand, reference)
 
+        if reference > threshold:
+            std = np.sqrt(reference * (1 - reference) / n_samples)
+            assert np.isclose(reference, prob, atol=4*std), (
+                "Disagreement for sample: %s" % str(seq))
+            n_tested += 1
+        else:
+            n_ignored += 1
+
+    print("Num tested: %s, " % n_tested)
+    print("Num ignored: %s, " % n_ignored)
+    print("Num unique: %s, " % len(set(tuple(s) for s in empirical_probs)))
+
 
 @pytest.mark.parametrize('from_dist', [True, False])
 def test_markov_chain_learn(from_dist):
     seed = 10
-    sd.set_seed(seed)
+    np.random.seed(seed)
 
     init_dist = np.array([0.2, 0.8])
     T = np.array([[0.9, 0.1], [0.3, 0.7]])
-    stop_prob = np.array([0.8, 0.8])
+    stop_prob = np.array([0.2, 0.2])
 
     mc = AdjustedMarkovChain(init_dist, T, stop_prob)
 
-    n_samples = 10000
+    n_samples = 1000
     samples = mc.sample_episodes(n_samples)
 
     words = list(set(tuple(s) for s in samples))
-    true_dist = np.array([mc.get_string_prob(w) for w in words])
+    true_dist = np.array([mc.string_prob(w) for w in words])
 
     if from_dist:
         counts = defaultdict(int)
@@ -387,7 +405,8 @@ def test_markov_chain_learn(from_dist):
     else:
         learned_mc = AdjustedMarkovChain.from_sequences(
             samples, learn_halt=True, n_symbols=2)
-    learned_dist = np.array([learned_mc.get_string_prob(w) for w in words])
+    learned_dist = np.array([learned_mc.string_prob(w) for w in words])
 
     error = rmse(true_dist, learned_dist)
+    print("RMSE: %s" % error)
     assert error < 0.001
