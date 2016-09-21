@@ -13,7 +13,8 @@ def gen_seed(random_state):
 
 
 class SpectralDaggerObject(object):
-    _random_state = np.random.RandomState()
+    # By default, use the global numpy random state.
+    _random_state = np.random.mtrand._rand
 
     @property
     def random_state(self):
@@ -25,8 +26,8 @@ class SpectralDaggerObject(object):
 
 
 def set_random_state(random_state=None):
-    """ Sets the default random state. Does not affect objects that have
-        their own random state set.
+    """ Sets the default random state used by spectral_dagger.
+        Does not affect objects that have their own random state set.
 
     """
     SpectralDaggerObject._random_state = check_random_state(random_state)
@@ -52,7 +53,7 @@ class Space(object):
         A name for the space.
 
     """
-    def __init__(self, dimensions=None, name=""):
+    def __init__(self, dimensions=None, name=None):
         if not dimensions:
             raise ValueError("``dimensions`` must not be empty.")
 
@@ -82,13 +83,16 @@ class Space(object):
                     "Dimensions spec. must be either a tuple or a set.")
 
         self.name = "" if name is None else name
+        self._is_degenerate = self.check_degenerate()
 
-        self._is_degenerate = True
+    @staticmethod
+    def check_degenerate():
+        is_degenerate = True
         for d in self.dimensions:
             degenerate_dim = isinstance(d, set) and len(d) <= 1
             degenerate_dim |= isinstance(d, tuple) and d[0] == d[1]
-
-            self._is_degenerate &= degenerate_dim
+            is_degenerate &= degenerate_dim
+        return is_degenerate
 
     def is_degenerate(self):
         return self._is_degenerate
@@ -132,6 +136,15 @@ class Space(object):
             return not self.__eq__(other)
 
         return NotImplemented
+
+
+class Reals(Space):
+    def __init__(self, d, name=None):
+        assert d > 0, "``d`` must be positive."
+        assert int(d) == d, "``d`` must be losslessly convertible to an integer."
+        self.d = int(d)
+        super(Reals, self).__init__(
+            [(-np.inf, np.inf) for i in range(d)], name=name)
 
 
 class DiscreteObject(object):

@@ -1,8 +1,7 @@
-from spectral_dagger import rng
 from spectral_dagger.envs import LinearMarkovChain
 
 
-def test_rng():
+def test_random_state():
     env = LinearMarkovChain(4, p=0.5, gamma=1.0)
 
     seed = 10
@@ -11,13 +10,13 @@ def test_rng():
 
     n_eps = 10
 
-    rng('run', seed)
+    env.random_state = seed
     episodes1 = env.sample_episodes(n_eps)
 
-    rng('run', seed)
+    env.random_state = seed
     episodes2 = env.sample_episodes(n_eps)
 
-    rng('run', other_seed)
+    env.random_state = other_seed
     episodes3 = env.sample_episodes(n_eps)
 
     episodes1 = [t for ep in episodes1 for t in ep]
