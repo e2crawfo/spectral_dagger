@@ -4,8 +4,7 @@ import logging
 import numpy as np
 from scipy.stats import uniform
 import matplotlib.pyplot as plt
-from sklearn import datasets
-from sklearn.linear_model import Ridge, Lasso
+from sklearn import datasets, linear_model
 
 import sklearn
 from sklearn.cross_validation import train_test_split
@@ -33,22 +32,22 @@ class LogUniform(object):
         return self.base ** self.uniform.rvs(size)
 
 
-class Ridge1(Ridge, Estimator):
+class Ridge(linear_model.Ridge, Estimator):
     record_attrs = ['alpha']
 
     def __init__(self, alpha=1.0, random_state=None, name="Ridge"):
-        super(Ridge1, self).__init__(alpha=alpha, random_state=random_state)
+        super(Ridge, self).__init__(alpha=alpha, random_state=random_state)
         self.name = name
 
     def point_distribution(self, context):
         return {'alpha': LogUniform(-4, -.5, 10)}
 
 
-class Lasso1(Lasso, Estimator):
+class Lasso(linear_model.Lasso, Estimator):
     record_attrs = ['alpha']
 
     def __init__(self, alpha=1.0, random_state=None, name="Lasso"):
-        super(Lasso1, self).__init__(alpha=alpha, random_state=random_state)
+        super(Lasso, self).__init__(alpha=alpha, random_state=random_state)
         self.name = name
 
     def point_distribution(self, context):
@@ -73,7 +72,7 @@ def data_experiment(display=False):
         sklearn.metrics.mean_absolute_error, greater_is_better=False)
 
     experiment = Experiment(
-        'data', [Ridge1(0.1), Lasso1(0.1)],
+        'data', [Ridge(0.1), Lasso(0.1)],
         'train_size', np.linspace(0.1, 0.8, 8),
         generate_diabetes_data, [(mse_score, 'NMSE'), (mae_score, 'NMAE')],
         search_kwargs=dict(cv=2, n_jobs=2), directory='experiments')
@@ -87,12 +86,12 @@ def data_experiment(display=False):
     return experiment, df
 
 
-class Ridge2(Ridge1):
+class Ridge2(Ridge):
     def point_distribution(self, context):
         return {}
 
 
-class Lasso2(Lasso1):
+class Lasso2(Lasso):
     def point_distribution(self, context):
         return {}
 
@@ -111,7 +110,7 @@ def estimator_experiment(display=False):
 
     alphas = np.logspace(-4, -.5, 30)
     experiment = Experiment(
-        'estimator', [Ridge2(), Lasso2()], 'alpha', alphas,
+        'estimator', [Ridge(), Lasso()], 'alpha', alphas,
         generate_diabetes_data, n_repeats=1,
         search_kwargs=dict(n_jobs=1), directory='experiments',
         save_datasets=True, save_estimators=True)
@@ -137,5 +136,5 @@ def estimator_experiment(display=False):
 
 
 if __name__ == "__main__":
-    #e, df = data_experiment(True)
+    e, df = data_experiment(True)
     e, df = estimator_experiment(True)

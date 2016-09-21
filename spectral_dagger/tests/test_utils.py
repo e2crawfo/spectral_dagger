@@ -1,6 +1,6 @@
 from spectral_dagger.utils.plot import (
     single_split_var, multiple_split_vars)
-from spectral_dagger.utils.experiment import (
+from spectral_dagger.examples.linear import (
     data_experiment, estimator_experiment)
 
 

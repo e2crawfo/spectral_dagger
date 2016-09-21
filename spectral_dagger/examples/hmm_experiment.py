@@ -4,7 +4,7 @@ import numpy as np
 import seaborn
 
 from spectral_dagger.utils.experiment import (
-    run_experiment_and_plot, Estimator, ExperimentSpec)
+    run_experiment_and_plot, Estimator)
 from spectral_dagger.envs.hmm import Chain
 from spectral_dagger.sequence import SpectralSA, CompressedSA, ExpMaxSA
 
@@ -123,44 +123,35 @@ np.set_printoptions(threshold=10000, suppress=True)
 if __name__ == "__main__":
     random_state = np.random.RandomState(4)
 
-    base_plot = ExperimentSpec(
-        title='Performance on Test Set',
-        score=[word_correct_rate, mean_log_likelihood, mean_one_norm_score],
-        score_display=[
-            'Correct Prediction Rate',
-            'Mean Log Likelihood',
-            'Mean Negative One Norm'],
-        x_var_name='n_train',
-        x_var_values=None,
-        x_var_display="\# of Training Samples",
-        n_repeats=5,
-        kwargs=dict())
-
-    quick_specs = dict(
-        vs_n_train_samples=base_plot._replace(
-            x_var_values=[100, 600, 1100, 1600],
-            n_repeats=1))
-    specs = dict(
-        vs_n_train_samples=base_plot._replace(
-            x_var_values=[100, 600, 1100, 1600],
-            n_repeats=5))
-
     estimators = [
         Spectral(), Compressed(),
         ExpMax(em_kwargs=dict(pct_valid=0.1), name='bw1'),
-        ExpMax(em_kwargs=dict(pct_valid=0.1, alg='vit'), name='vit1'),
-        ExpMax(em_kwargs=dict(pct_valid=0.1, alg='vitbw'), name='vitbw1'),
-        ExpMax(em_kwargs=dict(pct_valid=0.1, alg='vb'), name='vb1'),
-        ExpMax(em_kwargs=dict(pct_valid=0.0), name='bw'),
-        ExpMax(em_kwargs=dict(pct_valid=0.0, alg='vit'), name='vit'),
-        ExpMax(em_kwargs=dict(pct_valid=0.0, alg='vitbw'), name='vitbw'),
-        ExpMax(em_kwargs=dict(pct_valid=0.0, alg='vb'), name='vb')]
+        # ExpMax(em_kwargs=dict(pct_valid=0.1, alg='vit'), name='vit1'),
+        # ExpMax(em_kwargs=dict(pct_valid=0.1, alg='vitbw'), name='vitbw1'),
+        # ExpMax(em_kwargs=dict(pct_valid=0.1, alg='vb'), name='vb1'),
+        ExpMax(em_kwargs=dict(pct_valid=0.0), name='bw')]
+        # ExpMax(em_kwargs=dict(pct_valid=0.0, alg='vit'), name='vit'),
+        # ExpMax(em_kwargs=dict(pct_valid=0.0, alg='vitbw'), name='vitbw'),
+        # ExpMax(em_kwargs=dict(pct_valid=0.0, alg='vb'), name='vb')]
 
     data_kwargs = dict(n_train=1000, n_test=1000, horizon=np.inf)
-    search_kwargs = dict(n_iter=10, n_jobs=1)
+    exp_kwargs = dict(
+        mode='data', base_estimators=estimators,
+        generate_data=data_generator,
+        data_kwargs=data_kwargs,
+        search_kwargs=dict(n_iter=10, n_jobs=1),
+        directory='/data/hmm_experiment//',
+        score=[word_correct_rate, mean_log_likelihood, mean_one_norm_score],
+        x_var_name='n_train',
+        x_var_values=[100, 200, 300, 400],
+        n_repeats=5)
+    score_display = [
+        'Correct Prediction Rate',
+        'Mean Log Likelihood',
+        'Mean Negative One Norm']
+    title = 'Performance on Test Set'
+    x_var_display = "\# of Training Samples"
 
     run_experiment_and_plot(
-        'data', estimators, data_generator, specs, quick_specs,
-        data_kwargs, search_kwargs=dict(n_iter=10),
-        directory='/data/hmm_experiment/', params=params,
-        random_state=random_state)
+        exp_kwargs, quick_exp_kwargs=None, random_state=random_state,
+        x_var_display=x_var_display, score_display=score_display, title=title)
