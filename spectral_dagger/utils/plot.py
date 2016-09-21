@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 def plot_measures(
         results, measures, x_var, split_var,
         measure_display=None, x_var_display=None, legend_outside=True,
-        logx=None, logy=None, kwarg_func=None, kwargs=None, fig=None):
+        errorbars=True, logx=None, logy=None, kwarg_func=None,
+        kwargs=None, fig=None):
     """ A function for plotting certain pandas DataFrames.
 
     Assumes the ``results`` data frame has a certain format. In particular,
@@ -59,6 +60,8 @@ def plot_measures(
     legend_outside: bool (optional)
         Whether to place the legend outside (to the right) of the axes.
         Othwerwise, loc=best will be used.
+    errorbars: bool (optional)
+        Whether to calculate and display error bars.
     logx: float > 1 or None (optional)
         If None, x-axis scaled as normal. Otherwise, scaled logarithmically
         using ``logx`` as base.
@@ -103,8 +106,9 @@ def plot_measures(
 
         ax = fig.add_subplot(n_plots, 1, i+1)
         _plot_measure(
-            results, measure, x_var, split_var, measure_str,
-            logx, logy, kwarg_func, kwargs, ax=ax)
+            results, measure, x_var, split_var, measure_display=measure_str,
+            logx=logx, logy=logy, kwarg_func=kwarg_func, kwargs=kwargs, ax=ax,
+            errorbars=errorbars)
 
         if i == 0:
             if legend_outside:
@@ -124,7 +128,8 @@ def plot_measures(
 
 def _plot_measure(
         results, measure, x_var, split_vars, measure_display=None,
-        logx=None, logy=None, kwarg_func=None, kwargs=None, ax=None):
+        errorbars=True, logx=None, logy=None, kwarg_func=None,
+        kwargs=None, ax=None):
 
     if ax is None:
         ax = plt.gca()
@@ -137,35 +142,36 @@ def _plot_measure(
     mean = grouped.mean()
     logger.info(mean)
 
-    ci_lower = pd.Series(data=0.0, index=mean.index)
-    ci_upper = pd.Series(data=0.0, index=mean.index)
+    if errorbars:
+        ci_lower = pd.Series(data=0.0, index=mean.index)
+        ci_upper = pd.Series(data=0.0, index=mean.index)
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
 
-        for name, group in grouped:
-            values = group[measure].values
-            values = values[np.logical_not(np.isnan(values))]
+            for name, group in grouped:
+                values = group[measure].values
+                values = values[np.logical_not(np.isnan(values))]
 
-            if len(values) > 1:
-                try:
-                    ci = bootstrap.ci(values)
-                except:
+                if len(values) > 1:
+                    try:
+                        ci = bootstrap.ci(values)
+                    except:
+                        ci = values[0], values[0]
+
+                elif len(values) == 1:
                     ci = values[0], values[0]
+                else:
+                    ci = (np.nan, np.nan)
+                    # raise Exception(
+                    #     "No values for measure %s with "
+                    #     "index %s." % (measure, name))
 
-            elif len(values) == 1:
-                ci = values[0], values[0]
-            else:
-                ci = (np.nan, np.nan)
-                # raise Exception(
-                #     "No values for measure %s with "
-                #     "index %s." % (measure, name))
+                ci_lower[name] = ci[0]
+                ci_upper[name] = ci[1]
 
-            ci_lower[name] = ci[0]
-            ci_upper[name] = ci[1]
-
-    mean['ci_lower'] = ci_lower
-    mean['ci_upper'] = ci_upper
+        mean['ci_lower'] = ci_lower
+        mean['ci_upper'] = ci_upper
 
     mean = mean.reset_index()
     mean = mean[np.logical_not(np.isnan(mean[measure].values))]
@@ -178,12 +184,10 @@ def _plot_measure(
     if logy is not None:
         ax.set_yscale("log", nonposy='clip', basey=logy)
 
+    lines = []
+
     for sv in sv_series.unique():
         data = mean[sv_series == sv]
-
-        y_lower = data[measure].values - data['ci_lower'].values
-        y_upper = data['ci_upper'].values - data[measure].values
-        yerr = np.vstack((y_lower, y_upper))
 
         X = data[x_var].values
         Y = data[measure].values
@@ -196,7 +200,16 @@ def _plot_measure(
         else:
             _kwargs.update(dict(label=sv))
 
-        ax.errorbar(X, Y, yerr=yerr, **_kwargs)
+        if errorbars:
+            y_lower = data[measure].values - data['ci_lower'].values
+            y_upper = data['ci_upper'].values - data[measure].values
+            yerr = np.vstack((y_lower, y_upper))
+
+            l, _, _ = ax.errorbar(X, Y, yerr=yerr, **_kwargs)
+            lines.append(l)
+        else:
+            l = ax.plot(X, Y, **_kwargs)
+            lines.extend(l)
 
     lo_x = results[x_var].min()
     hi_x = results[x_var].max()
@@ -213,7 +226,7 @@ def _plot_measure(
 
     ax.set_ylabel(measure if measure_display is None else measure_display)
 
-    return ax
+    return ax, lines
 
 
 def single_split_var(display=False):
