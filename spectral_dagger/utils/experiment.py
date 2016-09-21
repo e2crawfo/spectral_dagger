@@ -4,18 +4,16 @@ import logging
 import abc
 import six
 import os
-from collections import defaultdict
 import time
 import numpy as np
 import pandas as pd
-from collections import namedtuple
 import argparse
 import matplotlib.pyplot as plt
 from matplotlib.markers import MarkerStyle
-import seaborn
 import dill
 import sys
-import dill
+import shutil
+import seaborn.apionly as sns
 
 import sklearn
 from sklearn.base import BaseEstimator
@@ -157,6 +155,14 @@ class ExperimentDirectory(object):
             os.makedirs(full_path)
         return os.path.join(full_path, filename)
 
+    def move_to_directory(self, new_directory):
+        if not os.path.isdir(new_directory):
+            raise ValueError("%s is not a directory." % new_directory)
+
+        shutil.move(self._path, new_directory)
+        self.directory = new_directory
+        self._path = os.path.join(new_directory, self.exp_dir)
+
     @staticmethod
     def create_new(directory, exp_name, data=None, use_time=False):
         """ Create a new experiment directory.
@@ -295,7 +301,7 @@ class Experiment(object):
             self, mode, base_estimators, x_var_name, x_var_values,
             generate_data, score=None, n_repeats=5, data_kwargs=None,
             search_kwargs=None, directory='.', save_estimators=False,
-            save_datasets=False, name='experiment', exp_dir=None,
+            save_datasets=False, name=None, exp_dir=None,
             params=None):
         self._constructor_params = locals().copy()
         del self._constructor_params['self']
@@ -343,9 +349,16 @@ class Experiment(object):
         if search_kwargs is not None:
             self.search_kwargs.update(search_kwargs)
 
+        if name is None:
+            script_path = os.path.abspath(
+                sys.modules['__main__'].__file__)
+            name = os.path.splitext(os.path.basename(script_path))[0]
+        self.name = name
+
         if exp_dir is None:
             exp_dir = ExperimentDirectory.create_new(
                 directory, name, use_time=True)
+        self.directory = directory
         self.exp_dir = exp_dir
 
         self.save_estimators = save_estimators
@@ -384,57 +397,71 @@ class Experiment(object):
             Random state for the experiment.
 
         """
-        rng = check_random_state(random_state)
-        estimator_rng = check_random_state(sd.gen_seed(rng))
-        data_rng = check_random_state(sd.gen_seed(rng))
-        search_rng = check_random_state(sd.gen_seed(rng))
+        print("Running experiment: %s." % self.name)
 
-        self.search_kwargs.update(dict(random_state=search_rng))
+        complete = False
 
-        self.df = None
-        searches = defaultdict(list)
+        try:
+            rng = check_random_state(random_state)
+            estimator_rng = check_random_state(sd.gen_seed(rng))
+            data_rng = check_random_state(sd.gen_seed(rng))
+            search_rng = check_random_state(sd.gen_seed(rng))
 
-        handler = logging.FileHandler(
-            filename=self.exp_dir.path_for("log.txt"), mode='w')
-        handler.setFormatter(logging.Formatter())
-        handler.setLevel(logging.DEBUG)
-        logging.getLogger('').addHandler(handler)  # add to root logger
+            self.search_kwargs.update(dict(random_state=search_rng))
 
-        for x in self.x_var_values:
-            for r in range(self.n_repeats):
-                results = []
+            self.df = None
 
-                train, test, context = self._draw_dataset(x, r, data_rng)
+            handler = logging.FileHandler(
+                filename=self.exp_dir.path_for("log.txt"), mode='w')
+            handler.setFormatter(logging.Formatter())
+            handler.setLevel(logging.DEBUG)
+            logging.getLogger('').addHandler(handler)  # add to root logger
 
-                if context is not None and 'true_model' in context:
-                    logger.info("Testing ground-truth model...")
+            for x in self.x_var_values:
+                for r in range(self.n_repeats):
+                    results = []
 
-                    results.append({
-                        'round': r, self.x_var_name: x,
-                        'method': context['true_model'].name})
+                    train, test, context = self._draw_dataset(x, r, data_rng)
 
-                    for s, sn in zip(self.scores, self.score_names):
-                        score = s(context['true_model'], test.X, test.y)
-                        logger.info("    Test score %s: %f." % (sn, score))
-                        results[-1][sn] = score
+                    if context is not None and 'true_model' in context:
+                        logger.info("Testing ground-truth model...")
 
-                for base_est in self.base_estimators:
-                    _results, _search = self._train_and_test(
-                        base_est, x, r, train, test, context,
-                        search_rng, estimator_rng)
-                    searches[base_est.name].append(_search)
-                    results.append(_results)
+                        results.append({
+                            'round': r, self.x_var_name: x,
+                            'method': context['true_model'].name})
 
-                # Save a snapshot of the results so far.
-                if self.df is None:
-                    self.df = pd.DataFrame.from_records(results)
-                else:
-                    self.df = self.df.append(results, ignore_index=True)
-                self.df.to_csv(self.exp_dir.path_for(filename))
+                        for s, sn in zip(self.scores, self.score_names):
+                            score = s(context['true_model'], test.X, test.y)
+                            logger.info("    Test score %s: %f." % (sn, score))
+                            results[-1][sn] = score
 
-        logging.getLogger('').removeHandler(handler)
+                    for base_est in self.base_estimators:
+                        _results = self._train_and_test(
+                            base_est, x, r, train, test, context,
+                            search_rng, estimator_rng)
+                        results.append(_results)
 
-        self.searches = searches
+                    # Save a snapshot of the results so far.
+                    if self.df is None:
+                        self.df = pd.DataFrame.from_records(results)
+                    else:
+                        self.df = self.df.append(results, ignore_index=True)
+                    self.df.to_csv(self.exp_dir.path_for(filename))
+
+            logging.getLogger('').removeHandler(handler)
+            complete = True
+        finally:
+            # Move the experiment to a folder based on
+            # whether it completed successfully.
+            new_loc = 'complete' if complete else 'incomplete'
+            new_path = os.path.join(self.directory, new_loc)
+            try:
+                os.makedirs(new_path)
+            except:
+                pass
+            self.exp_dir.move_to_directory(new_path)
+            make_symlink(
+                self.exp_dir.exp_dir, os.path.join(new_path, 'latest'))
 
         return self.df
 
@@ -524,38 +551,58 @@ class Experiment(object):
                     "the estimator %s." % (key, est))
 
         n_points = get_n_points(dists)
-        n_iter = min(
-            self.search_kwargs.get('n_iter', 10), n_points)
+        n_iter = min(self.search_kwargs.get('n_iter', 10), n_points)
 
-        if n_points > n_iter:
-            search = RandomizedSearchCV(
-                est, dists, scoring=self.scores[0],
-                **self.search_kwargs)
-            logger.info("    Running RandomizedSearchCV for "
-                        "%d iters..." % n_iter)
-        else:
-            # These are arguments for RandomizedSearchCV
-            # but not GridSearchCV
-            _search_kwargs = self.search_kwargs.copy()
-            _search_kwargs.pop('random_state', None)
-            _search_kwargs.pop('n_iter', None)
-
-            search = GridSearchCV(
-                est, dists, scoring=self.scores[0],
-                **_search_kwargs)
+        if n_iter == 1 or n_iter == 0:
             logger.info(
-                "    Running GridSearchCV for "
-                "%d iters..." % n_iter)
+                "    Only one candidate point, skipping cross-validation.")
+            search_time_pp = 0.0
+            train_score = 0.0
+            train_score_std = 0.0
 
-        then = time.time()
-        search.fit(train.X, train.y)
-        search_time = time.time() - then
+            if n_iter == 1:
+                est.set_params(**{k: v[0] for k, v in six.iteritems(dists)})
+            learned_est = est
 
-        logger.info("    Best params: %s." % search.best_params_)
-        logger.info("    Search time: "
-                    "%s seconds per point." % (search_time/n_iter))
+            then = time.time()
+            learned_est.fit(train.X, train.y)
+            logger.info("    Fit time: %s seconds." % (time.time() - then))
+        else:
+            if n_points > n_iter:
+                search = RandomizedSearchCV(
+                    est, dists, scoring=self.scores[0], **self.search_kwargs)
+                logger.info("    Running RandomizedSearchCV for "
+                            "%d iters..." % n_iter)
+            else:
+                # These are arguments for RandomizedSearchCV
+                # but not GridSearchCV
+                _search_kwargs = self.search_kwargs.copy()
+                _search_kwargs.pop('random_state', None)
+                _search_kwargs.pop('n_iter', None)
 
-        learned_est = search.best_estimator_
+                search = GridSearchCV(
+                    est, dists, scoring=self.scores[0], **_search_kwargs)
+                logger.info(
+                    "    Running GridSearchCV for "
+                    "%d iters..." % n_iter)
+
+            then = time.time()
+            search.fit(train.X, train.y)
+            search_time_pp = (time.time() - then) / n_iter
+
+            best_grid_score = max(
+                search.grid_scores_,
+                key=lambda gs: gs.mean_validation_score)
+
+            train_score = best_grid_score.mean_validation_score
+            train_score_std = np.std(
+                best_grid_score.cv_validation_scores)
+
+            learned_est = search.best_estimator_
+
+            logger.info("    Best params: %s." % search.best_params_)
+            logger.info("    Search time: "
+                        "%s seconds per point." % search_time_pp)
 
         if self.save_estimators:
             estpath = os.path.join(dirpath, 'estimator')
@@ -564,15 +611,7 @@ class Experiment(object):
         results = {
             'round': r, self.x_var_name: x,
             'method': base_est.name,
-            'search_time_per_point': search_time/n_iter}
-
-        best_grid_score = max(
-            search.grid_scores_,
-            key=lambda gs: gs.mean_validation_score)
-
-        train_score = best_grid_score.mean_validation_score
-        train_score_std = np.std(
-            best_grid_score.cv_validation_scores)
+            'search_time_per_point': search_time_pp}
 
         logger.info("    Training score mean: %f." % train_score)
         results['training_score'] = train_score
@@ -606,28 +645,30 @@ class Experiment(object):
         logger.info("    Test time: %s seconds." % test_time)
         results['test_time'] = test_time
 
-        return results, search
-
-
-ExperimentSpec = namedtuple('ExperimentSpec', 'title score score_display '
-                            'x_var_name x_var_values '
-                            'x_var_display n_repeats kwargs')
+        return results
 
 
 def run_experiment_and_plot(
-        mode, estimators, data_generator, specs, quick_specs,
-        data_kwargs, spec_names='all', search_kwargs=None,
-        directory='/data/experiments', random_state=None,
-        labels=None, params=None):
+        exp_kwargs, quick_exp_kwargs=None, random_state=None,
+        x_var_display="", score_display="", title="", labels=None):
     """ A utility function which handles much of the boilerplate required to set
         up a script running a set of experiments and plotting the results.
 
     """
+    # Parse args
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--plot', action='store_true',
-        help='If supplied, will plot the most recent set of experiments '
-             'rather running a new set.')
+        help='If supplied, will plot the most recent completed '
+             'experiment rather running a new experiment.')
+    parser.add_argument(
+        '--plot-incomplete', action='store_true',
+        help='If supplied, will plot the most recent non-completed '
+             'experiment instead of running a new experiment.')
+    parser.add_argument(
+        '--name', type=str,
+        help='Name of the experiment. If not supplied, the name of the '
+             'calling script will be used.', default=None)
     parser.add_argument(
         '--time', action='store_true',
         help='If supplied, will plot timing '
@@ -647,105 +688,85 @@ def run_experiment_and_plot(
              "cross-validation will propagated all the way up. Otherwise, "
              "the exceptions are caught and the candidate parameter setting "
              "receives a score of negative infinity.")
+    args, _ = parser.parse_known_args()
 
+    show = args.show or args.plot or args.plot_incomplete
+
+    # Setup and run experiment
     logging.basicConfig(level=logging.INFO, format='')
 
-    args = parser.parse_args()
-    if args.quick:
-        specs = quick_specs
+    if args.quick and quick_exp_kwargs is not None:
+        exp_kwargs = quick_exp_kwargs
 
-    labels = {} if labels is None else labels
-    search_kwargs = {} if search_kwargs is None else search_kwargs
-    search_kwargs.update(
+    if args.name is not None:
+        exp_kwargs['name'] = args.name
+
+    if 'search_kwargs' not in exp_kwargs:
+        exp_kwargs['search_kwargs'] = {}
+
+    exp_kwargs['search_kwargs'].update(
         n_jobs=args.n_jobs,
         error_score='raise' if args.r else -np.inf)
 
-    if spec_names == 'all':
-        spec_names = specs.keys()
+    if 'directory' not in exp_kwargs:
+        exp_kwargs['directory'] = '/data/experiment'
+
+    if args.plot or args.plot_incomplete:
+        exp_dir = get_latest_exp_dir(
+            os.path.join(exp_kwargs['directory'],
+                         'complete' if args.plot else 'incomplete'))
+
+        df = pd.read_csv(exp_dir.path_for('results.csv'))
+        try:
+            with open(exp_dir.path_for('experiment.pkl'), 'rb') as f:
+                experiment = dill.load(f)
+        except:
+            experiment = None
     else:
-        spec_names = spec_names.split(' ')
+        experiment = Experiment(**exp_kwargs)
 
-    experiments = []
-    figs = []
+        df = experiment.run('results.csv', random_state=random_state)
+        exp_dir = experiment.exp_dir
+        save_object(exp_dir.path_for('experiment.pkl'), experiment)
 
-    for spec_name in spec_names:
-        print("Running experiment %s." % spec_name)
+    # Plot
+    markers = MarkerStyle.filled_markers
+    colors = sns.color_palette("hls", 16)
+    labels = {} if labels is None else labels
 
-        spec = specs[spec_name]
-        title = spec.title
-        score = spec.score
-        score_display = spec.score_display
-        x_var_name = spec.x_var_name
-        x_var_values = spec.x_var_values
-        x_var_display = spec.x_var_display
-        n_repeats = spec.n_repeats
+    def plot_kwarg_func(sv):
+        idx = hash(str(sv))
+        marker = markers[idx % len(markers)]
+        c = colors[idx % len(colors)]
+        label = labels.get(sv, sv)
+        return dict(label=label, c=c, marker=marker)
 
-        _data_kwargs = data_kwargs.copy()
-        _data_kwargs.update(spec.kwargs)
+    if experiment is None:
+        measure_names = [mn for mn in df.columns if 'score' in mn]
+        score_display = None
+    else:
+        measure_names = experiment.score_names
 
-        experiment_name = "%s:%s" % (spec_name, x_var_name)
+    if args.time:
+        measure_names += [mn for mn in df.columns if 'time' in mn]
 
-        if not args.plot:
-            experiment = Experiment(
-                mode, estimators, x_var_name, x_var_values,
-                data_generator, score,
-                n_repeats=n_repeats, data_kwargs=_data_kwargs,
-                search_kwargs=search_kwargs, directory=directory,
-                name=experiment_name, params=params)
+    plt.figure(figsize=(10, 5))
+    fig, axes = plot_measures(
+        df, measure_names, exp_kwargs['x_var_name'], 'method',
+        legend_outside=True,
+        kwarg_func=plot_kwarg_func,
+        measure_display=score_display,
+        x_var_display=x_var_display)
+    axes[0].set_title(title)
 
-            df = experiment.run(
-                'results_%s.csv' % experiment_name, random_state=random_state)
-            exp_dir = experiment.exp_dir
-            with open(exp_dir.path_for('experiment.pkl'), 'wb') as f:
-                dill.dump(experiment, f, protocol=dill.HIGHEST_PROTOCOL)
-        else:
-            exp_dir = get_latest_exp_dir(directory)
-            df = pd.read_csv(
-                exp_dir.path_for('results_%s.csv' % experiment_name))
-            try:
-                with open(exp_dir.path_for('experiment.pkl'), 'rb') as f:
-                    experiment = dill.load(f)
-            except:
-                experiment = None
+    # plt.rc('text', usetex=True)
+    plt.rc('font', family='serif', size=22)
 
-        experiments.append(experiment)
+    fig.subplots_adjust(left=0.1, right=0.85, top=0.94, bottom=0.12)
 
-        markers = MarkerStyle.filled_markers
-        colors = seaborn.color_palette("hls", 16)
+    plt.savefig(exp_dir.path_for('plot.pdf'))
 
-        def plot_kwarg_func(sv):
-            idx = hash(str(sv))
-            marker = markers[idx % len(markers)]
-            c = colors[idx % len(colors)]
-            label = labels.get(sv, sv)
-            return dict(label=label, c=c, marker=marker)
+    if show:
+        plt.show()
 
-        measure_names = (
-            experiment.score_names if experiment is not None else
-            [mn for mn in df.columns if 'score' in mn])
-
-        if args.time:
-            measure_names += [mn for mn in df.columns if 'time' in mn]
-
-        plt.figure(figsize=(10, 5))
-        fig, axes = plot_measures(
-            df, measure_names, x_var_name, 'method',
-            legend_outside=True,
-            kwarg_func=plot_kwarg_func,
-            measure_display=score_display,
-            x_var_display=x_var_display)
-        axes[0].set_title(title)
-
-        # plt.rc('text', usetex=True)
-        plt.rc('font', family='serif', size=22)
-
-        fig.subplots_adjust(left=0.1, right=0.85, top=0.94, bottom=0.12)
-
-        plt.savefig(exp_dir.path_for('plot_%s.pdf' % x_var_name))
-
-        if args.show:
-            plt.show()
-
-        figs.append(fig)
-
-    return experiments, figs
+    return experiment, fig
