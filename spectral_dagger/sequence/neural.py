@@ -1272,7 +1272,7 @@ if __name__ == "__main__":
     training_labels = labels[:n_training_samples]
 
     max_length = None
-    model_class = ProbabilisticGRU #ProbabilisticRNN if 1 else ProbabilisticLSTM
+    model_class = ProbabilisticGRU if 1 else (ProbabilisticRNN if 1 else ProbabilisticLSTM)
     verbose = True
     use_dropout = True
     quick = 0

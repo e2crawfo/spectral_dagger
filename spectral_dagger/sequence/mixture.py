@@ -54,12 +54,10 @@ class MixtureSeqGen(SequenceModel):
         self.reset()
 
     def __str__(self):
-        s = "<MixtureSeqGen. coefficients: %s>" % self.coefficients
-        # s = "<MixtureSeqGen. coefficients: %s, n_obs: %d" % (
-        #     self.coefficients, self.n_observations)
+        s = "<MixtureSeqGen. coefficients: %s,\n" % self.coefficients
 
         for i, seq_gen in enumerate(self.seq_gens):
-            s += ", %d: %s" % (i, seq_gen)
+            s += ", %d: %s\n" % (i, seq_gen)
         s += ">"
 
         return s
@@ -74,6 +72,15 @@ class MixtureSeqGen(SequenceModel):
     @property
     def observation_space(self):
         return self.sg.observation_space
+
+    @property
+    def n_observations(self):
+        n_obs = getattr(self.seq_gens[0], 'n_observations', None)
+        if n_obs is None:
+            raise Exception(
+                "Cannot determine ``n_observations`` for mixture model, "
+                "component sequence generators are continuous.")
+        return n_obs
 
     @property
     def can_terminate(self):
@@ -136,6 +143,10 @@ class MixtureSeqGen(SequenceModel):
             sg.cond_termination_prob() for sg in self._filter_seq_gens])
 
         return (self.state_dist * weights).sum()
+
+    def cond_predict(self):
+        idx = np.argmax(self.state_dist)
+        return self._filter_seq_gens[idx].cond_predict()
 
     def cond_obs_dist(self):
         """ Get distribution over observations for next time step,

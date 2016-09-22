@@ -199,6 +199,7 @@ class SequenceModel(Environment):
         """ Probability of terminating given history.  """
         raise NotImplementedError()
 
+    @abc.abstractmethod
     def cond_predict(self):
         """ The most likely next observation given the history. """
         raise NotImplementedError()
