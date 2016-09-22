@@ -14,6 +14,7 @@ import dill
 import sys
 import shutil
 import seaborn.apionly as sns
+import traceback
 
 import sklearn
 from sklearn.base import BaseEstimator
@@ -22,7 +23,7 @@ from sklearn.utils import check_random_state
 
 import spectral_dagger as sd
 from spectral_dagger.utils.misc import (
-    make_symlink, make_filename, indent, as_title)
+    make_symlink, make_filename, indent, as_title, send_email_using_cfg)
 from spectral_dagger.utils.plot import plot_measures
 
 pp = pprint.PrettyPrinter()
@@ -254,13 +255,20 @@ class Experiment(object):
             The base_estimators to be tested. The Estimator classes must
             provide the method ``point_distribution``.
         x_var_name: string
-            Name to use for the x variable (aka independent variable).
+            Name of the x variable (aka independent variable). Must be
+            equal to the name that will be used when passing the x variable
+            into either the fit method of the estimators (when mode='estimator'),
+            or the function generate_data. This can also be a hierarchical name,
+            with periods separating the levels, when one of the arguments is a
+            (possibly heavily nested) dictionary. The top-level name specifies
+            the argument name, and each successive name specifies a key in a nested
+            dictionary.
         x_var_values: list-like
             Values that the x variable can take on.
         generate_data: function
-            A function which generates data. Must accept an argument with
-            name equal to ``x_var_name``. Must return either a train and
-            test set, or a train set, test set, and dictionary giving
+            A function which generates data. When mode='data', must accept an
+            argument with name equal to ``x_var_name``. Must return either a
+            train and test set, or a train set, test set, and dictionary giving
             context/annotation information on the generated data. If this
             context dictionary contains the key `true_model`, then the value
             at this key will also have the test score functions applied to it.
@@ -683,6 +691,13 @@ def run_experiment_and_plot(
         '--n-jobs', type=int, default=1,
         help="Number of jobs to use for cross validation.")
     parser.add_argument(
+        '--email-cfg', type=str, default=None,
+        help="Name of a file from which to pull email configurations. "
+             "If not provided, no email will be sent. If provided, email "
+             "will be sent when experiment completes, along with a specification of "
+             "the error if the experiment failed, or the created plot if the "
+             "experiment completed successfully.")
+    parser.add_argument(
         '-r', action='store_true',
         help="If supplied, exceptions encountered during "
              "cross-validation will propagated all the way up. Otherwise, "
@@ -725,7 +740,15 @@ def run_experiment_and_plot(
     else:
         experiment = Experiment(**exp_kwargs)
 
-        df = experiment.run('results.csv', random_state=random_state)
+        try:
+            df = experiment.run('results.csv', random_state=random_state)
+        except:
+            if args.email_cfg:
+                subject = "Experiment %s failed." % experiment.name
+                body = ''.join(traceback.format_exception(*sys.exc_info()))
+                send_email_using_cfg(args.email_cfg, subject=subject, body=body)
+            raise
+
         exp_dir = experiment.exp_dir
         save_object(exp_dir.path_for('experiment.pkl'), experiment)
 
@@ -764,7 +787,12 @@ def run_experiment_and_plot(
 
     fig.subplots_adjust(left=0.1, right=0.85, top=0.94, bottom=0.12)
 
-    plt.savefig(exp_dir.path_for('plot.pdf'))
+    plot_path = exp_dir.path_for('plot.pdf')
+    plt.savefig(plot_path)
+
+    if args.email_cfg:
+        subject = "Experiment %s complete!" % experiment.name
+        send_email_using_cfg(args.email_cfg, subject=subject, files_to_attach=plot_path)
 
     if show:
         plt.show()

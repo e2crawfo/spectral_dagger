@@ -2,6 +2,16 @@ import os
 import string
 import datetime
 from contextlib import contextmanager
+import six
+import sys
+import smtplib
+from email import encoders
+from email.mime.text import MIMEText
+from email.MIMEBase import MIMEBase
+from email.MIMEMultipart import MIMEMultipart
+from email.Utils import formatdate
+from six.moves.configparser import ConfigParser, NoOptionError
+
 
 _title_width = 80
 _title_format = "\n{{0:=<{0}.{0}s}}".format(_title_width)
@@ -122,3 +132,100 @@ def make_filename(main_title, directory='', config_dict=None, use_time=True,
         file_name += extension
 
     return file_name
+
+
+def send_email(host, from_addr, password, subject, body,
+               to_addr, cc_addr=None, bcc_addr=None, files_to_attach=None, port=465):
+    if isinstance(to_addr, str):
+        to_addr = [to_addr]
+
+    if isinstance(cc_addr, str):
+        cc_addr = [cc_addr]
+    elif cc_addr is None:
+        cc_addr = []
+
+    if isinstance(bcc_addr, str):
+        bcc_addr = [bcc_addr]
+    elif bcc_addr is None:
+        bcc_addr = []
+
+    if isinstance(files_to_attach, str):
+        files_to_attach = [files_to_attach]
+    elif files_to_attach is None:
+        files_to_attach = []
+
+    # create the message
+    msg = MIMEMultipart()
+    msg["From"] = from_addr
+    msg["Subject"] = subject
+    msg["Date"] = formatdate(localtime=True)
+    msg.attach(MIMEText(body))
+
+    msg["To"] = ', '.join(to_addr)
+    msg["cc"] = ', '.join(cc_addr)
+    msg["bcc"] = ', '.join(bcc_addr)
+
+    attachment = MIMEBase('application', "octet-stream")
+
+    for f2a in files_to_attach:
+        try:
+            header = 'Content-Disposition', 'attachment; filename="%s"' % f2a
+            with open(f2a, "rb") as fh:
+                data = fh.read()
+            attachment.set_payload(data)
+            encoders.encode_base64(attachment)
+            attachment.add_header(*header)
+            msg.attach(attachment)
+        except IOError:
+            msg = "Error opening attachment file %s" % f2a
+            print msg
+            sys.exit(1)
+
+    emails = to_addr + cc_addr + bcc_addr
+
+    server = smtplib.SMTP_SSL(host, port=port)
+    server.login(from_addr, password)
+    server.sendmail(from_addr, emails, msg.as_string())
+    server.quit()
+
+
+SEP = '\,'
+
+
+def send_email_using_cfg(cfg_name, **kwargs):
+    """ Any values that are not provided with the function
+        call will be extracted from the given config file. """
+    cfg = ConfigParser()
+    cfg.read(cfg_name)
+
+    for k, v in six.iteritems(kwargs):
+        kwargs[k] = str(v)
+
+    required = ['host', 'from_addr', 'password', 'subject', 'body', 'to_addr']
+
+    new_kwargs = {}
+    for name in required:
+        val = cfg.get('email', name, vars=kwargs)
+
+        SEP_posn = string.find(val, SEP)
+        if SEP_posn != -1:
+            # String contains the separator.
+            val = val.split(SEP)
+
+        new_kwargs[name] = val
+
+    optional = ['cc_addr', 'bcc_addr', 'files_to_attach', 'port']
+    for name in optional:
+        try:
+            val = cfg.get('email', name, vars=kwargs)
+
+            SEP_posn = string.find(val, SEP)
+            if SEP_posn != -1:
+                # String contains the separator.
+                val = val.split(SEP)
+
+            new_kwargs[name] = val
+        except NoOptionError:
+            pass
+
+    return send_email(**new_kwargs)
