@@ -1,10 +1,12 @@
 import numpy as np
+import os
 from sklearn.utils import check_random_state
 from scipy.misc import logsumexp
-from scipy.stats import multivariate_normal
 
 from spectral_dagger import Space, Environment
+from spectral_dagger.sequence import SequenceModel
 from spectral_dagger.utils.math import sample_multinomial, normalize
+from spectral_dagger.utils.dists import MixtureDist, GMM
 from spectral_dagger.utils.matlab import run_matlab_code
 
 machine_eps = np.finfo(float).eps
@@ -109,39 +111,14 @@ class ContinuousHMM(Environment):
             [self._O[s].pdf(o) for s in self._states])
 
 
-class GMM(object):
-    def __init__(self, pi, means, covs, careful=True):
-        assert np.isclose(sum(pi), 1)
-        self.pi = pi
-        self.logpi = np.log(pi)
-        self.dists = [multivariate_normal(mean=m, cov=c) for m, c in zip(means, covs)]
-        self.means = means
-        self.covs = covs
-        self.careful = careful
-
-    def pdf(self, o):
-        if self.careful:
-            return np.exp(self.logpdf(o))
-        else:
-            return self.pi.dot(np.array([d.pdf(o) for d in self.dists]))
-
-    def logpdf(self, o):
-        if self.careful:
-            return logsumexp([lpi + d.logpdf(o) for lpi, d in zip(self.logpi, self.dists)])
-        else:
-            return np.log(self.pdf(o))
-
-    def largest_mode(self):
-        return self.means[np.argmax(self.pi)]
-
-
-class GmmHmm(object):
+class GmmHmm(SequenceModel):
     seq_length = None
 
     def __init__(
-            self, n_states, n_components, n_dim,
+            self, n_states=1, n_components=1, n_dim=1,
             max_iter=10, thresh=1e-4, verbose=1, cov_type='full',
-            directory=".", random_state=None, careful=True):
+            directory=".", random_state=None, careful=True,
+            parameters=None):
 
         self.rng = check_random_state(random_state)
         self.n_states = n_states
@@ -158,40 +135,89 @@ class GmmHmm(object):
 
         self.directory = directory
 
+        if parameters is not None:
+            self.n_states = parameters['pi'].shape[0]
+            self.n_components = parameters['M'].shape[1]
+            self.n_dim = parameters['mu'].shape[0]
+
+            self.pi = parameters['pi'].copy()
+            self.T = parameters['T'].copy()
+            self.mu = parameters['mu'].copy()
+            self.sigma = parameters['sigma'].copy()
+            self.M = parameters['M'].copy()
+            self.validate_params()
+
+    @property
+    def directory(self):
+        return self._directory
+
+    @directory.setter
+    def directory(self, _directory):
+        if _directory is None:
+            self._directory = "results/%s" % self.__class__.__name__
+        else:
+            self._directory = _directory
+
+        if not os.path.isdir(self._directory):
+            os.makedirs(self._directory)
+
+    def validate_params(self):
+        assert self.pi.ndim == 1
+        assert self.T.ndim == 2
+        assert self.mu.ndim == 3
+        assert self.sigma.ndim == 4
+        assert self.M.ndim == 2
+
+        assert self.pi.shape == (self.n_states,)
+        assert self.T.shape == (self.n_states, self.n_states)
+        assert self.mu.shape == (self.n_dim, self.n_states, self.n_components)
+        assert self.sigma.shape == (self.n_dim, self.n_dim, self.n_states, self.n_components)
+        assert self.M.shape == (self.n_states, self.n_components)
+
+        self.log_T = np.log(self.T)
+        self.dists = [
+            GMM(
+                pi=self.M[i, :],
+                means=[self.mu[:, i, j] for j in range(self.n_components)],
+                covs=[self.sigma[:, :, i, j] for j in range(self.n_components)])
+            for i in range(self.n_states)]
+        self.has_fit = True
+
     def _random_init(self):
         n_states = self.n_states
         n_components = self.n_components
         n_dim = self.n_dim
 
-        prior = np.abs(self.rng.randn(n_states))
-        prior = normalize(prior, ord=1)
+        pi = np.abs(self.rng.randn(n_states))
+        pi = normalize(pi, ord=1)
 
-        transmat = np.abs(self.rng.randn(n_states, n_states))
-        transmat = normalize(transmat, ord=1, axis=1)
+        T = np.abs(self.rng.randn(n_states, n_states))
+        T = normalize(T, ord=1, axis=1)
 
         mu = np.abs(self.rng.randn(n_dim, n_states, n_components))
 
-        Sigma = np.zeros((n_dim, n_dim, n_states, n_components))
+        sigma = np.zeros((n_dim, n_dim, n_states, n_components))
         for i in range(n_states):
             for j in range(n_components):
                 if self.cov_type == 'full':
                     A = self.rng.rand(n_dim, n_dim)
-                    Sigma[:, :, i, j] = n_dim * np.eye(n_dim) + 0.5 * (A + A.T)
+                    sigma[:, :, i, j] = n_dim * np.eye(n_dim) + 0.5 * (A + A.T)
                 elif self.cov_type == 'diagonal':
-                    Sigma[:, :, i, j] = np.diag(self.rng.rand(n_dim))
+                    sigma[:, :, i, j] = np.diag(self.rng.rand(n_dim))
                 elif self.cov_type == 'spherical':
-                    Sigma[:, :, i, j] = self.rng.rand() * np.eye(n_dim)
+                    sigma[:, :, i, j] = self.rng.rand() * np.eye(n_dim)
                 else:
                     raise Exception("Unrecognized covariance type %s." % self.cov_type)
 
-        mixmat = np.abs(self.rng.randn(n_states, n_components))
-        mixmat = normalize(mixmat, ord=1, axis=1)
+        M = np.abs(self.rng.randn(n_states, n_components))
+        M = normalize(M, ord=1, axis=1)
 
-        self.prior = prior
-        self.transmat = transmat
+        self.pi = pi
+        self.T = T
         self.mu = mu
-        self.Sigma = Sigma
-        self.mixmat = mixmat
+        self.sigma = sigma
+        self.M = M
+        self.validate_params()
 
     @property
     def name(self):
@@ -226,13 +252,13 @@ class GmmHmm(object):
         data = self._pad_data(data)
         self.seq_length = len(data[0])
 
-        prior = self.prior
-        transmat = self.transmat
+        pi = self.pi
+        T = self.T
         mu = self.mu
-        Sigma = self.Sigma
-        mixmat = self.mixmat
+        sigma = self.sigma
+        M = self.M
 
-        #TODO: won't work with empty sequences
+        # TODO: won't work with empty sequences
         assert len(data) > 0
         assert np.array(data[0]).ndim == 2
 
@@ -241,54 +267,37 @@ class GmmHmm(object):
             # Matlab wants the sequences with shape (n_dim, seq_length)
             obj_array[i] = np.array(seq).T
 
-        assert prior.ndim == 1
-        assert transmat.ndim == 2
-        assert mu.ndim == 3
-        assert Sigma.ndim == 4
-        assert mixmat.ndim == 2
-
         matlab_kwargs = dict(
-            data=obj_array, prior0=prior, transmat0=transmat, mu0=mu,
-            Sigma0=Sigma, mixmat0=mixmat)
+            data=obj_array, pi0=pi, T0=T, mu0=mu, sigma0=sigma, M0=M)
 
-        matlab_code = "run_mhmm('{{infile}}', '{{outfile}}', {max_iter}, {thresh}, {verbose}, '{cov_type}'); exit;"
+        matlab_code = (
+            "run_mhmm('{{infile}}', '{{outfile}}', {max_iter}, "
+            "{thresh}, {verbose}, '{cov_type}'); exit;")
         matlab_code = matlab_code.format(
             max_iter=self.max_iter, thresh=self.thresh,
             verbose=int(self.verbose), cov_type=self.cov_type)
-        results = run_matlab_code(matlab_code, working_dir=self.directory, **matlab_kwargs)
+        results = run_matlab_code(
+            matlab_code, working_dir=self.directory,
+            verbose=self.verbose, **matlab_kwargs)
 
-        self.prior = results['prior'].squeeze()
-        self.transmat = results['transmat']
+        self.pi = results['pi'].squeeze()
+        self.T = results['T']
 
         self.mu = results['mu']
         if self.mu.ndim < 3:
             self.mu = self.mu[:, :, None]
 
-        self.Sigma = results['Sigma']
-        if self.Sigma.ndim < 4:
-            self.Sigma = self.Sigma[:, :, :, None]
+        self.sigma = results['sigma']
+        if self.sigma.ndim < 4:
+            self.sigma = self.sigma[:, :, :, None]
 
-        self.mixmat = results['mixmat']
-        if self.mixmat.ndim < 2:
-            self.mixmat = self.mixmat[:, None]
+        self.M = results['M']
+        if self.M.ndim < 2:
+            self.M = self.M[:, None]
 
-        assert self.prior.ndim == 1
-        assert self.transmat.ndim == 2
-        assert self.mu.ndim == 3
-        assert self.Sigma.ndim == 4
-        assert self.mixmat.ndim == 2
+        self.validate_params()
 
-        self.log_transmat = np.log(self.transmat)
-
-        self.dists = [
-            GMM(
-                pi=self.mixmat[i, :],
-                means=[self.mu[:, i, j] for j in range(self.n_components)],
-                covs=[self.Sigma[:, :, i, j] for j in range(self.n_components)],
-                careful=self.careful)
-            for i in range(self.n_states)]
         self.reset()
-        self.has_fit = True
 
         return self
 
@@ -311,13 +320,13 @@ class GmmHmm(object):
         # TODO: Remove requirement that all sequences be the same length.
         data = self._pad_data(data)
 
-        prior = self.prior
-        transmat = self.transmat
+        pi = self.pi
+        T = self.T
         mu = self.mu
-        Sigma = self.Sigma
-        mixmat = self.mixmat
+        sigma = self.sigma
+        M = self.M
 
-        #TODO: won't work with empty sequences
+        # TODO: won't work with empty sequences
         assert len(data) > 0
         assert np.array(data[0]).ndim == 2
 
@@ -327,8 +336,8 @@ class GmmHmm(object):
             obj_array[i] = np.array(seq).T
 
         matlab_kwargs = dict(
-            data=obj_array, prior=prior, transmat=transmat, mu=mu,
-            Sigma=Sigma, mixmat=mixmat)
+            data=obj_array, pi=pi, T=T, mu=mu,
+            sigma=sigma, M=M)
 
         matlab_code = "run_mhmm_cond_logprob('{infile}', '{outfile}');"
         results = run_matlab_code(matlab_code, working_dir=self.directory, **matlab_kwargs)
@@ -337,21 +346,26 @@ class GmmHmm(object):
         cond_log_likelihood = results['cond_log_likelihood']
         return cond_log_likelihood
 
-    def reset(self, initial=None):
+    def check_terminal(self, o):
+        return False
+
+    def _reset(self, initial=None):
         if self.careful:
-            self._b = np.log(self.prior)
+            self._b = np.log(self.pi)
         else:
-            self._b = self.prior
+            self._b = self.pi
+        self._cond_obs_dist = None
 
     def update(self, o):
         if self.careful:
             log_obs_prob = np.array([d.logpdf(o) for d in self.dists])
-            v = self._b.reshape(-1, 1) + self.log_transmat
+            v = self._b.reshape(-1, 1) + self.log_T
             self._b = log_obs_prob + logsumexp(v, axis=0)
             self._b -= logsumexp(self._b)
         else:
-            self._b = self._b.dot(self.transmat) * np.array([d.pdf(o) for d in self.dists])
+            self._b = self._b.dot(self.T) * np.array([d.pdf(o) for d in self.dists])
             self._b = normalize(self._b, ord=1)
+        self._cond_obs_dist = None
 
     def cond_obs_prob(self, o, log=False):
         """ Get probability of observing o given the current state. """
@@ -361,6 +375,21 @@ class GmmHmm(object):
         else:
             prob = self._b.dot(np.array([d.pdf(o) for d in self.dists]))
             return np.log(prob) if log else prob
+
+    def cond_termination_prob(self, o, log=False):
+        if log:
+            return -10000
+        else:
+            return 0.0
+
+    def cond_obs_dist(self):
+        if self._cond_obs_dist is None:
+            if self.careful:
+                self._cond_obs_dist = MixtureDist(np.exp(self._b), self.dists)
+            else:
+                self._cond_obs_dist = MixtureDist(self._b, self.dists)
+
+        return self._cond_obs_dist
 
     def cond_predict(self):
         most_likely = np.argmax(self._b)
@@ -387,6 +416,9 @@ class GmmHmm(object):
             return log_prob
         else:
             return np.exp(log_prob)
+
+    def prefix_prob(self, string, log=False):
+        return self.string_prob(string, log)
 
     def mean_log_likelihood(self, test_data, string=True):
         """ Get average log likelihood for the test data. """
@@ -419,17 +451,19 @@ class GmmHmm(object):
 
 if __name__ == "__main__":
     from spectral_dagger.datasets import pendigits
+    import matplotlib.pyplot as plt
 
-    data, _ = pendigits.get_data(difference=True, use_digits=[0])
-    data = data[0]
+    difference = True
+    data, _ = pendigits.get_data(difference=difference, use_digits=[0], sample_every=2)
+    data = [d for dd in data[:10] for d in dd]
 
-    n_states = 20
+    n_states = 50
     n_components = 1
     n_dim = 2
 
     gmm_hmm = GmmHmm(
         n_states, n_components, n_dim,
-        max_iter=30, thresh=1e-4, verbose=1, cov_type='full',
+        max_iter=100, thresh=1e-4, verbose=1, cov_type='diagonal',
         directory="temp", random_state=None, careful=False)
 
     gmm_hmm.fit(data)
@@ -441,3 +475,9 @@ if __name__ == "__main__":
 
     print gmm_hmm.mean_log_likelihood(data)
     print gmm_hmm.RMSE(data)
+
+    eps = gmm_hmm.sample_episodes(10, horizon=int(np.mean([len(s) for s in data])))
+    for s in eps:
+        if s:
+            pendigits.plot_digit(s, difference)
+            plt.show()

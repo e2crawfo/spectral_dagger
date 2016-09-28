@@ -1,4 +1,4 @@
-from .sequence_model import SequenceModel, Multinomial, sample_words
+from .sequence_model import SequenceModel, sample_words
 
 from .hankel import estimate_hankels, estimate_kernel_hankels, true_hankel_for_pfa
 from .hankel import build_frequencies, hankels_from_callable
@@ -24,7 +24,7 @@ from .lda import LatentDirichletSA
 
 from .mixture import MixtureSeqGen
 
-from .lstm import ProbabilisticLSTM
+from .neural import GenerativeRNN, GenerativeGRU, GenerativeLSTM
 
 from .archive import SpectralSAWithActions, SpectralClassifier
 from .archive import SpectralPolicy

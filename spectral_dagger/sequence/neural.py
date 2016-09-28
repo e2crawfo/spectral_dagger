@@ -4,7 +4,8 @@ import six
 from collections import OrderedDict
 import time
 import numpy as np
-from scipy.stats import multivariate_normal, bernoulli
+from scipy.stats import multivariate_normal
+import matplotlib.pyplot as plt
 
 import theano
 from theano import config
@@ -16,6 +17,7 @@ from sklearn.utils import check_random_state
 from spectral_dagger.sequence import SequenceModel
 from spectral_dagger import gen_seed, Reals
 from spectral_dagger.utils.cache import get_cache_key
+from spectral_dagger.utils.dists import TerminationDist
 
 
 def np_floatX(data):
@@ -445,48 +447,8 @@ def make_verbose_print(verbosity, threshold=1.0):
     return vprint
 
 
-class TerminationDistribution(object):
-    """ A continuous distribution augmented with a probability of terminating. """
-    def __init__(self, dist, term_prob, term_symbol=None, random_state=None):
-        self.dist = dist
-        self.term_prob = term_prob
-        self.term_symbol = term_symbol
-        self.random_state = random_state
-
-    def pdf(self, o):
-        if o == self.term_symbol:
-            return self.term_prob
-        else:
-            return (1 - self.term_prob) * self.dist.pdf(o)
-
-    def rvs(self, size=None, random_state=None):
-        random_state = (
-            self.random_state if random_state is None else random_state)
-        random_state = check_random_state(random_state)
-
-        terminate = bernoulli(self.term_prob).rvs(size=size, random_state=random_state)
-
-        try:
-            int(terminate)
-            if terminate:
-                return self.term_symbol
-            else:
-                return self.dist.rvs(random_state=random_state)
-        except:
-            rvs = []
-            for t in np.nditer(terminate):
-                if t:
-                    rvs.append(self.term_symbol)
-                else:
-                    v = self.dist.rvs(random_state=random_state)
-                    rvs.append(v)
-            rvs = np.array(rvs, dtype='object')
-            rvs = rvs.reshape(*size)
-            return rvs
-
-
-class ProbabilisticRNN(SequenceModel):
-    """ A ProbabilisticRNN. It can be used to assign probabilities
+class GenerativeRNN(SequenceModel):
+    """ A GenerativeRNN. It can be used to assign probabilities
         to sequences of real-valued vectors.
 
     Parameters
@@ -537,10 +499,12 @@ class ProbabilisticRNN(SequenceModel):
             minibatch_size=16,
             valid_minibatch_size=64,
             use_dropout=True,
+            reuse=False,
             valid_pct=0.1,
             test_pct=0.0,
             use_cache=False,
             verbose=False,
+            theano_optimizer="fast_run",
             random_state=None):
 
         self.options = {}
@@ -549,7 +513,7 @@ class ProbabilisticRNN(SequenceModel):
                 setattr(self, k, v)
                 self.options[k] = v
 
-        theano.config.optimizer = "None"
+        theano.config.optimizer = theano_optimizer
         self.has_fit = False
 
     @property
@@ -604,7 +568,7 @@ class ProbabilisticRNN(SequenceModel):
         if self._cond_obs_dist is None:
             mean = self.persist_pred_()
             term_prob = float(self.persist_halt_())
-            self._cond_obs_dist = TerminationDistribution(
+            self._cond_obs_dist = TerminationDist(
                 multivariate_normal(mean=mean), term_prob=term_prob)
 
         return self._cond_obs_dist
@@ -623,8 +587,6 @@ class ProbabilisticRNN(SequenceModel):
 
     def mean_log_likelihood(self, test_data, string=True):
         """ Get average log likelihood for the test data. """
-        if not string:
-            raise Exception("``string`` must be True.")
         if not test_data:
             return -np.inf
 
@@ -655,8 +617,8 @@ class ProbabilisticRNN(SequenceModel):
         W = init_W(n_input, n_hidden)
         weights['rnn_W'] = W
 
-        U = np.eye(n_hidden)  # Initializing to identity is supposed to work well with RELUs.
-        # U = ortho_weight(n_hidden)
+        # U = np.eye(n_hidden)  # Initializing to identity is supposed to work well with RELUs.
+        U = ortho_weight(n_hidden)
         weights['rnn_U'] = U
 
         b = np.zeros(n_hidden)
@@ -819,7 +781,10 @@ class ProbabilisticRNN(SequenceModel):
         self.persist_pred_ = persist_pred
         self.persist_halt_ = persist_halt
 
-    def fit(self, train, valid=None, test=None, reuse=False, max_epochs=None):
+    def fit(self, train, valid=None, test=None, reuse=None, max_epochs=None):
+        max_epochs = self.max_epochs if max_epochs is None else max_epochs
+        reuse = self.reuse if reuse is None else reuse
+
         vprint = make_verbose_print(self.verbose)
 
         print("*" * 40)
@@ -873,7 +838,7 @@ class ProbabilisticRNN(SequenceModel):
         early_stop = False  # early stop
         start_time = time.time()
         try:
-            for epoch_idx in range(self.max_epochs if max_epochs is None else max_epochs):
+            for epoch_idx in range(max_epochs):
                 n_samples = 0
 
                 # Get new shuffled index for the training set.
@@ -894,8 +859,8 @@ class ProbabilisticRNN(SequenceModel):
                     cost = f_grad_shared(x, mask)
                     f_update(self.lrate)
 
-                    if np.isnan(cost) or np.isinf(cost):
-                        raise Exception("Bad cost detected: %s." % cost)
+                    # if np.isnan(cost) or np.isinf(cost):
+                    #     raise Exception("Bad cost detected: %s." % cost)
 
                     if np.mod(minibatch_idx, self.dispFreq) == 0:
                         vprint('Epoch ', epoch_idx, 'Update ', minibatch_idx, 'Cost ', cost)
@@ -946,7 +911,6 @@ class ProbabilisticRNN(SequenceModel):
                                 break
 
                 if early_stop:
-                    vprint('Triggered early stop!')
                     break
 
         except KeyboardInterrupt:
@@ -984,13 +948,13 @@ class ProbabilisticRNN(SequenceModel):
         return self
 
 
-class ProbabilisticGRU(ProbabilisticRNN):
-    """ A ProbabilisticGRU. It can be used to assign probabilities
+class GenerativeGRU(GenerativeRNN):
+    """ A GenerativeGRU. It can be used to assign probabilities
         to sequences of real-valued vectors.
 
     Parameters
     ----------
-    See ProbabilisticRNN.
+    See GenerativeRNN.
 
     """
     @staticmethod
@@ -1087,13 +1051,13 @@ class ProbabilisticGRU(ProbabilisticRNN):
                 persist_pred, persist_halt)
 
 
-class ProbabilisticLSTM(ProbabilisticRNN):
-    """ A ProbabilisticLSTM. It can be used to assign probabilities
+class GenerativeLSTM(GenerativeRNN):
+    """ A GenerativeLSTM. It can be used to assign probabilities
         to sequences of real-valued vectors.
 
     Parameters
     ----------
-    See ProbabilisticRNN.
+    See GenerativeRNN.
 
     """
     def _reset(self, initial=None):
@@ -1220,7 +1184,7 @@ def sequences_from_predictions(preds, mask):
     return seqs
 
 
-def demo(lstm, data, labels):
+def qualitative(data, labels, model=None):
     # Find an example of each digit, plot how the network does on each.
     unique_labels = list(set(labels))
 
@@ -1231,19 +1195,19 @@ def demo(lstm, data, labels):
                 digits_to_plot.append(data[i])
                 break
 
-    x, mask = prepare_data(digits_to_plot)
-    preds = lstm.f_pred_(x, mask)
+    if model is not None:
+        x, mask = prepare_data(digits_to_plot)
+        preds = model.f_pred_(x, mask)
+        seqs = sequences_from_predictions(preds, mask)
 
-    seqs = sequences_from_predictions(preds, mask)
-
-    import matplotlib.pyplot as plt
     for i, digit in enumerate(digits_to_plot):
         plt.subplot(2, 1, 1)
         plot_digit(digit, difference)
         plt.title("Ground Truth: Label = %d" % unique_labels[i])
         plt.subplot(2, 1, 2)
-        plt.title("Prediction")
-        plot_digit(seqs[i], difference)
+        if model is not None:
+            plt.title("Prediction")
+            plot_digit(seqs[i], difference)
         plt.show()
 
 
@@ -1251,8 +1215,8 @@ if __name__ == "__main__":
     from spectral_dagger.datasets.pendigits import get_data, plot_digit
 
     difference = True
-    sample_every = 1
-    _data, _labels = get_data(difference=difference, sample_every=sample_every, ignore_multisegment=False)
+    sample_every = 2
+    _data, _labels = get_data(difference=difference, sample_every=sample_every, ignore_multisegment=False, use_digits=[6, 8, 9, 2, 3])
 
     data = []
     labels = []
@@ -1264,29 +1228,38 @@ if __name__ == "__main__":
     data = [data[i] for i in permutation]
     labels = [labels[i] for i in permutation]
 
-    n_training_samples = 30
-    n_test_samples = 30
+    n_training_samples = 1000
+    n_test_samples = 100
     test_data = data[n_training_samples:n_training_samples+n_test_samples]
     training_data = data[:n_training_samples]
     test_labels = labels[n_training_samples:n_training_samples+n_test_samples]
     training_labels = labels[:n_training_samples]
 
+    # qualitative(training_data, training_labels)
+
     max_length = None
-    model_class = ProbabilisticGRU if 1 else (ProbabilisticRNN if 1 else ProbabilisticLSTM)
+    model_class = GenerativeGRU if 1 else (GenerativeRNN if 1 else GenerativeLSTM)
     verbose = True
     use_dropout = True
     quick = 0
     if quick:
-        model = model_class(n_hidden=2, max_epochs=1, use_dropout=use_dropout, verbose=verbose)
+        model = model_class(n_hidden=2, max_epochs=1, use_dropout=use_dropout, verbose=verbose, reuse=True)
     else:
-        model = model_class(n_hidden=5, max_epochs=10, use_dropout=use_dropout, verbose=verbose)
+        model = model_class(
+            n_hidden=50, max_epochs=100000, use_dropout=use_dropout,
+            verbose=verbose, theano_optimizer='fast_run', reuse=True)
 
     model.fit(training_data, max_epochs=2)
-
-    # demo(model, training_data, training_labels)
-    # demo(model, test_data, test_labels)
+    qualitative(training_data, training_labels, model)
+    # qualitative(test_data, test_labels, model)
 
     model.fit(training_data)
+
+    eps = model.sample_episodes(10)
+    for s in eps:
+        if s:
+            plot_digit(s, difference)
+            plt.show()
 
     print("Mean Log likelihood of training data: %g" % model.mean_log_likelihood(training_data))
     print("Mean Log likelihood of test data: %g" % model.mean_log_likelihood(test_data))

@@ -15,8 +15,8 @@ import sys
 import shutil
 import seaborn.apionly as sns
 import traceback
+import copy
 
-import sklearn
 from sklearn.base import BaseEstimator
 from sklearn.grid_search import RandomizedSearchCV, GridSearchCV
 from sklearn.utils import check_random_state
@@ -41,7 +41,8 @@ class Estimator(BaseEstimator):
         chosen by cross-validation.
 
     """
-    record_attrs = []
+    _name = None
+    _directory = None
 
     def _init(self, _locals):
         if 'self' in _locals:
@@ -57,19 +58,37 @@ class Estimator(BaseEstimator):
                 estimated_params[attr] = getattr(self, attr)
         return estimated_params
 
+    def record_attrs(self):
+        return set()
+
     @abc.abstractmethod
     def point_distribution(self, context):
-        raise NotImplementedError()
+        return {}
 
     @property
     def directory(self):
         return self._directory
 
     @directory.setter
-    def directory(self, directory):
-        self._directory = directory
-        if not os.path.isdir(directory):
-            os.makedirs(directory)
+    def directory(self, _directory):
+        if _directory is None:
+            self._directory = "results/%s" % self.__class__.__name__
+        else:
+            self._directory = _directory
+
+        if not os.path.isdir(self._directory):
+            os.makedirs(self._directory)
+
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, _name):
+        if _name is None:
+            self._name = self.__class__.__name__
+        else:
+            self._name = "%s(%s)" % (self.__class__.__name__, _name)
 
 
 class Dataset(object):
@@ -227,6 +246,43 @@ def get_n_points(dists):
 def save_object(filename, obj):
     with open(filename, 'wb') as f:
         dill.dump(obj, f, protocol=dill.HIGHEST_PROTOCOL)
+
+
+def set_nested_value(d, key, value, sep="."):
+    """ Set value in a nested dictionary.
+
+    Parameters
+    ----------
+    d: dict
+        Dictionary to modify. It is also returned.
+    key: str
+        Hierarchical key representing the value to modify. Levels in the key
+        are separated by occurrences of ``sep``. If the nested dictionaries
+        required to add a value at the key do not exist, they are created.
+    value: any
+        Value to place at key.
+    sep: str
+        String used to separate levels in the key.
+
+    """
+    assert isinstance(d, dict)
+    dct = d
+    keys = key.split(sep)
+    for k in keys[:-1]:
+        current_value = dct.get(k, None)
+
+        if current_value is None:
+            dct[k] = {}
+            dct = dct[k]
+        else:
+            if not isinstance(dct[k], dict):
+                raise Exception(
+                    "Value at '%s' in %s should be a dictionary, "
+                    "has value %s instead." % (k, dct, dct[k]))
+            dct = dct[k]
+
+    dct[keys[-1]] = value
+    return d
 
 
 class Experiment(object):
@@ -475,12 +531,14 @@ class Experiment(object):
 
     def _draw_dataset(self, x, r, data_rng):
         logger.info(as_title("Drawing new dataset...   "))
-        data_kwargs = self.data_kwargs.copy()
-        data_kwargs['random_state'] = sd.gen_seed(data_rng)
+
+        data_kwargs = copy.deepcopy(self.data_kwargs)
+        data_kwargs.update(random_state=sd.gen_seed(data_rng))
         if self.mode == 'data':
-            data_kwargs[self.x_var_name] = x
+            set_nested_value(data_kwargs, self.x_var_name, x)
 
         data = self.generate_data(**data_kwargs)
+
         assert isinstance(data, tuple) and (
             len(data) == 2 or len(data) == 3)
 
@@ -504,7 +562,12 @@ class Experiment(object):
             self, base_est, x, r, train, test, context,
             search_rng, estimator_rng):
 
-        est = sklearn.base.clone(base_est)
+        est_params = copy.deepcopy(base_est.get_params())
+        if self.mode == 'estimator':
+            set_nested_value(est_params, self.x_var_name, x)
+
+        est = base_est.__class__(**est_params)
+
         est_seed = sd.gen_seed(estimator_rng)
         est.random_state = est_seed
 
@@ -518,15 +581,6 @@ class Experiment(object):
 
         if 'directory' in est.get_params():
             est.directory = dirpath
-
-        est_params = est.get_params()
-
-        if self.mode == 'estimator':
-            if self.x_var_name not in est_params:
-                raise ValueError(
-                    "Estimator %s does not accept a parameter "
-                    "called %s." % (est, self.x_var_name))
-            setattr(est, self.x_var_name, x)
 
         logger.info(
             "Collecting data point. "
@@ -548,6 +602,7 @@ class Experiment(object):
                 dist.random_state = search_rng
 
         # Make sure we don't CV over the independent variable.
+        # TODO: Should be made to work with hierarchical keys.
         if self.mode == 'estimator':
             dists.pop(self.x_var_name, None)
 
@@ -603,8 +658,7 @@ class Experiment(object):
                 key=lambda gs: gs.mean_validation_score)
 
             train_score = best_grid_score.mean_validation_score
-            train_score_std = np.std(
-                best_grid_score.cv_validation_scores)
+            train_score_std = np.std(best_grid_score.cv_validation_scores)
 
             learned_est = search.best_estimator_
 
@@ -628,15 +682,11 @@ class Experiment(object):
             "    Training score std: %f." % train_score_std)
         results['training_score_std'] = train_score_std
 
-        record_attrs = (
-            [] if not hasattr(learned_est, 'record_attrs')
-            else learned_est.record_attrs)
-
-        for attr in record_attrs:
+        for attr in est.record_attrs():
             value = getattr(learned_est, attr)
             try:
                 value = float(value)
-            except ValueError:
+            except (ValueError, TypeError):
                 pass
 
             results[attr] = value
@@ -654,6 +704,73 @@ class Experiment(object):
         results['test_time'] = test_time
 
         return results
+
+
+def _plot(
+        x_var_name, df, plot_path, experiment=None,
+        x_var_display="", score_display="", title="", labels=None, show=False):
+    markers = MarkerStyle.filled_markers
+    colors = sns.color_palette("hls", 16)
+    labels = {} if labels is None else labels
+
+    def plot_kwarg_func(sv):
+        idx = hash(str(sv))
+        marker = markers[idx % len(markers)]
+        c = colors[idx % len(colors)]
+        label = labels.get(sv, sv)
+        return dict(label=label, c=c, marker=marker)
+
+    if experiment is None:
+        measure_names = [mn for mn in df.columns if 'score' in mn]
+        score_display = None
+    else:
+        measure_names = experiment.score_names
+
+    if time:
+        measure_names += [mn for mn in df.columns if 'time' in mn]
+
+    plt.figure(figsize=(10, 5))
+    fig, axes = plot_measures(
+        df, measure_names, x_var_name, 'method',
+        legend_outside=True,
+        kwarg_func=plot_kwarg_func,
+        measure_display=score_display,
+        x_var_display=x_var_display)
+    axes[0].set_title(title)
+
+    # plt.rc('text', usetex=True)
+    plt.rc('font', family='serif', size=22)
+
+    fig.subplots_adjust(left=0.1, right=0.85, top=0.94, bottom=0.12)
+
+    plt.savefig(plot_path)
+
+    if show:
+        plt.show()
+    return fig
+
+
+def _finish(experiment, email_cfg, success, *args, **kwargs):
+    exp_dir = experiment.exp_dir
+    save_object(exp_dir.path_for('experiment.pkl'), experiment)
+    plot_path = exp_dir.path_for('plot.pdf')
+
+    fig = None
+    if experiment.df is not None:
+        fig = _plot(
+            experiment.x_var_name, experiment.df, plot_path,
+            experiment=experiment, *args, **kwargs)
+
+    if email_cfg:
+        if success:
+            subject = "Experiment %s complete!" % experiment.name
+            body = ''
+        else:
+            subject = "Experiment %s failed." % experiment.name
+            body = ''.join(traceback.format_exception(*sys.exc_info()))
+        send_email_using_cfg(
+            email_cfg, subject=subject, body=body, files_to_attach=plot_path)
+    return fig
 
 
 def run_experiment_and_plot(
@@ -701,7 +818,7 @@ def run_experiment_and_plot(
         '-r', action='store_true',
         help="If supplied, exceptions encountered during "
              "cross-validation will propagated all the way up. Otherwise, "
-             "the exceptions are caught and the candidate parameter setting "
+             "such exceptions are caught and the candidate parameter setting "
              "receives a score of negative infinity.")
     args, _ = parser.parse_known_args()
 
@@ -727,9 +844,11 @@ def run_experiment_and_plot(
         exp_kwargs['directory'] = '/data/experiment'
 
     if args.plot or args.plot_incomplete:
+        # Re-plotting an experiment that has already been run.
         exp_dir = get_latest_exp_dir(
             os.path.join(exp_kwargs['directory'],
                          'complete' if args.plot else 'incomplete'))
+        plot_path = exp_dir.path_for('plot.pdf')
 
         df = pd.read_csv(exp_dir.path_for('results.csv'))
         try:
@@ -737,64 +856,31 @@ def run_experiment_and_plot(
                 experiment = dill.load(f)
         except:
             experiment = None
+        fig = _plot(
+            exp_kwargs['x_var_name'], df, plot_path, experiment=experiment,
+            x_var_display=x_var_display, score_display=score_display,
+            title=title, labels=labels, show=show)
     else:
+        # Running a new experiment and then plotting.
         experiment = Experiment(**exp_kwargs)
 
         try:
-            df = experiment.run('results.csv', random_state=random_state)
+            experiment.run('results.csv', random_state=random_state)
         except:
-            if args.email_cfg:
-                subject = "Experiment %s failed." % experiment.name
-                body = ''.join(traceback.format_exception(*sys.exc_info()))
-                send_email_using_cfg(args.email_cfg, subject=subject, body=body)
-            raise
+            exc_info = sys.exc_info()
+            try:
+                fig = _finish(
+                    experiment, args.email_cfg, False,
+                    x_var_display=x_var_display, score_display=score_display,
+                    title=title, labels=labels, show=show)
+            except:
+                print("Error while cleaning up:")
+                traceback.print_exc()
+            raise exc_info[0], exc_info[1], exc_info[2]
 
-        exp_dir = experiment.exp_dir
-        save_object(exp_dir.path_for('experiment.pkl'), experiment)
-
-    # Plot
-    markers = MarkerStyle.filled_markers
-    colors = sns.color_palette("hls", 16)
-    labels = {} if labels is None else labels
-
-    def plot_kwarg_func(sv):
-        idx = hash(str(sv))
-        marker = markers[idx % len(markers)]
-        c = colors[idx % len(colors)]
-        label = labels.get(sv, sv)
-        return dict(label=label, c=c, marker=marker)
-
-    if experiment is None:
-        measure_names = [mn for mn in df.columns if 'score' in mn]
-        score_display = None
-    else:
-        measure_names = experiment.score_names
-
-    if args.time:
-        measure_names += [mn for mn in df.columns if 'time' in mn]
-
-    plt.figure(figsize=(10, 5))
-    fig, axes = plot_measures(
-        df, measure_names, exp_kwargs['x_var_name'], 'method',
-        legend_outside=True,
-        kwarg_func=plot_kwarg_func,
-        measure_display=score_display,
-        x_var_display=x_var_display)
-    axes[0].set_title(title)
-
-    # plt.rc('text', usetex=True)
-    plt.rc('font', family='serif', size=22)
-
-    fig.subplots_adjust(left=0.1, right=0.85, top=0.94, bottom=0.12)
-
-    plot_path = exp_dir.path_for('plot.pdf')
-    plt.savefig(plot_path)
-
-    if args.email_cfg:
-        subject = "Experiment %s complete!" % experiment.name
-        send_email_using_cfg(args.email_cfg, subject=subject, files_to_attach=plot_path)
-
-    if show:
-        plt.show()
+        fig = _finish(
+            experiment, args.email_cfg, True,
+            x_var_display=x_var_display, score_display=score_display,
+            title=title, labels=labels, show=args.show)
 
     return experiment, fig

@@ -1,3 +1,4 @@
+from __future__ import print_function
 import time
 import subprocess
 import os
@@ -21,7 +22,17 @@ def cd(path):
         os.chdir(old_dir)
 
 
-def run_matlab_code(code, working_dir='.', verbose=False, **matlab_kwargs):
+def make_verbose_print(verbosity, threshold=1.0):
+    def vprint(*obj):
+        if float(verbosity) >= float(threshold):
+            print(*obj)
+    return vprint
+
+
+def run_matlab_code(code, working_dir='.', verbose=False, delete_files=False, **matlab_kwargs):
+
+    vprint = make_verbose_print(verbose)
+
     pid = os.getpid()
     infile = 'matlab_input_pid_%d.mat' % pid
     outfile = 'matlab_output_pid_%d.mat' % pid
@@ -36,39 +47,75 @@ def run_matlab_code(code, working_dir='.', verbose=False, **matlab_kwargs):
     command_output_name = "stdout_%d.txt" % pid
     command_err_name = "stderr_%d.txt" % pid
 
-    logger.info("Process %d starting Matlab section.", pid)
+    vprint("Process %d starting Matlab section." % pid)
     t0 = time.time()
     results = {}
 
     with cd(working_dir):
         sio.savemat(infile, matlab_kwargs)
 
+        process = None
         try:
-            print("Calling matlab with command: ")
-            print("    %s" % command)
+            vprint("Calling matlab with command: ")
+            vprint("    %s" % command)
 
             with open(command_output_name, 'w') as command_output:
                 with open(command_err_name, 'w') as command_err:
-                    subprocess.call(
+                    process = subprocess.Popen(
                         command, stdout=command_output, stderr=command_err)
+                    process.wait()
 
-            print("Matlab call complete, took %s seconds. "
-                  "Loading results..." % (time.time() - t0))
+            vprint("Matlab call complete, took %s seconds. "
+                   "Loading results..." % (time.time() - t0))
 
             sio.loadmat(outfile, results)
 
-            print("Results loaded.")
+            vprint("Results loaded.")
 
         except subprocess.CalledProcessError as e:
             logger.info((e.output, e.returncode))
+            raise e
         finally:
-            if verbose and os.path.isfile(command_output_name):
-                with open(command_output_name, 'r') as f:
-                    for line in iter(f.readline, ''):
-                        print(line)
-            if verbose and os.path.isfile(command_err_name):
-                with open(command_err_name, 'r') as f:
-                    for line in iter(f.readline, ''):
-                        print(line)
+            if isinstance(process, subprocess.Popen):
+                try:
+                    process.terminate()
+                except OSError:
+                    pass
+            try:
+                if verbose and os.path.isfile(command_output_name):
+                    with open(command_output_name, 'r') as f:
+                        for line in iter(f.readline, ''):
+                            print(line)
+            except IOError:
+                pass
+
+            try:
+                if verbose and os.path.isfile(command_err_name):
+                    with open(command_err_name, 'r') as f:
+                        for line in iter(f.readline, ''):
+                            print(line)
+            except IOError:
+                pass
+
+            if delete_files:
+                try:
+                    os.remove(infile)
+                except OSError:
+                    pass
+
+                try:
+                    os.remove(outfile)
+                except OSError:
+                    pass
+
+                try:
+                    os.remove(command_output)
+                except OSError:
+                    pass
+
+                try:
+                    os.remove(command_err)
+                except OSError:
+                    pass
 
     return results

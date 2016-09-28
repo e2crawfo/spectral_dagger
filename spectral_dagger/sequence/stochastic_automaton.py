@@ -8,9 +8,10 @@ import logging
 
 from spectral_dagger import Space
 from spectral_dagger.sequence import (
-    SequenceModel, Multinomial, estimate_hankels,
+    SequenceModel, estimate_hankels,
     estimate_kernel_hankels, top_k_basis)
 from spectral_dagger.utils import normalize as _normalize
+from spectral_dagger.utils.dists import Multinomial
 
 
 logger = logging.getLogger(__name__)

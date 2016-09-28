@@ -55,7 +55,7 @@ def print_models():
 def int_or_float(x):
     try:
         return int(x)
-    except ValueError:
+    except (ValueError, TypeError):
         return float(x)
 
 

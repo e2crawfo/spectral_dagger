@@ -98,7 +98,6 @@ def WER(model, test_data):
 
 
 def RMSE(self, test_data):
-    return RMSE(self, test_data)
     """ Get root mean squared error of the model on the test data. """
     if len(test_data) == 0:
         return np.inf
@@ -117,31 +116,6 @@ def RMSE(self, test_data):
             self.update(o)
 
     return np.sqrt(error / n_predictions)
-
-
-class Multinomial(object):
-    def __init__(self, p, random_state=None):
-        self.p = np.array(p)
-        assert self.p.ndim == 1
-        assert (self.p >= 0).all()
-        assert np.isclose(self.p.sum(), 1)
-        self.dist = rv_discrete(values=(range(len(p)), p))
-        self.random_state = random_state
-
-    def pdf(self, o):
-        return self.p[o]
-
-    def rvs(self, size=None, random_state=None):
-        random_state = (
-            self.random_state if random_state is None else random_state)
-        random_state = check_random_state(random_state)
-        return self.dist.rvs(size=size, random_state=random_state)
-
-    def __getitem__(self, key):
-        return self.pdf(key)
-
-    def __array__(self):
-        return self.p.copy()
 
 
 @six.add_metaclass(abc.ABCMeta)
