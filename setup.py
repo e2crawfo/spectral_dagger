@@ -51,5 +51,10 @@ setup(
     #     'all_solvers': ["scipy", "scikit-learn"],
     # },
     tests_require=['pytest>=2.3'],
+    entry_points={
+        'console_scripts': [
+            'sdagger = spectral_dagger.main:main',
+        ]
+    },
     zip_safe=False,
 )
