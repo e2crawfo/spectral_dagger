@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 def plot_measures(
         results, measures, x_var, split_var,
-        measure_display=None, x_var_display=None, legend_outside=True,
+        measure_display=None, x_var_display=None, legend_loc='right',
         errorbars=True, logx=None, logy=None, kwarg_func=None,
         kwargs=None, fig=None):
     """ A function for plotting certain pandas DataFrames.
@@ -57,9 +57,8 @@ def plot_measures(
         measures. Should have the same length as ``measures``.
     x_var_display: str (optional)
         A string for displaying as the x-axis label.
-    legend_outside: bool (optional)
-        Whether to place the legend outside (to the right) of the axes.
-        Othwerwise, loc=best will be used.
+    legend_loc: one of 'left', 'bottom' (optional)
+        Where to place the legend.
     errorbars: bool (optional)
         Whether to calculate and display error bars.
     logx: float > 1 or None (optional)
@@ -98,6 +97,7 @@ def plot_measures(
 
     n_plots = len(measures)
     axes = []
+    legend_handles = {}
     for i, measure in enumerate(measures):
         try:
             measure_str = measure_display[i]
@@ -110,16 +110,26 @@ def plot_measures(
             logx=logx, logy=logy, kwarg_func=kwarg_func, kwargs=kwargs, ax=ax,
             errorbars=errorbars)
 
-        if i == 0:
-            if legend_outside:
-                ax.legend(
-                    loc='center left', bbox_to_anchor=(1, 0.5),
-                    prop={'size': 10}, handlelength=3.0, handletextpad=.5,
-                    shadow=False, frameon=False)
-            else:
-                ax.legend(loc='best')
+        legend_handles.update(
+            **{l: h for h, l in zip(*ax.get_legend_handles_labels())})
 
         axes.append(ax)
+
+    ordered_labels = sorted(legend_handles.keys())
+    ordered_handles = [legend_handles[l] for l in ordered_labels]
+
+    if legend_loc == 'right':
+        # ax.legend(
+        #     loc='center left', bbox_to_anchor=(1, 0.5),
+        #     prop={'size': 10}, handlelength=3.0, handletextpad=.5,
+        #     shadow=False, frameon=False)
+        fig.legend(
+            ordered_handles, ordered_labels, loc='center left',
+            bbox_to_anchor=(0.0, 0.5), ncol=1)
+    else:
+        fig.legend(
+            ordered_handles, ordered_labels, loc='lower center',
+            bbox_to_anchor=(0.5, 0.0), ncol=4)
 
     ax.set_xlabel(x_var if x_var_display is None else x_var_display)
 

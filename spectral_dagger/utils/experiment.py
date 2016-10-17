@@ -88,7 +88,7 @@ class Estimator(BaseEstimator):
         if _name is None:
             self._name = self.__class__.__name__
         else:
-            self._name = "%s(%s)" % (self.__class__.__name__, _name)
+            self._name = _name
 
 
 class Dataset(object):
@@ -351,6 +351,9 @@ class Experiment(object):
             Whether to store estimators (uses cPickle).
         save_datasets: bool (optional, default=False)
             Whether to store datasets (uses cPickle).
+        hook: f(experiment, dataframe) -> None (optional)
+            A hook called after all the work for one x-value is completed. Can,
+            for instance, be used to plot or take a snapshot of progress so far.
         name: str (optional)
             Name for the experiment.
         exp_dir: ExperimentDirectory instance (optional)
@@ -365,7 +368,7 @@ class Experiment(object):
             self, mode, base_estimators, x_var_name, x_var_values,
             generate_data, score=None, n_repeats=5, data_kwargs=None,
             search_kwargs=None, directory='.', save_estimators=False,
-            save_datasets=False, name=None, exp_dir=None,
+            save_datasets=False, hook=None, name=None, exp_dir=None,
             params=None):
         self._constructor_params = locals().copy()
         del self._constructor_params['self']
@@ -427,6 +430,7 @@ class Experiment(object):
 
         self.save_estimators = save_estimators
         self.save_datasets = save_datasets
+        self.hook = hook
 
         self.params = params
 
@@ -481,6 +485,12 @@ class Experiment(object):
             handler.setLevel(logging.DEBUG)
             logging.getLogger('').addHandler(handler)  # add to root logger
 
+            estimator_names = [base_est.name for base_est in self.base_estimators]
+            if len(set(estimator_names)) < len(estimator_names):
+                raise Exception(
+                    "Multiple base estimators have the same name. "
+                    "Names are: %s" % estimator_names)
+
             for x in self.x_var_values:
                 for r in range(self.n_repeats):
                     results = []
@@ -511,6 +521,9 @@ class Experiment(object):
                     else:
                         self.df = self.df.append(results, ignore_index=True)
                     self.df.to_csv(self.exp_dir.path_for(filename))
+
+                if self.hook is not None:
+                    self.hook(self, self.df)
 
             logging.getLogger('').removeHandler(handler)
             complete = True
@@ -688,10 +701,8 @@ class Experiment(object):
                 value = float(value)
             except (ValueError, TypeError):
                 pass
-
             results[attr] = value
-            logger.info(
-                "    Value for attr %s: %s." % (attr, value))
+            logger.info("    Value for attr %s: %s." % (attr, value))
 
         logger.info("    Running tests...")
         then = time.time()
@@ -707,8 +718,12 @@ class Experiment(object):
 
 
 def _plot(
-        x_var_name, df, plot_path, experiment=None,
+        experiment, df, plot_path, legend_loc='right',
         x_var_display="", score_display="", title="", labels=None, show=False):
+
+    if os.path.isfile(plot_path):
+        os.rename(plot_path, plot_path+'.bk')
+
     markers = MarkerStyle.filled_markers
     colors = sns.color_palette("hls", 16)
     labels = {} if labels is None else labels
@@ -720,26 +735,21 @@ def _plot(
         label = labels.get(sv, sv)
         return dict(label=label, c=c, marker=marker)
 
-    if experiment is None:
-        measure_names = [mn for mn in df.columns if 'score' in mn]
-        score_display = None
-    else:
-        measure_names = experiment.score_names
-
+    measure_names = experiment.score_names
     if time:
-        measure_names += [mn for mn in df.columns if 'time' in mn]
+        measure_names = measure_names + [mn for mn in df.columns if 'time' in mn]
 
     plt.figure(figsize=(10, 5))
     fig, axes = plot_measures(
-        df, measure_names, x_var_name, 'method',
-        legend_outside=True,
+        df, measure_names, experiment.x_var_name, 'method',
+        legend_loc=legend_loc,
         kwarg_func=plot_kwarg_func,
         measure_display=score_display,
         x_var_display=x_var_display)
     axes[0].set_title(title)
 
     # plt.rc('text', usetex=True)
-    plt.rc('font', family='serif', size=22)
+    plt.rc('font', family='serif', size=10)
 
     fig.subplots_adjust(left=0.1, right=0.85, top=0.94, bottom=0.12)
 
@@ -750,16 +760,21 @@ def _plot(
     return fig
 
 
-def _finish(experiment, email_cfg, success, *args, **kwargs):
+def make_plot_hook(plot_name, **plot_kwargs):
+    def plot_hook(experiment, df):
+        plot_path = experiment.exp_dir.path_for(plot_name)
+        _plot(experiment, df, plot_path, **plot_kwargs)
+    return plot_hook
+
+
+def _finish(experiment, email_cfg, success, **plot_kwargs):
     exp_dir = experiment.exp_dir
     save_object(exp_dir.path_for('experiment.pkl'), experiment)
     plot_path = exp_dir.path_for('plot.pdf')
 
     fig = None
     if experiment.df is not None:
-        fig = _plot(
-            experiment.x_var_name, experiment.df, plot_path,
-            experiment=experiment, *args, **kwargs)
+        fig = _plot(experiment, experiment.df, plot_path, **plot_kwargs)
 
     if email_cfg:
         if success:
@@ -774,14 +789,18 @@ def _finish(experiment, email_cfg, success, *args, **kwargs):
 
 
 def run_experiment_and_plot(
-        exp_kwargs, quick_exp_kwargs=None, random_state=None,
-        x_var_display="", score_display="", title="", labels=None):
+        exp_kwargs, quick_exp_kwargs=None, random_state=None, **plot_kwargs):
     """ A utility function which handles much of the boilerplate required to set
         up a script running a set of experiments and plotting the results.
+
+        plot_kwargs: Extra arguments passed to the _plot function.
 
     """
     # Parse args
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--seed', type=int, default=None,
+        help='If supplied, will seed the random number generator with this integer.')
     parser.add_argument(
         '--plot', action='store_true',
         help='If supplied, will plot the most recent completed '
@@ -808,6 +827,12 @@ def run_experiment_and_plot(
         '--n-jobs', type=int, default=1,
         help="Number of jobs to use for cross validation.")
     parser.add_argument(
+        '--save-est', action='store_true',
+        help="If supplied, trained estimators will be saved.")
+    parser.add_argument(
+        '--save-data', action='store_true',
+        help="If supplied, data sets will be saved.")
+    parser.add_argument(
         '--email-cfg', type=str, default=None,
         help="Name of a file from which to pull email configurations. "
              "If not provided, no email will be sent. If provided, email "
@@ -822,7 +847,11 @@ def run_experiment_and_plot(
              "receives a score of negative infinity.")
     args, _ = parser.parse_known_args()
 
-    show = args.show or args.plot or args.plot_incomplete
+    plot_kwargs['show'] = args.show or args.plot or args.plot_incomplete
+
+    random_state = check_random_state(random_state)
+    if args.seed is not None:
+        random_state.seed(args.seed)
 
     # Setup and run experiment
     logging.basicConfig(level=logging.INFO, format='')
@@ -830,8 +859,9 @@ def run_experiment_and_plot(
     if args.quick and quick_exp_kwargs is not None:
         exp_kwargs = quick_exp_kwargs
 
-    if args.name is not None:
-        exp_kwargs['name'] = args.name
+    exp_kwargs['name'] = args.name or None
+    exp_kwargs['save_estimators'] = args.save_est
+    exp_kwargs['save_datasets'] = args.save_data
 
     if 'search_kwargs' not in exp_kwargs:
         exp_kwargs['search_kwargs'] = {}
@@ -843,6 +873,9 @@ def run_experiment_and_plot(
     if 'directory' not in exp_kwargs:
         exp_kwargs['directory'] = '/data/experiment'
 
+    plot_kwargs['title'] = plot_kwargs.get('title', exp_kwargs['name'])
+    exp_kwargs['hook'] = make_plot_hook('plot.pdf', **plot_kwargs)
+
     if args.plot or args.plot_incomplete:
         # Re-plotting an experiment that has already been run.
         exp_dir = get_latest_exp_dir(
@@ -851,15 +884,11 @@ def run_experiment_and_plot(
         plot_path = exp_dir.path_for('plot.pdf')
 
         df = pd.read_csv(exp_dir.path_for('results.csv'))
-        try:
-            with open(exp_dir.path_for('experiment.pkl'), 'rb') as f:
-                experiment = dill.load(f)
-        except:
-            experiment = None
-        fig = _plot(
-            exp_kwargs['x_var_name'], df, plot_path, experiment=experiment,
-            x_var_display=x_var_display, score_display=score_display,
-            title=title, labels=labels, show=show)
+
+        with open(exp_dir.path_for('experiment.pkl'), 'rb') as f:
+            experiment = dill.load(f)
+
+        fig = _plot(experiment, df, plot_path, **plot_kwargs)
     else:
         # Running a new experiment and then plotting.
         experiment = Experiment(**exp_kwargs)
@@ -869,18 +898,12 @@ def run_experiment_and_plot(
         except:
             exc_info = sys.exc_info()
             try:
-                fig = _finish(
-                    experiment, args.email_cfg, False,
-                    x_var_display=x_var_display, score_display=score_display,
-                    title=title, labels=labels, show=show)
+                fig = _finish(experiment, args.email_cfg, False, **plot_kwargs)
             except:
                 print("Error while cleaning up:")
                 traceback.print_exc()
             raise exc_info[0], exc_info[1], exc_info[2]
 
-        fig = _finish(
-            experiment, args.email_cfg, True,
-            x_var_display=x_var_display, score_display=score_display,
-            title=title, labels=labels, show=args.show)
+        fig = _finish(experiment, args.email_cfg, True, **plot_kwargs)
 
     return experiment, fig
