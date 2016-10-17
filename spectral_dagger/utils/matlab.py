@@ -3,23 +3,11 @@ import time
 import subprocess
 import os
 import logging
-from contextlib import contextmanager
 import scipy.io as sio
 
+from spectral_dagger.utils.misc import cd
+
 logger = logging.getLogger(__name__)
-
-
-@contextmanager
-def cd(path):
-    """ cd into dir on __enter__, cd back on exit. """
-
-    old_dir = os.getcwd()
-    os.chdir(path)
-
-    try:
-        yield
-    finally:
-        os.chdir(old_dir)
 
 
 def make_verbose_print(verbosity, threshold=1.0):
@@ -27,6 +15,23 @@ def make_verbose_print(verbosity, threshold=1.0):
         if float(verbosity) >= float(threshold):
             print(*obj)
     return vprint
+
+
+def safe_print_file(filename):
+    try:
+        if os.path.isfile(filename):
+            with open(filename, 'r') as f:
+                for line in iter(f.readline, ''):
+                    print(line)
+    except IOError:
+        pass
+
+
+def safe_remove_file(filename):
+    try:
+        os.remove(filename)
+    except OSError:
+        pass
 
 
 def run_matlab_code(code, working_dir='.', verbose=False, delete_files=False, **matlab_kwargs):
@@ -42,7 +47,7 @@ def run_matlab_code(code, working_dir='.', verbose=False, delete_files=False, **
         "matlab", "-nosplash", "-nodisplay", "-nojvm",
         "-nodesktop",  "-r",
         "try, %s, catch exception, "
-        "display(getReport(exception)), exit, end, exit;" % code]
+        "display(getReport(exception)), exit(1), end, exit;" % code]
 
     command_output_name = "stdout_%d.txt" % pid
     command_err_name = "stderr_%d.txt" % pid
@@ -55,6 +60,7 @@ def run_matlab_code(code, working_dir='.', verbose=False, delete_files=False, **
         sio.savemat(infile, matlab_kwargs)
 
         process = None
+        error = False
         try:
             vprint("Calling matlab with command: ")
             vprint("    %s" % command)
@@ -65,6 +71,9 @@ def run_matlab_code(code, working_dir='.', verbose=False, delete_files=False, **
                         command, stdout=command_output, stderr=command_err)
                     process.wait()
 
+            if process.returncode != 0:
+                raise subprocess.CalledProcessError(process.returncode, command, None)
+
             vprint("Matlab call complete, took %s seconds. "
                    "Loading results..." % (time.time() - t0))
 
@@ -72,50 +81,24 @@ def run_matlab_code(code, working_dir='.', verbose=False, delete_files=False, **
 
             vprint("Results loaded.")
 
-        except subprocess.CalledProcessError as e:
-            logger.info((e.output, e.returncode))
-            raise e
+        except:
+            error = True
+            raise
         finally:
             if isinstance(process, subprocess.Popen):
                 try:
                     process.terminate()
                 except OSError:
                     pass
-            try:
-                if verbose and os.path.isfile(command_output_name):
-                    with open(command_output_name, 'r') as f:
-                        for line in iter(f.readline, ''):
-                            print(line)
-            except IOError:
-                pass
 
-            try:
-                if verbose and os.path.isfile(command_err_name):
-                    with open(command_err_name, 'r') as f:
-                        for line in iter(f.readline, ''):
-                            print(line)
-            except IOError:
-                pass
+            if error or verbose:
+                safe_print_file(command_output_name)
+                safe_print_file(command_err_name)
 
             if delete_files:
-                try:
-                    os.remove(infile)
-                except OSError:
-                    pass
-
-                try:
-                    os.remove(outfile)
-                except OSError:
-                    pass
-
-                try:
-                    os.remove(command_output)
-                except OSError:
-                    pass
-
-                try:
-                    os.remove(command_err)
-                except OSError:
-                    pass
+                safe_remove_file(infile)
+                safe_remove_file(outfile)
+                safe_remove_file(command_output)
+                safe_remove_file(command_err)
 
     return results

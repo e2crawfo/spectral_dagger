@@ -18,6 +18,43 @@ _title_format = "\n{{0:=<{0}.{0}s}}".format(_title_width)
 
 
 @contextmanager
+def cd(path):
+    """ cd into dir on __enter__, cd back on exit. """
+
+    old_dir = os.getcwd()
+    os.chdir(path)
+
+    try:
+        yield
+    finally:
+        os.chdir(old_dir)
+
+
+@contextmanager
+def redirect_stdout(f):
+    """ ``f`` is a file-like object. """
+    sys_stdout = sys.stdout
+    sys.stdout = f
+
+    try:
+        yield
+    finally:
+        sys.stdout = sys_stdout
+
+
+@contextmanager
+def redirect_stderr(f):
+    """ ``f`` is a file-like object. """
+    sys_stderr = sys.stderr
+    sys.stderr = f
+
+    try:
+        yield
+    finally:
+        sys.stderr = sys_stderr
+
+
+@contextmanager
 def remove_file(name):
     try:
         yield
