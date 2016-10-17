@@ -2,6 +2,7 @@ import six
 import abc
 import numpy as np
 from scipy.stats import multivariate_normal, rv_discrete, bernoulli
+from scipy.misc import logsumexp
 from sklearn.utils import check_random_state
 
 
@@ -49,12 +50,16 @@ class MixtureDist(Distribution):
     def __init__(self, pi, dists, random_state=None):
         assert np.isclose(sum(pi), 1)
         self.pi = pi
+        self.log_pi = np.log(pi)
         self.pi_rv = rv_discrete(values=(range(len(pi)), pi))
         self.dists = dists
         self.random_state = random_state
 
     def pdf(self, o):
         return self.pi.dot([d.pdf(o) for d in self.dists])
+
+    def logpdf(self, o):
+        return logsumexp(self.log_pi + np.array([d.logpdf(o) for d in self.dists]))
 
     def rvs(self, size=None, random_state=None):
         random_state = (

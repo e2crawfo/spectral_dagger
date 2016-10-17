@@ -2,9 +2,6 @@ import abc
 import numpy as np
 import six
 
-from sklearn.utils import check_random_state
-from scipy.stats import rv_discrete
-
 from spectral_dagger.base import Environment
 
 

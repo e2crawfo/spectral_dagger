@@ -782,7 +782,7 @@ class GenerativeRNN(SequenceModel):
         self.persist_halt_ = persist_halt
 
     def fit(self, train, valid=None, test=None, reuse=None, max_epochs=None):
-        max_epochs = self.max_epochs if max_epochs is None else max_epochs
+        max_epochs = max_epochs or self.max_epochs
         reuse = self.reuse if reuse is None else reuse
 
         vprint = make_verbose_print(self.verbose)
@@ -1216,14 +1216,13 @@ if __name__ == "__main__":
 
     difference = True
     sample_every = 2
-    _data, _labels = get_data(difference=difference, sample_every=sample_every, ignore_multisegment=False, use_digits=[6, 8, 9, 2, 3])
+    data, labels = get_data(
+        difference=difference, sample_every=sample_every,
+        ignore_multisegment=False, use_digits=[6])#, 8, 9, 2, 3])
 
-    data = []
-    labels = []
-    for ds, ls in zip(_data, _labels):
-        for d, l in zip(ds, ls):
-            data.append(d)
-            labels.append(l)
+    data = [d for dd in data for d in dd]
+    labels = [l for ll in labels for l in ll]
+
     permutation = np.random.permutation(range(len(labels)))
     data = [data[i] for i in permutation]
     labels = [labels[i] for i in permutation]
@@ -1240,26 +1239,18 @@ if __name__ == "__main__":
     max_length = None
     model_class = GenerativeGRU if 1 else (GenerativeRNN if 1 else GenerativeLSTM)
     verbose = True
-    use_dropout = True
+    use_dropout = False
     quick = 0
     if quick:
         model = model_class(n_hidden=2, max_epochs=1, use_dropout=use_dropout, verbose=verbose, reuse=True)
     else:
         model = model_class(
-            n_hidden=50, max_epochs=100000, use_dropout=use_dropout,
+            n_hidden=2, max_epochs=100000, use_dropout=use_dropout,
             verbose=verbose, theano_optimizer='fast_run', reuse=True)
 
     model.fit(training_data, max_epochs=2)
     qualitative(training_data, training_labels, model)
     # qualitative(test_data, test_labels, model)
-
-    model.fit(training_data)
-
-    eps = model.sample_episodes(10)
-    for s in eps:
-        if s:
-            plot_digit(s, difference)
-            plt.show()
 
     print("Mean Log likelihood of training data: %g" % model.mean_log_likelihood(training_data))
     print("Mean Log likelihood of test data: %g" % model.mean_log_likelihood(test_data))
@@ -1290,4 +1281,10 @@ if __name__ == "__main__":
             print("String: ", log_prob)
             print("String: ", model.mean_log_likelihood([sequence]))
             print("String: ", model.string_prob(sequence, log=True))
-        model.fit(training_data, max_epochs=1000, reuse=True)
+        model.fit(training_data, reuse=True)
+
+        eps = model.sample_episodes(10)
+        for s in eps:
+            if s:
+                plot_digit(s, difference)
+                plt.show()
