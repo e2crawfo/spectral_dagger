@@ -274,9 +274,10 @@ class SequenceData(object):
         return self.train + self.dev + self.test
 
 
-def store_pos(langs=None):
-    """ Read all Universal Dependency files, create separate files
-        which only store the POS data, with symbols encoded as integers.
+def store_pos(langs=None, get_all=True):
+    """ Read Universal Dependency files for supplied languages (or all
+        if None is supplied), create separate files which only store the
+        POS data, with symbols encoded as integers.
 
         Loading files with only the POS info is orders of magnitude faster
         than loading the original files with all the info.
@@ -293,7 +294,7 @@ def store_pos(langs=None):
         langs = [langs]
 
     for language in langs:
-        sd = SequenceData(language, fast=False, get_all=True)
+        sd = SequenceData(language, fast=False, get_all=get_all)
 
         lang_dir = os.path.join(pos_dir, language)
         if not os.path.isdir(lang_dir):
@@ -311,3 +312,43 @@ def store_pos(langs=None):
         with open(test, 'w') as f:
             for seq in sd.test:
                 f.write(str(seq)[1:-1] + '\n')
+
+
+def pos2spice(langs=None, get_all=True):
+    """ Convert the POS data (in its original Universal Dependency format)
+        to the spice format.
+
+    """
+    pos_dir = os.path.join(UNIDEP_PATH, 'unidep_pos_spice')
+
+    if not os.path.isdir(pos_dir):
+        os.makedirs(pos_dir)
+
+    if langs is None:
+        langs = languages()
+    if isinstance(langs, str):
+        langs = [langs]
+
+    n_symbols = len(universal_pos)
+
+    for language in langs:
+        print "Converting data for %s..." % language
+        sd = SequenceData(language, fast=False, get_all=get_all)
+
+        lang_dir = os.path.join(pos_dir, language)
+        if not os.path.isdir(lang_dir):
+            os.makedirs(lang_dir)
+
+        write_spice(os.path.join(lang_dir, 'train.spice'), sd.train, n_symbols)
+        write_spice(os.path.join(lang_dir, 'dev.spice'), sd.dev, n_symbols)
+        write_spice(os.path.join(lang_dir, 'test.spice'), sd.test, n_symbols)
+
+
+def write_spice(filename, sequences, n_symbols):
+    with open(filename, 'w') as f:
+        f.write('%s %s\n' % (len(sequences), n_symbols))
+        for seq in sequences:
+            f.write(str(len(seq)))
+            for s in seq:
+                f.write(' ' + str(s))
+            f.write('\n')
