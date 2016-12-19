@@ -85,8 +85,8 @@ class Space(object):
         self.name = "" if name is None else name
         self._is_degenerate = self.check_degenerate()
 
-    @staticmethod
-    def check_degenerate():
+    def check_degenerate(self):
+        """ Check whether this is a degenerate space (has just 1 point). """
         is_degenerate = True
         for d in self.dimensions:
             degenerate_dim = isinstance(d, set) and len(d) <= 1

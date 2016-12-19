@@ -58,6 +58,7 @@ class Estimator(BaseEstimator):
                 estimated_params[attr] = getattr(self, attr)
         return estimated_params
 
+    @property
     def record_attrs(self):
         return set()
 
@@ -695,7 +696,7 @@ class Experiment(object):
             "    Training score std: %f." % train_score_std)
         results['training_score_std'] = train_score_std
 
-        for attr in est.record_attrs():
+        for attr in est.record_attrs:
             value = getattr(learned_est, attr)
             try:
                 value = float(value)
