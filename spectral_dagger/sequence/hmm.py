@@ -1,5 +1,6 @@
 import numpy as np
 from sklearn.utils import check_random_state
+from functools import partial
 
 from spectral_dagger.utils import normalize, indent
 from spectral_dagger.sequence import ProbabilisticAutomaton
@@ -108,6 +109,36 @@ class HMM(ProbabilisticAutomaton):
     def stop_prob(self):
         return self._stop_prob
 
+    def modified(self):
+        """ Return a version of this HMM modified so that the HMM never stops
+            but instead transitions into a special stop state which returns
+            to itself with probability 1 and output a special stop observation
+            with probability 1.
+
+            The is done even if the current HMM has zero probabilty of halting
+            in every state for consistency in terms of the number of states and
+            observations.
+
+        """
+        init_stop_prob = self.init_dist.dot(self.stop_prob)
+        init_dist = np.array(
+            list(self.init_dist * (1 - self.stop_prob)) +
+            [init_stop_prob])
+
+        T = self.T.copy()
+        lookahead_stop_prob = T.dot(self.stop_prob)
+        T *= 1-self.stop_prob.reshape(1, -1)
+        T = np.hstack((T, lookahead_stop_prob.reshape(-1, 1)))
+        T = np.vstack((T, np.eye(T.shape[1])[-1, :]))
+
+        O = self.O.copy()
+        O = np.hstack((O, np.zeros((O.shape[0], 1))))
+        O = np.vstack((O, np.eye(O.shape[1])[-1, :]))
+
+        mhmm = HMM(init_dist, T, O)
+
+        return mhmm
+
 
 def is_hmm(b_0, B_o, b_inf):
     """ Check that b_0, b_inf, B_o form a Hidden Markov Model.
@@ -160,12 +191,13 @@ def is_hmm(b_0, B_o, b_inf):
     return True
 
 
-def dummy_hmm(n_states):
+def dummy_hmm(n_states, n_obs=None):
     """ Create a degenerate HMM. """
+    n_obs = n_obs or n_states
 
-    n_obs = n_states
-
-    O = np.eye(n_obs)
+    O = np.zeros((n_states, n_obs))
+    for i in range(n_states):
+        O[i, i % n_obs] = 1.0
     T = np.eye(n_states)
 
     init_dist = normalize(np.ones(n_states), ord=1, conservative=True)
@@ -174,7 +206,7 @@ def dummy_hmm(n_states):
 
 
 def bernoulli_hmm(n_states, n_obs, rng=None):
-    """ Create an HMM with operators chosen from Bernoulii distributions. """
+    """ Create an HMM with operators chosen from Bernoulli distributions. """
     rng = check_random_state(rng)
     O = rng.binomial(1, 0.5, (n_states, n_obs))
     for row in O:
@@ -191,3 +223,25 @@ def bernoulli_hmm(n_states, n_obs, rng=None):
     init_dist = normalize(np.ones(n_states), ord=1, conservative=True)
 
     return HMM(init_dist, T, O)
+
+
+def perturb_hmm(hmm, noise, noise_type='uniform', preserve_zeros=False, rng=None):
+    rng = check_random_state(rng)
+    noise_func = partial(rng.uniform, 0, noise)
+
+    init_dist = hmm.init_dist.copy()
+    noise_mask = init_dist > 0 if preserve_zeros else np.ones(init_dist.shape, dtype=np.bool)
+    init_dist[noise_mask] += noise_func(size=init_dist.shape)[noise_mask]
+    init_dist = normalize(init_dist, ord=1, axis=1)
+
+    T = hmm.T.copy()
+    noise_mask = T > 0 if preserve_zeros else np.ones(T.shape, dtype=np.bool)
+    T[noise_mask] += noise_func(size=T.shape)[noise_mask]
+    T = normalize(T, ord=1, axis=1)
+
+    O = hmm.O.copy()
+    noise_mask = O > 0 if preserve_zeros else np.ones(O.shape, dtype=np.bool)
+    O[noise_mask] += noise_func(size=O.shape)[noise_mask]
+    O = normalize(O, ord=1, axis=1)
+
+    return HMM(init_dist, T, O, hmm.stop_prob)

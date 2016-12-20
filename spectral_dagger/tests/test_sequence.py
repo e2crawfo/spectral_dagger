@@ -292,6 +292,36 @@ def test_mixture_seq_gen():
     assert np.isclose(sum(prefix_probs), 1)
 
 
+def test_modified_hmm():
+    n_states = 4
+    n_obs = 5
+    o_density, t_density = 0.5, 0.5
+    n_samples = 20
+
+    seed = 10
+    np.random.seed(seed)
+
+    hmms = [
+        make_pautomac_like(
+            'hmm', n_states, n_obs, o_density, t_density, halts=True)
+        for i in range(10)]
+
+    for hmm in hmms:
+        modified_hmm = hmm.modified()
+
+        samples = hmm.sample_episodes(n_samples)
+        for sample in samples:
+            for i in range(len(sample)):
+                prefix = sample[:i]
+                normal_prob = hmm.prefix_prob(prefix)
+                modified_prob = modified_hmm.prefix_prob(prefix)
+                assert np.isclose(normal_prob, modified_prob)
+
+                normal_prob = hmm.string_prob(prefix)
+                modified_prob = modified_hmm.prefix_prob(prefix + [n_obs])
+                assert np.isclose(normal_prob, modified_prob)
+
+
 def test_markov_chain():
     seed = 10
     np.random.seed(seed)
