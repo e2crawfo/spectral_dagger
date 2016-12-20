@@ -10,8 +10,8 @@ from sklearn.utils import check_random_state
 
 from spectral_dagger.sequence import ProbabilisticAutomaton
 from spectral_dagger.sequence.pfa import is_pfa, is_dpfa
-from spectral_dagger.sequence.hmm import is_hmm
-from spectral_dagger.utils import rmse
+from spectral_dagger.sequence.hmm import HMM, is_hmm
+from spectral_dagger.utils import rmse, normalize
 
 PAUTOMAC_PATH = "/data/PAutomaC-competition_sets/"
 
@@ -288,7 +288,7 @@ def make_pautomac_like(
                 emission_probs[state1, symbol] *
                 transition_probs[state1, symbol, state2])
 
-        assert is_pfa(b_0, B_o, b_inf_string)
+        pa = ProbabilisticAutomaton(b_0, B_o, b_inf_string, estimator='string')
 
     elif kind == 'hmm':
         transition_probs, _ = _populate_prob_table(
@@ -298,12 +298,13 @@ def make_pautomac_like(
             s: np.diag(emission_probs[:, s]).dot(transition_probs)
             for s in symbols}
 
-        assert is_hmm(b_0, B_o, b_inf_string)
+        pa = HMM(b_0, transition_probs,
+                 normalize(emission_probs, ord=1, axis=1),
+                 b_inf_string)
     else:
         raise NotImplementedError(
             'Cannot generate PFA of kind "%s".' % kind)
 
-    pa = ProbabilisticAutomaton(b_0, B_o, b_inf_string, estimator='string')
     return pa
 
 
