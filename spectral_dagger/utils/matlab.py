@@ -30,11 +30,11 @@ def safe_print_file(filename):
 def safe_remove_file(filename):
     try:
         os.remove(filename)
-    except OSError:
+    except (OSError, TypeError):
         pass
 
 
-def run_matlab_code(code, working_dir='.', verbose=False, delete_files=False, **matlab_kwargs):
+def run_matlab_code(code, working_dir='.', verbose=True, delete_files=False, **matlab_kwargs):
 
     vprint = make_verbose_print(verbose)
 
@@ -98,7 +98,7 @@ def run_matlab_code(code, working_dir='.', verbose=False, delete_files=False, **
             if delete_files:
                 safe_remove_file(infile)
                 safe_remove_file(outfile)
-                safe_remove_file(command_output)
-                safe_remove_file(command_err)
+                safe_remove_file(command_output_name)
+                safe_remove_file(command_err_name)
 
     return results

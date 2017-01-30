@@ -42,15 +42,21 @@ setup(
     # Without this, `setup.py install` fails to install NumPy.
     # See https://github.com/nengo/nengo/issues/508 for details.
     setup_requires=[
-        "numpy>=1.6",
+        "numpy>=1.7",
     ],
     install_requires=[
-        "numpy>=1.6",
+        "scipy",
+        "sklearn",
+        "pandas",
+        "matplotlib",
+        "dill",
+        "seaborn",
+        "scikits.bootstrap",
+        "rdp",
+        "gensim",
+        "theano",
+        "pytest"
     ],
-    # extras_require={
-    #     'all_solvers': ["scipy", "scikit-learn"],
-    # },
-    tests_require=['pytest>=2.3'],
     entry_points={
         'console_scripts': [
             'sdagger = spectral_dagger.main:main',

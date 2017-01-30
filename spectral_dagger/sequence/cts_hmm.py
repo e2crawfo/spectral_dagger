@@ -114,14 +114,28 @@ class ContinuousHMM(Environment):
 
 
 class GmmHmm(SequenceModel):
+    """
+    Parameters
+    ----------
+    n_states: int > 0
+        Number of hidden state of the GmmHMM.
+    n_components: int > 0
+        Number of (Gaussian) mixture components for each state-conditional emission distribution.
+    n_dim: int > 0
+        Dimensionality of output.
+    max_iter: 
+
+    """
     seq_length = None
+
 
     def __init__(
             self, n_states=1, n_components=1, n_dim=1,
             max_iter=10, thresh=1e-4, verbose=1, cov_type='full',
             directory=".", random_state=None, careful=True,
             left_to_right=False, reuse=False, n_restarts=1,
-            max_attempts=10, raise_errors=False, parameters=None):
+            max_attempts=10, raise_errors=False, initial_params=None,
+            delete_matlab_files=True):
 
         self.rng = check_random_state(random_state)
         self.n_states = n_states
@@ -138,22 +152,23 @@ class GmmHmm(SequenceModel):
         self.n_restarts = n_restarts
         self.max_attempts = max_attempts
         self.raise_errors = raise_errors
+        self.warm_start = False
 
-        self.has_fit = False
-
+        self.delete_matlab_files = delete_matlab_files
         self.directory = directory
 
-        if parameters is not None:
-            self.n_states = parameters['pi'].shape[0]
-            self.n_components = parameters['M'].shape[1]
-            self.n_dim = parameters['mu'].shape[0]
+        if initial_params is not None:
+            self.n_states = initial_params['pi'].shape[0]
+            self.n_components = initial_params['M'].shape[1]
+            self.n_dim = initial_params['mu'].shape[0]
 
-            self.pi = parameters['pi'].copy()
-            self.T = parameters['T'].copy()
-            self.mu = parameters['mu'].copy()
-            self.sigma = parameters['sigma'].copy()
-            self.M = parameters['M'].copy()
-            self.validate_params()
+            self.pi = initial_params['pi'].copy()
+            self.T = initial_params['T'].copy()
+            self.mu = initial_params['mu'].copy()
+            self.sigma = initial_params['sigma'].copy()
+            self.M = initial_params['M'].copy()
+            self._validate_params()
+            self.warm_start = True
 
     @property
     def directory(self):
@@ -169,7 +184,7 @@ class GmmHmm(SequenceModel):
         if not os.path.isdir(self._directory):
             os.makedirs(self._directory)
 
-    def validate_params(self):
+    def _validate_params(self):
         if self.mu.ndim < 3:
             self.mu = self.mu[:, :, None]
 
@@ -244,7 +259,7 @@ class GmmHmm(SequenceModel):
         self.mu = mu
         self.sigma = sigma
         self.M = M
-        self.validate_params()
+        self._validate_params()
 
     @property
     def name(self):
@@ -276,7 +291,7 @@ class GmmHmm(SequenceModel):
         print("*" * 40)
         print("Beginning new fit for %s with reuse=%r." % (self.__class__.__name__, reuse))
 
-        n_restarts = 1 if (reuse and self.has_fit) else self.n_restarts
+        n_restarts = 1 if self.warm_start else self.n_restarts
         n_iters = 0
         log_likelihood = 0
         results = []
@@ -287,7 +302,7 @@ class GmmHmm(SequenceModel):
 
             while True:
                 n_attempts += 1
-                if not reuse or not self.has_fit:
+                if not self.warm_start:
                     self._random_init()
 
                 # TODO: Remove requirement that all sequences be the same length.
@@ -321,7 +336,8 @@ class GmmHmm(SequenceModel):
                         verbose=int(self.verbose), cov_type=self.cov_type)
                     matlab_results = run_matlab_code(
                         matlab_code, working_dir=self.directory,
-                        verbose=self.verbose, **matlab_kwargs)
+                        verbose=self.verbose, delete_files=self.delete_matlab_files,
+                        **matlab_kwargs)
 
                     log_likelihood = matlab_results['ll_trace'][0, -1]
                     if log_likelihood > 0:
@@ -334,7 +350,7 @@ class GmmHmm(SequenceModel):
                     self.sigma = matlab_results['sigma']
                     self.M = matlab_results['M']
 
-                    self.validate_params()
+                    self._validate_params()
                     break
                 except Exception:
                     if n_attempts == self.max_attempts:
@@ -350,12 +366,12 @@ class GmmHmm(SequenceModel):
 
             results.append((log_likelihood, matlab_results))
 
-            print("n_attempts: ", n_attempts)
-            print("n_iters: ", n_iters)
-            print("Final likelihood: ", log_likelihood)
+            print("n_attempts: {0}".format(n_attempts))
+            print("n_iters: {0}".format(n_iters))
+            print("Final (total, not avg) log likelihood: {0}".format(log_likelihood))
 
         best_results = max(results, key=lambda r: r[0])
-        print("Chose parameters with likelihood: %f" % best_results[0])
+        print("Chose parameters with total log likelihood: %f" % best_results[0])
         best_results = best_results[1]
 
         self.pi = best_results['pi'].squeeze()
@@ -364,8 +380,8 @@ class GmmHmm(SequenceModel):
         self.sigma = best_results['sigma']
         self.M = best_results['M']
 
-        self.validate_params()
-        self.has_fit = True
+        self._validate_params()
+        self.warm_start = self.reuse
 
         self.reset()
 
@@ -410,7 +426,9 @@ class GmmHmm(SequenceModel):
             sigma=sigma, M=M)
 
         matlab_code = "run_mhmm_cond_logprob('{infile}', '{outfile}');"
-        results = run_matlab_code(matlab_code, working_dir=self.directory, **matlab_kwargs)
+        results = run_matlab_code(
+            matlab_code, working_dir=self.directory,
+            delete_files=self.delete_matlab_files, **matlab_kwargs)
 
         # shape : (n_seqs, seq_length)
         cond_log_likelihood = results['cond_log_likelihood']

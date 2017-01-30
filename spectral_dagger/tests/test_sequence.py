@@ -15,6 +15,7 @@ from spectral_dagger.sequence import ExpMaxSA
 from spectral_dagger.sequence import ConvexOptSA
 from spectral_dagger.sequence import MixtureSeqGen
 from spectral_dagger.sequence import HMM, MarkovChain, AdjustedMarkovChain
+from spectral_dagger.sequence import GmmHmm
 from spectral_dagger.utils.math import normalize, rmse
 from spectral_dagger.datasets.pautomac import make_pautomac_like
 
@@ -440,3 +441,85 @@ def test_markov_chain_learn(from_dist):
     error = rmse(true_dist, learned_dist)
     print("RMSE: %s" % error)
     assert error < 0.001
+
+
+@pytest.mark.skipif(True, reason="Incomplete implementation.")
+def test_gmm_hmm_pendigits():
+    import matplotlib.pyplot as plt
+    from spectral_dagger.datasets import pendigits
+
+    use_digits = [0]
+    difference = True
+    simplify = True
+
+    max_data_points = None
+
+    print("Loading data.")
+    data, labels = pendigits.get_data(difference=difference, use_digits=use_digits, simplify=5, sample_every=3)
+    labels = [l for ll in labels[:10] for l in ll]
+    data = [d for dd in data[:10] for d in dd]
+
+    if max_data_points is None:
+        max_data_points = len(data)
+    perm = np.random.permutation(len(data))[:max_data_points]
+
+    labels = [labels[i] for i in perm]
+    data = [data[i] for i in perm]
+    print("Amount of data: ", len(data))
+
+    pct_test = 0.2
+    n_train = int((1-pct_test) * len(data))
+
+    test_data = data[n_train:]
+    test_labels = labels[n_train:]
+
+    data = data[:n_train]
+    labels = labels[:n_train]
+
+    n_components = 1
+    n_dim = 2
+
+    for n_states in [10]:
+        print("Training with {0} states.".format(n_states))
+        gmm_hmm = GmmHmm(
+            n_states=n_states, n_components=n_components, n_dim=n_dim,
+            max_iter=1000, thresh=1e-4, verbose=0, cov_type='full',
+            directory="temp", random_state=None, careful=False, left_to_right=True, n_restarts=5)
+
+        gmm_hmm.fit(data)
+
+        print gmm_hmm.mean_log_likelihood(test_data)
+        print gmm_hmm.RMSE(test_data)
+
+
+def test_gmm_hmm_simple():
+    n_states = 10
+    n_components = 2
+    n_dim = 5
+
+    n_train = 100
+    n_test = 100
+
+    horizon = 5
+
+    n_restarts = 5
+
+    print("Generating random ground truth model.")
+    ground_truth = GmmHmm(n_states, n_components, n_dim)
+    ground_truth._random_init()
+
+    print("Generating data from ground truth.")
+    train = ground_truth.sample_episodes(n_train, horizon=horizon)
+    test = ground_truth.sample_episodes(n_test, horizon=horizon)
+
+    print("Fitting model.")
+    # Fit a GmmHmm to the generated data
+    model = GmmHmm(n_states, n_components, n_dim, n_restarts=n_restarts, verbose=False)
+    model.fit(train)
+    print("Done.")
+
+    print("GROUND TRUTH MEAN LL: {0}.".format(ground_truth.mean_log_likelihood(test)))
+    print("GROUND TRUTH RMSE: {0}.".format(ground_truth.RMSE(test)))
+
+    print("MODEL MEAN LL: {0}.".format(model.mean_log_likelihood(test)))
+    print("MODEL RMSE: {0}.".format(model.RMSE(test)))

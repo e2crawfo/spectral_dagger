@@ -25,6 +25,3 @@ from .lda import LatentDirichletSA
 from .mixture import MixtureSeqGen
 
 from .neural import GenerativeRNN, GenerativeGRU, GenerativeLSTM
-
-from .archive import SpectralSAWithActions, SpectralClassifier
-from .archive import SpectralPolicy
