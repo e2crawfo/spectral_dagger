@@ -116,17 +116,18 @@ def RMSE(self, test_data):
 
 
 @six.add_metaclass(abc.ABCMeta)
-class SequenceModel(Environment):
-
-    def _lookahead(self):
+class SequenceModel(object):
+    def _lookahead(self, state):
         """ Sample next observation/halt. """
         # Note: cond_obs_dist should set random state appropriately.
-        dist = self.cond_obs_dist()
+        dist = self.cond_obs_dist(state)
         o = dist.rvs()
 
         if self.check_terminal(o):
             self.terminal = True
-        self.next_obs = o
+        # next_obs = o
+        return o
+
 
     def reset(self, initial=None):
         self._reset(initial)
@@ -176,7 +177,7 @@ class SequenceModel(Environment):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def cond_obs_dist(self):
+    def cond_obs_dist(self, state):
         """ Get distribution over observations for next time step,
             including termination observations.
 
@@ -189,6 +190,22 @@ class SequenceModel(Environment):
 
     @abc.abstractmethod
     def prefix_prob(self, prefix, log=False, conditional=False):
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def make_sampler(self):
+        """ Return a sampler whch makes use of the current SequenceModel instance.
+            Each sampler must have its own internal state, and must use of the
+            SequenceModel in order to sample from the induced distribution.
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def make_observer(self):
+        """ Return an observer whch makes use of the current SequenceModel instance.
+            Each observer must have its own internal state, and makes use of the
+            SequenceModel in order to do filtering and prediction.
+        """
         raise NotImplementedError()
 
     def mean_log_likelihood(self, test_data, string=True):
@@ -205,3 +222,12 @@ class SequenceModel(Environment):
 
     def RMSE(self, test_data):
         return RMSE(self, test_data)
+
+
+@six.add_metaclass(abc.ABCMeta)
+def SequenceSampler(Environment):
+
+
+@six.add_metaclass(abc.ABCMeta)
+def SequenceObserver(object):
+    pass
