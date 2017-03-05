@@ -1,3 +1,4 @@
+from __future__ import print_function
 import os
 import string
 import datetime
@@ -10,8 +11,7 @@ from email.mime.text import MIMEText
 from email.MIMEBase import MIMEBase
 from email.MIMEMultipart import MIMEMultipart
 from email.Utils import formatdate
-from six.moves.configparser import ConfigParser, NoOptionError
-
+from configparser import ConfigParser, NoOptionError
 
 _title_width = 80
 _title_format = "\n{{0:=<{0}.{0}s}}".format(_title_width)
@@ -215,7 +215,7 @@ def send_email(host, from_addr, password, subject, body,
             msg.attach(attachment)
         except IOError:
             msg = "Error opening attachment file %s" % f2a
-            print msg
+            print(msg)
             sys.exit(1)
 
     emails = to_addr + cc_addr + bcc_addr
