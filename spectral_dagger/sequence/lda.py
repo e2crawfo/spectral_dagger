@@ -1,6 +1,5 @@
 import numpy as np
 import logging
-import gensim
 from itertools import product
 import time
 from collections import defaultdict
@@ -16,13 +15,17 @@ MAX_BASIS_SIZE = 100
 
 
 class LatentDirichletSA(StochasticAutomaton):
-    def __init__(self, observations):
+    def __init__(self, n_components=1, n_observations=1, alpha=1.0, eta=1.0, direct=True):
         self.b_0 = None
         self.b_inf = None
         self.B_o = None
 
-        self.observations = observations
-        self.n_observations = len(self.observations)
+        self.n_components = n_components
+        self.n_observations = n_observations
+        self.observations = range(n_observations)
+        self.alpha = alpha
+        self.eta = eta
+        self.direct = direct
 
     @staticmethod
     def _make_conditional_counts(samples, symbols):
@@ -64,7 +67,7 @@ class LatentDirichletSA(StochasticAutomaton):
                     conditional_hankel[prefix2idx[(symbol, symbol_prime)]])
         return hp, hs, h, sh
 
-    def fit(self, data, n_components, alpha=1.0, eta=1.0, direct=True):
+    def fit(self, data):
         """ Fit a SA to the given data using an LDA algorithm.
 
         Parameters
@@ -83,6 +86,7 @@ class LatentDirichletSA(StochasticAutomaton):
             obtained through LDA, and perform spectral learning using that.
 
         """
+        import gensim
         symbols = self.observations
         n_symbols = len(symbols)
 
@@ -98,23 +102,23 @@ class LatentDirichletSA(StochasticAutomaton):
         t0 = time.time()
         lda = gensim.models.ldamodel.LdaModel(
             corpus=bow, id2word=id2word,
-            num_topics=n_components, update_every=0,
-            passes=20, alpha=alpha, eta=eta)
+            num_topics=self.n_components, update_every=0,
+            passes=20, alpha=self.alpha, eta=self.eta)
         logger.info("Done LDA")
         logger.info("LDA Time: %f seconds", time.time() - t0)
 
         S = np.array([
-            lda.state.get_lambda()[i] for i in range(n_components)]).T
+            lda.state.get_lambda()[i] for i in range(self.n_components)]).T
         S = normalize(S, ord=1, axis=0).T
 
         n_docs = len(cc)
         documents = [lda[b] for b in bow]
-        P = np.zeros((n_docs, n_components))
+        P = np.zeros((n_docs, self.n_components))
         for t, doc in enumerate(documents):
             for idx, prob in doc:
                 P[t, idx] = prob
 
-        if direct:
+        if self.direct:
             conditional_hankel = P.dot(S)
             hp, _, _, sh = self._conditional_to_joint(
                 conditional_hankel, prefixes, symbols)
@@ -140,7 +144,7 @@ class LatentDirichletSA(StochasticAutomaton):
                 conditional_hankel, prefixes, symbols)
             sa = SpectralSA(symbols)
             sa.fit(
-                [], n_components, basis=basis,
+                [], self.n_components, basis=basis,
                 hankels=hankels, sparse=False)
 
             self.b_0, self.b_inf, self.B_o = sa.b_0, sa.b_inf, sa.B_o
@@ -150,3 +154,5 @@ class LatentDirichletSA(StochasticAutomaton):
             self.b_0, self.b_inf, estimator='prefix')
 
         self.reset()
+
+        return self

@@ -1,95 +1,41 @@
 from __future__ import print_function
 import pprint
 import logging
-import abc
 import six
 import os
+from os.path import join as pjoin
 import time
 import numpy as np
 import pandas as pd
 import argparse
 import matplotlib.pyplot as plt
 from matplotlib.markers import MarkerStyle
-import dill
 import sys
 import shutil
 import seaborn.apionly as sns
 import traceback
 import copy
+import dill as pickle
 
-from sklearn.base import BaseEstimator
-from sklearn.grid_search import RandomizedSearchCV, GridSearchCV
+from sklearn.base import clone
 from sklearn.utils import check_random_state
+try:
+    from sklearn.model_selection import (
+        RandomizedSearchCV, GridSearchCV, ParameterGrid, ParameterSampler, cross_val_score)
+except ImportError:
+    from sklearn.grid_search import (
+        RandomizedSearchCV, GridSearchCV, ParameterGrid, ParameterSampler, cross_val_score)
 
 import spectral_dagger as sd
-from spectral_dagger.utils.misc import (
-    make_symlink, make_filename, indent, as_title, send_email_using_cfg)
 from spectral_dagger.utils.plot import plot_measures
+from spectral_dagger.utils.misc import (
+    make_symlink, make_filename, indent, as_title, send_email_using_cfg, ObjectLoader, ObjectSaver)
+
 
 pp = pprint.PrettyPrinter()
 verbosity = 2
 
 logger = logging.getLogger(__name__)
-
-
-@six.add_metaclass(abc.ABCMeta)
-class Estimator(BaseEstimator):
-    """ If deriving classes define an attribute ``record_attrs``
-        giving a list of strings, then those attributes will be queried
-        by the Experiment class every time a cross-validation search
-        finishes. Can be useful for recording the values of hyper-parameters
-        chosen by cross-validation.
-
-    """
-    _name = None
-    _directory = None
-
-    def _init(self, _locals):
-        if 'self' in _locals:
-            del _locals['self']
-
-        for k, v in six.iteritems(_locals):
-            setattr(self, k, v)
-
-    def get_estimated_params(self):
-        estimated_params = {}
-        for attr in dir(self):
-            if attr.endswith('_') and not attr.startswith('_'):
-                estimated_params[attr] = getattr(self, attr)
-        return estimated_params
-
-    @property
-    def record_attrs(self):
-        return set()
-
-    @abc.abstractmethod
-    def point_distribution(self, context):
-        return {}
-
-    @property
-    def directory(self):
-        return self._directory
-
-    @directory.setter
-    def directory(self, _directory):
-        if _directory is None:
-            self._directory = "results/%s" % self.__class__.__name__
-        else:
-            self._directory = _directory
-
-        if not os.path.isdir(self._directory):
-            os.makedirs(self._directory)
-
-    @property
-    def name(self):
-        return self._name
-
-    @name.setter
-    def name(self, _name):
-        if _name is None:
-            self._name = self.__class__.__name__
-        else:
-            self._name = _name
 
 
 class Dataset(object):
@@ -151,7 +97,7 @@ class ExperimentDirectory(object):
         """
         self.directory = directory
         self.exp_dir = exp_dir
-        self._path = os.path.join(directory, self.exp_dir)
+        self._path = pjoin(directory, self.exp_dir)
 
         assert os.path.isdir(self._path), (
             "Creating an ExperimentDirectory object, but the "
@@ -171,10 +117,10 @@ class ExperimentDirectory(object):
         else:
             path, filename = os.path.split(path)
 
-        full_path = os.path.join(self._path, path)
+        full_path = pjoin(self._path, path)
         if not os.path.isdir(full_path):
             os.makedirs(full_path)
-        return os.path.join(full_path, filename)
+        return pjoin(full_path, filename)
 
     def move_to_directory(self, new_directory):
         if not os.path.isdir(new_directory):
@@ -182,7 +128,7 @@ class ExperimentDirectory(object):
 
         shutil.move(self._path, new_directory)
         self.directory = new_directory
-        self._path = os.path.join(new_directory, self.exp_dir)
+        self._path = pjoin(new_directory, self.exp_dir)
 
     @staticmethod
     def create_new(directory, exp_name, data=None, use_time=False):
@@ -204,16 +150,16 @@ class ExperimentDirectory(object):
         exp_dir = make_filename(
             exp_name, use_time=use_time, config_dict=data)
 
-        path = os.path.join(directory, exp_dir)
-        os.makedirs(path)
+        _path = pjoin(directory, exp_dir)
+        os.makedirs(_path)
 
-        make_symlink(exp_dir, os.path.join(directory, 'latest'))
+        make_symlink(exp_dir, pjoin(directory, 'latest'))
 
         return ExperimentDirectory(directory, exp_dir)
 
 
 def get_latest_exp_dir(directory):
-    latest = os.readlink(os.path.join(directory, 'latest'))
+    latest = os.readlink(pjoin(directory, 'latest'))
     return ExperimentDirectory(directory, latest)
 
 
@@ -246,7 +192,7 @@ def get_n_points(dists):
 
 def save_object(filename, obj):
     with open(filename, 'wb') as f:
-        dill.dump(obj, f, protocol=dill.HIGHEST_PROTOCOL)
+        pickle.dump(obj, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def set_nested_value(d, key, value, sep="."):
@@ -446,7 +392,7 @@ class Experiment(object):
             f.write(str(self))
 
     def __str__(self):
-        s = "Experiment(\n"
+        s = "%s(\n" % self.__class__.__name__
         for k, v in six.iteritems(self._constructor_params):
             s += indent("%s=%s,\n" % (k, pprint.pformat(v)), 1)
         s += ")"
@@ -532,14 +478,14 @@ class Experiment(object):
             # Move the experiment to a folder based on
             # whether it completed successfully.
             new_loc = 'complete' if complete else 'incomplete'
-            new_path = os.path.join(self.directory, new_loc)
+            new_path = pjoin(self.directory, new_loc)
             try:
                 os.makedirs(new_path)
             except:
                 pass
             self.exp_dir.move_to_directory(new_path)
             make_symlink(
-                self.exp_dir.exp_dir, os.path.join(new_path, 'latest'))
+                self.exp_dir.exp_dir, pjoin(new_path, 'latest'))
 
         return self.df
 
@@ -549,7 +495,7 @@ class Experiment(object):
         data_kwargs = copy.deepcopy(self.data_kwargs)
         data_kwargs.update(random_state=sd.gen_seed(data_rng))
         if self.mode == 'data':
-            set_nested_value(data_kwargs, self.x_var_name, x)
+            set_nested_value(data_kwargs, self.x_var_name, x, sep='__')
 
         data = self.generate_data(**data_kwargs)
 
@@ -576,11 +522,9 @@ class Experiment(object):
             self, base_est, x, r, train, test, context,
             search_rng, estimator_rng):
 
-        est_params = copy.deepcopy(base_est.get_params())
+        est = clone(base_est)
         if self.mode == 'estimator':
-            set_nested_value(est_params, self.x_var_name, x)
-
-        est = base_est.__class__(**est_params)
+            est.set_params(**{self.x_var_name: x})
 
         est_seed = sd.gen_seed(estimator_rng)
         est.random_state = est_seed
@@ -616,12 +560,12 @@ class Experiment(object):
                 dist.random_state = search_rng
 
         # Make sure we don't CV over the independent variable.
-        # TODO: Should be made to work with hierarchical keys.
         if self.mode == 'estimator':
             dists.pop(self.x_var_name, None)
 
+        # We can only do this check at the top level of params.
         for key in dists:
-            if key not in est_params:
+            if key not in est.get_params(deep=True):
                 raise ValueError(
                     "Point distribution contains field "
                     "``%s`` which is not a parameter of "
@@ -631,8 +575,7 @@ class Experiment(object):
         n_iter = min(self.search_kwargs.get('n_iter', 10), n_points)
 
         if n_iter == 1 or n_iter == 0:
-            logger.info(
-                "    Only one candidate point, skipping cross-validation.")
+            logger.info("    Only one candidate point, skipping cross-validation.")
             search_time_pp = 0.0
             train_score = 0.0
             train_score_std = 0.0
@@ -681,7 +624,7 @@ class Experiment(object):
                         "%s seconds per point." % search_time_pp)
 
         if self.save_estimators:
-            estpath = os.path.join(dirpath, 'estimator')
+            estpath = pjoin(dirpath, 'estimator')
             save_object(estpath, learned_est)
 
         results = {
@@ -697,7 +640,11 @@ class Experiment(object):
         results['training_score_std'] = train_score_std
 
         for attr in est.record_attrs:
-            value = getattr(learned_est, attr)
+            try:
+                value = getattr(learned_est, attr)
+            except AttributeError:
+                value = learned_est.get_params(deep=True)[attr]
+
             try:
                 value = float(value)
             except (ValueError, TypeError):
@@ -720,10 +667,18 @@ class Experiment(object):
 
 def _plot(
         experiment, df, plot_path, legend_loc='right',
-        x_var_display="", score_display="", title="", labels=None, show=False):
+        x_var_display="", score_display=None, title="", labels=None, show=False):
+    return __plot(
+        experiment.score_names, experiment.x_var_name, df, plot_path, legend_loc,
+        x_var_display, score_display, title, labels, show)
+
+
+def __plot(
+        score_names, x_var_name, df, plot_path, legend_loc='right',
+        x_var_display="", score_display=None, title="", labels=None, show=False):
 
     if os.path.isfile(plot_path):
-        os.rename(plot_path, plot_path+'.bk')
+        os.rename(plot_path, plot_path + '.bk')
 
     markers = MarkerStyle.filled_markers
     colors = sns.color_palette("hls", 16)
@@ -736,13 +691,16 @@ def _plot(
         label = labels.get(sv, sv)
         return dict(label=label, c=c, marker=marker)
 
-    measure_names = experiment.score_names
+    measure_names = score_names
     if time:
         measure_names = measure_names + [mn for mn in df.columns if 'time' in mn]
 
+    if not x_var_display:
+        x_var_display = x_var_name
+
     plt.figure(figsize=(10, 5))
     fig, axes = plot_measures(
-        df, measure_names, experiment.x_var_name, 'method',
+        df, measure_names, x_var_name, 'method',
         legend_loc=legend_loc,
         kwarg_func=plot_kwarg_func,
         measure_display=score_display,
@@ -797,7 +755,6 @@ def run_experiment_and_plot(
         plot_kwargs: Extra arguments passed to the _plot function.
 
     """
-    # Parse args
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--seed', type=int, default=None,
@@ -824,6 +781,9 @@ def run_experiment_and_plot(
     parser.add_argument(
         '--quick', action='store_true',
         help='If supplied, run a set of small test experiments.')
+    parser.add_argument(
+        '--parallel', action='store_true',
+        help='If supplied, build the experiment to be executed in parallel.')
     parser.add_argument(
         '--n-jobs', type=int, default=1,
         help="Number of jobs to use for cross validation.")
@@ -877,17 +837,30 @@ def run_experiment_and_plot(
     plot_kwargs['title'] = plot_kwargs.get('title', exp_kwargs['name'])
     exp_kwargs['hook'] = make_plot_hook('plot.pdf', **plot_kwargs)
 
+    if args.parallel:
+        experiment = ParallelExperiment(**exp_kwargs)
+        experiment.build()
+
+        archive_name = experiment.exp_dir.exp_dir
+        print("Zipping built experiment as {}.tar.gz.".format(archive_name))
+        shutil.make_archive(archive_name, 'zip', experiment.exp_dir._path)
+
+        print("Experiment has been built, execute using the ``sd-experiment`` command-line utility.")
+        return
+
     if args.plot or args.plot_incomplete:
         # Re-plotting an experiment that has already been run.
         exp_dir = get_latest_exp_dir(
-            os.path.join(exp_kwargs['directory'],
-                         'complete' if args.plot else 'incomplete'))
+            pjoin(
+                exp_kwargs['directory'],
+                'complete' if args.plot else 'incomplete'))
+
         plot_path = exp_dir.path_for('plot.pdf')
 
         df = pd.read_csv(exp_dir.path_for('results.csv'))
 
         with open(exp_dir.path_for('experiment.pkl'), 'rb') as f:
-            experiment = dill.load(f)
+            experiment = pickle.load(f)
 
         fig = _plot(experiment, df, plot_path, **plot_kwargs)
     else:
@@ -908,3 +881,260 @@ def run_experiment_and_plot(
         fig = _finish(experiment, args.email_cfg, True, **plot_kwargs)
 
     return experiment, fig
+
+
+class ParallelExperiment(Experiment):
+    def build(self, random_state=None):
+        """
+        Parameters
+        ----------
+        filename: str
+            Name of the file to write results to.
+        random_state: int seed, RandomState instance, or None (default)
+            Random state for the experiment.
+
+        """
+        print(
+            "Building parallel experiment file for experiment: {} "
+            "in directory: {}.".format(self.name, self.exp_dir.exp_dir))
+        self.saver = ObjectSaver(self.exp_dir._path, eager=True)
+
+        rng = check_random_state(random_state)
+        data_rng = check_random_state(sd.gen_seed(rng))
+        search_rng = check_random_state(sd.gen_seed(rng))
+
+        self.search_kwargs.update(dict(random_state=search_rng))
+
+        handler = logging.FileHandler(
+            filename=self.exp_dir.path_for("log.txt"), mode='w')
+        handler.setFormatter(logging.Formatter())
+        handler.setLevel(logging.DEBUG)
+        logging.getLogger('').addHandler(handler)  # add to root logger
+
+        estimator_names = [base_est.name for base_est in self.base_estimators]
+        if len(set(estimator_names)) < len(estimator_names):
+            raise Exception(
+                "Multiple base estimators have the same name. "
+                "Names are: %s" % estimator_names)
+
+        self.results = {}  # test_scenario_idx -> results
+
+        for x in self.x_var_values:
+            for r in range(self.n_repeats):
+                train, test, context = self._draw_dataset(x, r, data_rng)
+
+                train_idx = self.saver.add_object(train, 'train', context=context)
+                test_idx = self.saver.add_object(test, 'test', context=context)
+                assert train_idx == test_idx
+
+                for base_est in self.base_estimators:
+                    est = clone(base_est)
+                    if self.mode == 'estimator':
+                        est.set_params(**{self.x_var_name: x})
+
+                    train_indices = self._build_train_scenarios(
+                        base_est, x, r, train_idx, context, search_rng)
+
+                    self._build_test_scenario(
+                        base_est, x, r, test_idx, train_indices, context)
+
+        logging.getLogger('').removeHandler(handler)
+
+        results = {
+            'results': self.results, 'x_var_name': self.x_var_name, 'score_names': self.score_names}
+
+        with open(self.exp_dir.path_for('_results.pkl'), 'w') as f:
+            pickle.dump(results, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+        print("Created {} train scenarios.".format(self.saver.n_objects('train_scenario')))
+        print("Created {} test scenarios.".format(self.saver.n_objects('test_scenario')))
+
+    def _build_train_scenarios(self, est, x, r, train_idx, context, search_rng):
+        logger.info(
+            "Saving data point. "
+            "method: %s, %s: %s, repeat: %d."
+            "" % (est.name, self.x_var_name, str(x), r))
+
+        try:
+            dists = est.point_distribution(context=context)
+        except KeyError as e:
+            raise KeyError(
+                "Key {key} required by estimator {est} was "
+                "not in context {context} supplied by the data "
+                "generation function.".format(
+                    key=e, est=est, context=context))
+
+        for name, dist in six.iteritems(dists):
+            if hasattr(dist, 'rvs'):
+                dist.random_state = search_rng
+
+        # Make sure we don't CV over the independent variable.
+        if self.mode == 'estimator':
+            dists.pop(self.x_var_name, None)
+
+        for key in dists:
+            if key not in est.get_params(deep=True):
+                raise ValueError(
+                    "Point distribution contains field "
+                    "``%s`` which is not a parameter of "
+                    "the estimator %s." % (key, est))
+
+        n_points = get_n_points(dists)
+        n_iter = min(self.search_kwargs.get('n_iter', 10), n_points)
+
+        if n_iter == 1 or n_iter == 0:
+            logger.info("    Only one candidate point, skipping cross-validation.")
+        else:
+            if n_points > n_iter:
+                search = RandomizedSearchCV(
+                    est, dists, scoring=self.scores[0], **self.search_kwargs)
+
+                param_iter = ParameterSampler(search.param_distributions,
+                                              search.n_iter,
+                                              random_state=search.random_state)
+                logger.info("    Using RandomizedSearchCV with %d iters..." % n_iter)
+
+            else:
+                # These are arguments for RandomizedSearchCV but not GridSearchCV
+                _search_kwargs = self.search_kwargs.copy()
+                _search_kwargs.pop('random_state', None)
+                _search_kwargs.pop('n_iter', None)
+
+                search = GridSearchCV(est, dists, scoring=self.scores[0], **_search_kwargs)
+                param_iter = ParameterGrid(search.param_grid)
+                logger.info("    Using GridSearchCV with %d iters..." % n_iter)
+
+        cv = self.search_kwargs.get('cv', None)
+
+        train_indices = {}
+        for params in param_iter:
+            cloned_est = clone(est).set_params(**params)
+
+            ti = self.saver.add_object(
+                cloned_est, 'train_scenario', scoring=self.scores[-1],
+                cv=cv, dataset_idx=train_idx)
+
+            train_indices[ti] = params
+
+        return train_indices
+
+    def _build_test_scenario(self, est, x, r, test_idx, train_indices, context):
+        test_scenario_idx = self.saver.add_object(
+            est, 'test_scenario', scores=self.scores,
+            score_names=self.score_names,
+            train_indices=train_indices, dataset_idx=test_idx)
+
+        self.results[test_scenario_idx] = {
+            'round': r, self.x_var_name: x, 'method': est.name}
+
+
+def run_training_scenario(directory, scenario_idx):
+    loader = ObjectLoader(directory)
+
+    estimator, kwargs = loader.load_object('train_scenario', scenario_idx)
+    estimator.directory = pjoin(directory, 'train_scratch/{}'.format(scenario_idx))
+    dataset_idx = kwargs.pop('dataset_idx')
+    train, train_kwargs = loader.load_object('train', dataset_idx)
+
+    scoring = kwargs.get('scoring', None)
+    cv = kwargs.get('cv', None)
+
+    cv_score = cross_val_score(
+        estimator, train.X, train.y, scoring=scoring, cv=cv, n_jobs=1, verbose=0)
+
+    saver = ObjectSaver(directory, eager=True)
+    saver.add_object(cv_score, 'cv_score', scenario_idx)
+
+
+def make_idx_print(idx):
+    def idx_print(s):
+        print("{}: {}".format(idx, s))
+    return idx_print
+
+
+def run_testing_scenario(directory, scenario_idx):
+    loader = ObjectLoader(directory)
+
+    estimator, kwargs = loader.load_object('test_scenario', scenario_idx)
+    estimator.directory = pjoin(directory, 'test_scratch/{}'.format(scenario_idx))
+    dataset_idx = kwargs.pop('dataset_idx')
+
+    train_indices = kwargs.get('train_indices')
+    scores = kwargs.get('scores', None)
+    score_names = kwargs.get('score_names', None)
+
+    cv_scores = {idx: np.mean(loader.load_object('cv_score', idx)[0]) for idx in train_indices}
+    best_idx, best_cv_score = max(cv_scores.items(), key=lambda x: x[1])
+    best_params = train_indices[best_idx]
+
+    estimator.set_params(**best_params)
+
+    train, train_kwargs = loader.load_object('train', dataset_idx)
+    then = time.time()
+    estimator.fit(train.X, train.y)
+
+    idx_print = make_idx_print(scenario_idx)
+    idx_print("Fit time: %s seconds." % (time.time() - then))
+
+    test, test_kwargs = loader.load_object('test', dataset_idx)
+
+    saver = ObjectSaver(directory, eager=True)
+
+    idx_print("Running tests...")
+    then = time.time()
+    test_scores = {}
+    for s, sn in zip(scores, score_names):
+        score = s(estimator, test.X, test.y)
+        idx_print("{},{},{}".format(scenario_idx, sn, score))
+        test_scores[sn] = score
+
+    test_time = time.time() - then
+    idx_print("Test time: %s seconds." % test_time)
+
+    saver.add_object(test_scores, 'test_scores', scenario_idx)
+
+
+def parallel_exp_plot(directory, **plot_kwargs):
+    results_file = pjoin(directory, 'results.pkl')
+
+    if os.path.exists(results_file):
+        with open(pjoin(directory, 'results.pkl'), 'r') as f:
+            results = pickle.load(f)
+    else:
+        with open(pjoin(directory, '_results.pkl'), 'r') as f:
+            results = pickle.load(f)
+
+        loader = ObjectLoader(directory)
+        test_scores = loader.load_objects_of_kind('test_scores')
+
+        for test_scenario_idx, (ts, _) in test_scores.items():
+            for sn, s in ts.items():
+                results['results'][test_scenario_idx][sn] = s
+
+        with open(pjoin(directory, 'results.pkl'), 'w') as f:
+            pickle.dump(results, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    score_names = results['score_names']
+    x_var_name = results['x_var_name']
+
+    df = pd.DataFrame.from_records(results['results'].values())
+    __plot(score_names, x_var_name, df, 'plot.pdf', **plot_kwargs)
+
+
+def _run_scenario(task, scenario_idx=-1, d='.', seed=None, **kwargs):
+    logging.basicConfig(level=logging.INFO, format='')
+
+    if task == 'cv':
+        run_training_scenario(d, scenario_idx)
+    elif task == 'test':
+        # Read in the results of running, choose winner of CVs, test each.
+        run_testing_scenario(d, scenario_idx)
+    elif task == 'plot':
+        parallel_exp_plot(d, **kwargs)
+    else:
+        raise ValueError("Unknown task {} for parallel experiment.".format(task))
+
+
+def run_scenario():
+    from clify import command_line
+    command_line(_run_scenario, collect_kwargs=1)()

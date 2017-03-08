@@ -7,7 +7,10 @@ import matplotlib.pyplot as plt
 from sklearn import datasets, linear_model
 
 import sklearn
-from sklearn.cross_validation import train_test_split
+try:
+    from sklearn.model_selection import train_test_split
+except ImportError:
+    from sklearn.cross_validation import train_test_split
 from sklearn.metrics import make_scorer
 
 from spectral_dagger.utils.plot import plot_measures

@@ -3,8 +3,12 @@ import copy
 import subprocess
 import os
 
-from sklearn.cross_validation import train_test_split
+try:
+    from sklearn.model_selection import train_test_split
+except ImportError:
+    from sklearn.cross_validation import train_test_split
 
+from spectral_dagger import Estimator
 from spectral_dagger.sequence import StochasticAutomaton
 from spectral_dagger.utils import remove_file
 
@@ -27,7 +31,7 @@ def em_available():
     return _treba_available
 
 
-class ExpMaxSA(StochasticAutomaton):
+class ExpMaxSA(StochasticAutomaton, Estimator):
     """ Train a stochastic automaton using expectation maximization.
 
     We do an initial batch of training no matter what.
@@ -70,14 +74,15 @@ class ExpMaxSA(StochasticAutomaton):
 
     """
     em_temp = ".emtemp.fsm"
+    n_states = 0
 
     def __init__(
-            self, n_states, n_observations,
+            self, n_states=1, n_observations=1,
             n_restarts=5, max_iters=10, max_valid_rounds=10, max_delta=0.5,
             pct_valid=0.0, hmm=False, alg="bw", treba_args="",
             directory='.', verbose=False):
 
-        self._n_states = n_states
+        self.n_states = n_states
         self._observations = range(n_observations)
         self.n_restarts = n_restarts
         self.max_iters = max_iters
@@ -98,8 +103,14 @@ class ExpMaxSA(StochasticAutomaton):
         self.verbose = verbose
 
     @property
-    def n_states(self):
-        return self._n_states
+    def record_attrs(self):
+        return super(ExpMaxSA, self).record_attrs or set(['n_states'])
+
+    def point_distribution(self, context):
+        pd = super(ExpMaxSA, self).point_distribution(context)
+        if 'max_states' in context:
+            pd.update(n_states=range(2, context['max_states']))
+        return pd
 
     @staticmethod
     def _write_obs_file(samples, filename):
@@ -151,7 +162,6 @@ class ExpMaxSA(StochasticAutomaton):
         self.reset()
 
     def fit(self, data, valid_data=None):
-        self.rng = np.random.RandomState(10)
         if valid_data is None and self.pct_valid > 0.0:
             data, valid_data = train_test_split(
                 data, test_size=self.pct_valid, random_state=self.rng)

@@ -11,7 +11,10 @@ import theano
 from theano import config
 import theano.tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
-from sklearn.cross_validation import train_test_split
+try:
+    from sklearn.model_selection import train_test_split
+except ImportError:
+    from sklearn.cross_validation import train_test_split
 from sklearn.utils import check_random_state
 
 from spectral_dagger.sequence import SequenceModel

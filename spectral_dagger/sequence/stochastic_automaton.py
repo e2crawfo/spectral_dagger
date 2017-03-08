@@ -6,7 +6,7 @@ from sklearn.utils.extmath import randomized_svd
 from copy import deepcopy
 import logging
 
-from spectral_dagger import Space
+from spectral_dagger import Space, Estimator
 from spectral_dagger.sequence import (
     SequenceModel, estimate_hankels,
     estimate_kernel_hankels, top_k_basis)
@@ -41,9 +41,8 @@ class StochasticAutomaton(SequenceModel):
         self.reset()
 
     def __str__(self):
-        return ("<StochasticAutomaton. "
-                "n_obs: %d, n_states: %d>" % (self.n_observations,
-                                              self.n_states))
+        return "<{} - n_obs: {}, n_states: {}>".format(
+            self.__class__.__name__, self.n_observations, self.n_states)
 
     def __repr__(self):
         return str(self)
@@ -285,7 +284,7 @@ class StochasticAutomaton(SequenceModel):
             self.b_inf.copy(), estimator='prefix')
 
 
-class SpectralSA(StochasticAutomaton):
+class SpectralSA(StochasticAutomaton, Estimator):
     def __init__(self, n_states, n_observations, estimator='prefix'):
         self.b_0 = None
         self.b_inf = None

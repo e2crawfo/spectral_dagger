@@ -4,6 +4,7 @@ import logging
 import os
 
 import spectral_dagger.sequence
+from spectral_dagger import Estimator
 from spectral_dagger.sequence import StochasticAutomaton
 from spectral_dagger.sequence import estimate_hankels, top_k_basis
 from spectral_dagger.sequence.stochastic_automaton import MAX_BASIS_SIZE
@@ -15,18 +16,23 @@ MAXDIM = 50
 machine_eps = np.finfo(float).eps
 
 
-class ConvexOptSA(StochasticAutomaton):
-    def __init__(self, n_observations, estimator='prefix'):
+class ConvexOptSA(StochasticAutomaton, Estimator):
+    def __init__(
+            self, n_observations=1, estimator='prefix', tau=0.0,
+            max_k=500, probabilistic=True, rank_tol=0.0):
+
         self.b_0 = None
         self.b_inf = None
         self.B_o = None
 
         self._observations = range(n_observations)
         self.estimator = estimator
+        self.tau = tau
+        self.max_k = max_k
+        self.probabilistic = probabilistic
+        self.rank_tol = rank_tol
 
-    def fit(self, data, tau, max_k=500,
-            basis=None, hp_string=None, hankels=None, probabilistic=True,
-            rank_tol=0.0):
+    def fit(self, data, basis=None, hp_string=None, hankels=None):
         """ Fit a SA to the given data using a convex optimization algorithm.
 
         The algorithm solves a convex optimization problem by minimizing the
@@ -82,11 +88,11 @@ class ConvexOptSA(StochasticAutomaton):
         else:
             if not basis:
                 logger.debug("Generating basis...")
-                basis = top_k_basis(data, MAX_BASIS_SIZE, estimator)
+                basis = top_k_basis(data, MAX_BASIS_SIZE, self.estimator)
 
             logger.debug("Estimating Hankels...")
             hankels = estimate_hankels(
-                data, basis, self.observations, estimator)
+                data, basis, self.observations, self.estimator)
             _, hs, hankel_matrix, symbol_hankels = hankels
 
         if not hp_string:
@@ -133,7 +139,7 @@ class ConvexOptSA(StochasticAutomaton):
         b_inf = np.zeros(n_prefix, dtype=np.float64, order='F')
         b_inf[:] = hp_string
 
-        if probabilistic:
+        if self.probabilistic:
             f_learn_pnfa = lib.admm_pnfa_learn
             f_learn_pnfa.argtypes = [
                 np.ctypeslib.ndpointer(dtype=np.float64),
@@ -147,7 +153,7 @@ class ConvexOptSA(StochasticAutomaton):
             # Call C ADMM routine
             f_learn_pnfa(
                 fortran_hankel, hankel_sigma, b_inf, B,
-                n_prefix, self.n_observations, tau, max_k, MAXDIM)
+                n_prefix, self.n_observations, self.tau, self.max_k, MAXDIM)
         else:
             f_learn_wa = lib.admm_wfa_learn
             f_learn_wa.argtypes = [
@@ -158,13 +164,13 @@ class ConvexOptSA(StochasticAutomaton):
             f_learn_wa.restype = C.c_int
             f_learn_wa(
                 fortran_hankel, hankel_sigma, B,
-                n_prefix, self.n_observations, tau, max_k, MAXDIM)
+                n_prefix, self.n_observations, self.tau, self.max_k, MAXDIM)
 
         B[B < machine_eps] = 0.0
 
         U, S, VT = np.linalg.svd(B)
 
-        if rank_tol == 0:
+        if self.rank_tol == 0:
             self.B_o = {}
             for i, o in enumerate(self.symbol_hankels):
                 self.B_o[o] = B[n_prefix*i:n_prefix*(i+1), :n_prefix]
@@ -174,7 +180,7 @@ class ConvexOptSA(StochasticAutomaton):
             b_0 = np.zeros(n_prefix)
             b_0[0] = 1.
         else:
-            n_sv_keep = max(np.count_nonzero(S > rank_tol), 1)
+            n_sv_keep = max(np.count_nonzero(S > self.rank_tol), 1)
             U = U[:, :n_sv_keep]
             S = S[:n_sv_keep]
             VT = VT[:n_sv_keep, :]
@@ -194,3 +200,4 @@ class ConvexOptSA(StochasticAutomaton):
         self.compute_start_end_vectors(b_0, b_inf, 'string')
 
         self.reset()
+        return self

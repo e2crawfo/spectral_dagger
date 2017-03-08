@@ -15,8 +15,7 @@ class MixtureHMM(MixtureSeqGen):
         n_components: int
             Number of mixture components.
         n_states: int or list
-            Number of states for mixture components.
-            If an integer provided, it is used for all components.
+            Number of states for mixture components. If an integer is provided, it is used for all components.
         n_observations: int
             Number of observations.
 
@@ -41,7 +40,6 @@ class MixtureHMM(MixtureSeqGen):
         # self._sample_seq_gens = seq_gens
 
         # self.reset()
-
 
     def __str__(self):
         s = "<MixtureHMM. coefficients: %s,\n" % self.coefficients

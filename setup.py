@@ -21,6 +21,7 @@ def read(*filenames, **kwargs):
             buf.append(f.read())
     return sep.join(buf)
 
+
 root = os.path.dirname(os.path.realpath(__file__))
 version_module = imp.load_source(
     'version', os.path.join(root, 'spectral_dagger', 'version.py'))
@@ -60,6 +61,7 @@ setup(
     entry_points={
         'console_scripts': [
             'sdagger = spectral_dagger.main:main',
+            'sd-experiment = spectral_dagger.utils.experiment:run_scenario',
         ]
     },
     zip_safe=False,

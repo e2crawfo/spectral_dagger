@@ -2,7 +2,9 @@ import abc
 import numpy as np
 import time
 import six
+import os
 from sklearn.utils import check_random_state
+from sklearn.base import BaseEstimator
 
 
 maxint = np.iinfo(np.int32).max
@@ -519,3 +521,80 @@ class LearningAlgorithm(SpectralDaggerObject):
     @abc.abstractmethod
     def fit(self):
         raise NotImplementedError()
+
+
+@six.add_metaclass(abc.ABCMeta)
+class Estimator(BaseEstimator):
+    """ If deriving classes define an attribute ``record_attrs``
+        giving a list of strings, then those attributes will be queried
+        by the Experiment class every time a cross-validation search
+        finishes. Can be useful for recording the values of hyper-parameters
+        chosen by cross-validation.
+
+    """
+    _name = None
+    _directory = None
+
+    def _init(self, _locals):
+        if 'self' in _locals:
+            del _locals['self']
+
+        for k, v in six.iteritems(_locals):
+            setattr(self, k, v)
+
+    def get_estimated_params(self):
+        estimated_params = {}
+        for attr in dir(self):
+            if attr.endswith('_') and not attr.startswith('_'):
+                estimated_params[attr] = getattr(self, attr)
+        return estimated_params
+
+    @property
+    def record_attrs(self):
+        attrs = []
+        for pn, param in self.get_params(deep=False).items():
+            if hasattr(param, 'record_attrs'):
+                sub = param.record_attrs
+                attrs.extend(['{}__{}'.format(pn, a) for a in sub])
+        return attrs
+
+    def point_distribution(self, context):
+        _point_distribution = {}
+        for pn, param in self.get_params(deep=False).items():
+            if hasattr(param, 'point_distribution'):
+                pd = param.point_distribution(context)
+                for k, v in pd.items():
+                    _point_distribution['{}__{}'.format(pn, k)] = v
+
+        return _point_distribution
+
+    @property
+    def directory(self):
+        return self._directory
+
+    def _set_directory(self, directory):
+        self._directory = directory
+
+        for pn, param in self.get_params(deep=False).items():
+            if isinstance(param, Estimator):
+                param._set_directory(directory)
+
+    @directory.setter
+    def directory(self, _directory):
+        _directory = _directory or "results/%s" % self.__class__.__name__
+
+        self._set_directory(_directory)
+
+        if not os.path.isdir(self._directory):
+            os.makedirs(self._directory)
+
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, _name):
+        if _name is None:
+            self._name = self.__class__.__name__
+        else:
+            self._name = _name

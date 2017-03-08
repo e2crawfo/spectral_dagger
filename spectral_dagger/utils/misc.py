@@ -1,11 +1,14 @@
 from __future__ import print_function
 import os
+from os import path
 import string
 import datetime
 from contextlib import contextmanager
 import six
 import sys
 import smtplib
+from collections import defaultdict
+import dill as pickle
 from email import encoders
 from email.mime.text import MIMEText
 from email.MIMEBase import MIMEBase
@@ -15,6 +18,91 @@ from configparser import ConfigParser, NoOptionError
 
 _title_width = 80
 _title_format = "\n{{0:=<{0}.{0}s}}".format(_title_width)
+
+
+class ObjectSaver(object):
+    def __init__(self, dirname, eager=True):
+        self._objects = defaultdict(lambda: {})
+        self._counts = defaultdict(int)
+        self._dirname = dirname
+        self.eager = eager
+
+    def add_object(self, obj, kind, idx=None, **kwargs):
+        if idx is None:
+            idx = len(self._objects.get(kind, {}))
+        assert isinstance(idx, int), "Indices must be integers."
+
+        if self.eager:
+            self._save_object(obj, kind, idx, **kwargs)
+            self._objects[kind][idx] = None
+        else:
+            self._objects[kind][idx] = (obj, kwargs)
+
+        return idx
+
+    def n_objects(self, kind=None):
+        if kind is None:
+            return sum(len(v) for v in self._objects.values())
+
+        return len(self._objects.get(kind, {}))
+
+    def _save_object(self, obj, kind, idx, **kwargs):
+        kind_dir = path.join(self._dirname, kind)
+        try:
+            os.makedirs(kind_dir)
+        except OSError:
+            pass
+
+        object_file = path.join(kind_dir, str(idx))
+        kwargs['__object'] = obj
+        with open(object_file, 'w') as f:
+            pickle.dump(kwargs, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def save(self):
+        if self.eager:
+            print("ObjectSaver: Do not need to call ``save`` when running in eager mode.")
+            return
+
+        for kind, objects in self._objects.items():
+            for idx, (obj, kwargs) in objects.items():
+                self._save_object(obj, kind, idx, **kwargs)
+
+
+class ObjectLoader(object):
+    def __init__(self, dirname, eager=True):
+        self._dirname = dirname
+
+    def load_object(self, kind, idx):
+        kind_dir = path.join(self._dirname, kind)
+        if not path.isdir(kind_dir):
+            raise Exception("Found no objects of kind {}.".format(kind))
+
+        object_file = path.join(kind_dir, str(idx))
+        try:
+            with open(object_file, 'r') as f:
+                kwargs = pickle.load(f)
+        except IOError as e:
+            if 'No such file or directory:' in str(e):
+                raise Exception(
+                    "Could not find an object of kind {} with index {}.".format(kind, idx))
+
+        obj = kwargs.pop('__object')
+        return obj, kwargs
+
+    def load_objects_of_kind(self, kind):
+        kind_path = path.join(self._dirname, kind)
+        if not path.exists(kind_path):
+            return {}
+        d = {}
+        for idx in os.listdir(kind_path):
+            d[int(idx)] = self.load_object(kind, int(idx))
+        return d
+
+    def n_objects(self, kind):
+        kind_path = path.join(self._dirname, kind)
+        if not path.exists(kind_path):
+            return 0
+        return len(os.listdir(kind_path))
 
 
 @contextmanager
