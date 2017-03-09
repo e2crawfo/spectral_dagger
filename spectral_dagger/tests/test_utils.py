@@ -27,7 +27,7 @@ def test_experiment_estimator():
 
 
 class DummyEstimator(Estimator):
-    def __init__(self, arg=None, nested_arg=None, name="Dummy", random_state=None):
+    def __init__(self, a=10, arg=None, nested_est=None, name="Dummy", random_state=None):
         self._init(locals())
 
     def point_distribution(self, context=None):
@@ -35,12 +35,7 @@ class DummyEstimator(Estimator):
 
     def fit(self, X, y=None):
         self.arg_ = self.arg
-
-        if isinstance(self.nested_arg, dict):
-            self.a_ = self.nested_arg['a']
-        else:
-            self.a_ = 10
-
+        self.a_ = self.a if self.nested_est is None else self.nested_est.a
         return self
 
     def score(self, X, y=None):
@@ -59,13 +54,13 @@ def _generate_data(arg=None, nested_arg=None, random_state=None):
 
 def test_experiment_hierarchical():
     e = Experiment(
-        'estimator', [DummyEstimator()], 'nested_arg.a', [1, 2, 3],
+        'estimator', [DummyEstimator(nested_est=DummyEstimator(a=20))], 'nested_est__a', [1, 2, 3],
         _generate_data, n_repeats=1, name="test_hierarchical:estimator",
         directory='/data/dummy')
     e.run()
 
     e = Experiment(
-        'data', [DummyEstimator()], 'nested_arg.b.p', [1, 2, 3],
+        'data', [DummyEstimator()], 'nested_arg__b__p', [1, 2, 3],
         _generate_data, n_repeats=1, name="test_hierarchical:data",
         directory='/data/dummy')
     e.run()

@@ -14,7 +14,7 @@ from email.mime.text import MIMEText
 from email.MIMEBase import MIMEBase
 from email.MIMEMultipart import MIMEMultipart
 from email.Utils import formatdate
-from configparser import ConfigParser, NoOptionError
+from six.moves.configparser import ConfigParser, NoOptionError
 
 _title_width = 80
 _title_format = "\n{{0:=<{0}.{0}s}}".format(_title_width)
