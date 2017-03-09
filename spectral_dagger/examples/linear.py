@@ -13,8 +13,9 @@ except ImportError:
     from sklearn.cross_validation import train_test_split
 from sklearn.metrics import make_scorer
 
+from spectral_dagger import Estimator
 from spectral_dagger.utils.plot import plot_measures
-from spectral_dagger.utils.experiment import Estimator, Experiment, Dataset
+from spectral_dagger.utils.experiment import Experiment, Dataset
 
 pp = pprint.PrettyPrinter()
 verbosity = 2
@@ -31,8 +32,14 @@ class LogUniform(object):
         self.uniform.random_state = random_state
         self.base = base
 
-    def rvs(self, size=1):
-        return self.base ** self.uniform.rvs(size)
+    def rvs(self, random_state=None, size=1):
+        _rs = self.uniform.random_state
+        if random_state is not None:
+            self.uniform.random_state = random_state
+
+        samples = self.base ** self.uniform.rvs(size)
+        self.uniform.random_state = _rs
+        return samples
 
 
 class Ridge(linear_model.Ridge, Estimator):

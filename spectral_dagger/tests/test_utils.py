@@ -1,7 +1,8 @@
 import pytest
 from sklearn.utils import check_random_state
 
-from spectral_dagger.utils.experiment import Experiment, Estimator, Dataset
+from spectral_dagger import Estimator
+from spectral_dagger.utils.experiment import Experiment, Dataset
 from spectral_dagger.utils.plot import (
     single_split_var, multiple_split_vars)
 from spectral_dagger.utils.misc import send_email

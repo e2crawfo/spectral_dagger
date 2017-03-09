@@ -843,7 +843,7 @@ def run_experiment_and_plot(
 
         archive_name = experiment.exp_dir.exp_dir
         print("Zipping built experiment as {}.tar.gz.".format(archive_name))
-        shutil.make_archive(archive_name, 'zip', experiment.exp_dir._path)
+        shutil.make_archive(archive_name, 'zip', *os.path.split(experiment.exp_dir._path))
 
         print("Experiment has been built, execute using the ``sd-experiment`` command-line utility.")
         return
@@ -1121,14 +1121,14 @@ def parallel_exp_plot(directory, **plot_kwargs):
     __plot(score_names, x_var_name, df, 'plot.pdf', **plot_kwargs)
 
 
-def _run_scenario(task, scenario_idx=-1, d='.', seed=None, **kwargs):
+def _run_scenario(task, scenario_idx=-1, d='.', ppn=-1, seed=None, **kwargs):
     logging.basicConfig(level=logging.INFO, format='')
 
     if task == 'cv':
-        run_training_scenario(d, scenario_idx)
+        run_training_scenario(d, scenario_idx, ppn)
     elif task == 'test':
         # Read in the results of running, choose winner of CVs, test each.
-        run_testing_scenario(d, scenario_idx)
+        run_testing_scenario(d, scenario_idx, ppn)
     elif task == 'plot':
         parallel_exp_plot(d, **kwargs)
     else:
