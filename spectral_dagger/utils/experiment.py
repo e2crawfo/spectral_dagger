@@ -1,4 +1,4 @@
-from __future__ import print_function
+
 import pprint
 import logging
 import six
@@ -19,6 +19,7 @@ import dill as pickle
 
 from sklearn.base import clone
 from sklearn.utils import check_random_state
+import collections
 try:
     from sklearn.model_selection import (
         RandomizedSearchCV, GridSearchCV, ParameterGrid, ParameterSampler, cross_val_score)
@@ -74,7 +75,7 @@ class Dataset(object):
         return str(self)
 
     def __iter__(self):
-        return self.X if self.unsup else zip(self.X, self.y)
+        return self.X if self.unsup else list(zip(self.X, self.y))
 
     def __getitem__(self, key):
         return Dataset(
@@ -330,7 +331,7 @@ class Experiment(object):
         self.generate_data = generate_data
 
         if score is not None:
-            if isinstance(score, tuple) or callable(score):
+            if isinstance(score, tuple) or isinstance(score, collections.Callable):
                 score = [score]
 
             self.scores = []
@@ -876,7 +877,7 @@ def run_experiment_and_plot(
             except:
                 print("Error while cleaning up:")
                 traceback.print_exc()
-            raise exc_info[0], exc_info[1], exc_info[2]
+            raise exc_info[0](exc_info[1]).with_traceback(exc_info[2])
 
         fig = _finish(experiment, args.email_cfg, True, **plot_kwargs)
 
@@ -1064,7 +1065,7 @@ def run_testing_scenario(directory, scenario_idx):
     score_names = kwargs.get('score_names', None)
 
     cv_scores = {idx: np.mean(loader.load_object('cv_score', idx)[0]) for idx in train_indices}
-    best_idx, best_cv_score = max(cv_scores.items(), key=lambda x: x[1])
+    best_idx, best_cv_score = max(list(cv_scores.items()), key=lambda x: x[1])
     best_params = train_indices[best_idx]
 
     estimator.set_params(**best_params)
@@ -1107,8 +1108,8 @@ def parallel_exp_plot(directory, **plot_kwargs):
         loader = ObjectLoader(directory)
         test_scores = loader.load_objects_of_kind('test_scores')
 
-        for test_scenario_idx, (ts, _) in test_scores.items():
-            for sn, s in ts.items():
+        for test_scenario_idx, (ts, _) in list(test_scores.items()):
+            for sn, s in list(ts.items()):
                 results['results'][test_scenario_idx][sn] = s
 
         with open(pjoin(directory, 'results.pkl'), 'w') as f:
@@ -1117,7 +1118,7 @@ def parallel_exp_plot(directory, **plot_kwargs):
     score_names = results['score_names']
     x_var_name = results['x_var_name']
 
-    df = pd.DataFrame.from_records(results['results'].values())
+    df = pd.DataFrame.from_records(list(results['results'].values()))
     __plot(score_names, x_var_name, df, 'plot.pdf', **plot_kwargs)
 
 

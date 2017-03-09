@@ -25,7 +25,7 @@ class RandomWalk(MDP):
         self._T[0, np.arange(1, n_states-1), np.arange(0, n_states-2)] = 1-p
         self._T[0, np.arange(1, n_states-1), np.arange(0, n_states-2)+2] = p
         self._T.flags.writeable = False
-        print self._T
+        print(self._T)
 
         self._R = np.zeros((1, n_states, n_states))
         self._R[:, :, 0] = left_reward
@@ -36,10 +36,10 @@ class RandomWalk(MDP):
 
         self._R.flags.writeable = False
 
-        print self._R
+        print(self._R)
 
         self.actions = [0]
-        self.states = range(n_states)
+        self.states = list(range(n_states))
         self.initial_state = np.floor(n_states / 2.0)
         self.terminal_states = [0, n_states-1]
         self.gamma = 1.0
@@ -71,8 +71,8 @@ if __name__ == "__main__":
     from spectral_dagger.mdp import evaluate_policy, UniformRandomPolicy
     true_Q = evaluate_policy(c, UniformRandomPolicy(c))
 
-    print "True Q: "
-    print true_Q
+    print("True Q: ")
+    print(true_Q)
 
     from spectral_dagger.td import QLearning
 

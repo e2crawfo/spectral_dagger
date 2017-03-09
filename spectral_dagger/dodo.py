@@ -3,10 +3,10 @@ import numpy as np
 
 from td import Sarsa, TD, LinearGradientSarsa
 from grid_world import GridWorld
-from mdp import evaluate_policy
-from utils import geometric_sequence
+from .mdp import evaluate_policy
+from .utils import geometric_sequence
 from cts_grid_world import ContinuousGridWorld
-from function_approximation import RectangularTileCoding
+from .function_approximation import RectangularTileCoding
 
 
 # LinearGradientSarsa ************************
@@ -118,12 +118,12 @@ def plot_gsarsa(output):
     ax.set_xlabel("alpha")
     ax.set_ylabel("average reward")
 
-    epsilon = sorted(set(v['epsilon'] for v in output.values()))
-    L = sorted(set(v['L'] for v in output.values()))
+    epsilon = sorted(set(v['epsilon'] for v in list(output.values())))
+    L = sorted(set(v['L'] for v in list(output.values())))
 
     for e in epsilon:
         for l in L:
-            values = filter(lambda v: v['epsilon'] == e and v['L'] == l, output.values())
+            values = [v for v in list(output.values()) if v['epsilon'] == e and v['L'] == l]
             values = sorted(values, key=lambda v: v['alpha'])
             plt.plot(
                 [v['alpha'] for v in values],
@@ -191,8 +191,8 @@ def task_generate_prediction_data():
     c = RandomWalk(**env_kwargs)
     true_V = evaluate_policy(c)
 
-    print "True V: "
-    print true_V
+    print("True V: ")
+    print(true_V)
 
     policy_class = TD
 
@@ -225,10 +225,10 @@ def plot_prediction(output):
     ax.set_xlabel("alpha")
     ax.set_ylabel("rmse")
 
-    lmbda = sorted(set(v['lmbda'] for v in output.values()))
+    lmbda = sorted(set(v['lmbda'] for v in list(output.values())))
 
     for l in lmbda:
-        values = filter(lambda v: v['lmbda'] == l, output.values())
+        values = [v for v in list(output.values()) if v['lmbda'] == l]
         values = sorted(values, key=lambda v: v['alpha'])
         plt.plot(
             [v['alpha'] for v in values],
@@ -321,10 +321,10 @@ def plot_control(output):
     fig = plt.figure()
     plt.gca().set_ylim((0, 6))
 
-    lmbda = sorted(set(v['lmbda'] for v in output.values()))
+    lmbda = sorted(set(v['lmbda'] for v in list(output.values())))
 
     for l in lmbda:
-        values = filter(lambda v: v['lmbda'] == l, output.values())
+        values = [v for v in list(output.values()) if v['lmbda'] == l]
         values = sorted(values, key=lambda v: v['alpha'])
         plt.plot(
             [v['alpha'] for v in values],

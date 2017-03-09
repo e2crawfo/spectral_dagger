@@ -96,7 +96,7 @@ def load_data(language, filt, get_all=True):
 
     data_files = []
     for ld in language_dirs:
-        dfs = filter(filt, os.listdir(ld))
+        dfs = list(filter(filt, os.listdir(ld)))
         data_files.extend([os.path.join(ld, df) for df in dfs])
 
     return itertools.chain(
@@ -204,23 +204,23 @@ class StatsPOS(object):
 
 
 universal_pos = [
-    u'ADJ',
-    u'ADP',
-    u'PUNCT',
-    u'ADV',
-    u'AUX',
-    u'SYM',
-    u'INTJ',
-    u'CONJ',
-    u'X',
-    u'NOUN',
-    u'DET',
-    u'PROPN',
-    u'NUM',
-    u'VERB',
-    u'PART',
-    u'PRON',
-    u'SCONJ']
+    'ADJ',
+    'ADP',
+    'PUNCT',
+    'ADV',
+    'AUX',
+    'SYM',
+    'INTJ',
+    'CONJ',
+    'X',
+    'NOUN',
+    'DET',
+    'PROPN',
+    'NUM',
+    'VERB',
+    'PART',
+    'PRON',
+    'SCONJ']
 
 
 universal_pos_map = {pos: i for i, pos in enumerate(universal_pos)}
@@ -240,9 +240,9 @@ class SequenceData(object):
             pos_dir = os.path.join(UNIDEP_PATH, 'unidep_pos')
             lang_dir = os.path.join(pos_dir, language)
             if not os.path.isdir(lang_dir):
-                print "POS data doesn't exist, extracting it..."
+                print("POS data doesn't exist, extracting it...")
                 store_pos(language)
-                print "Done."
+                print("Done.")
 
             lang_dir = os.path.join(pos_dir, language)
 
@@ -332,7 +332,7 @@ def pos2spice(langs=None, get_all=True):
     n_symbols = len(universal_pos)
 
     for language in langs:
-        print "Converting data for %s..." % language
+        print("Converting data for %s..." % language)
         sd = SequenceData(language, fast=False, get_all=get_all)
 
         lang_dir = os.path.join(pos_dir, language)

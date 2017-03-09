@@ -83,7 +83,7 @@ class ExpMaxSA(StochasticAutomaton, Estimator):
             directory='.', verbose=False):
 
         self.n_states = n_states
-        self._observations = range(n_observations)
+        self._observations = list(range(n_observations))
         self.n_restarts = n_restarts
         self.max_iters = max_iters
         self.max_valid_rounds = max_valid_rounds
@@ -109,7 +109,7 @@ class ExpMaxSA(StochasticAutomaton, Estimator):
     def point_distribution(self, context):
         pd = super(ExpMaxSA, self).point_distribution(context)
         if 'max_states' in context:
-            pd.update(n_states=range(2, context['max_states']))
+            pd.update(n_states=list(range(2, context['max_states'])))
         return pd
 
     @staticmethod
@@ -189,8 +189,8 @@ class ExpMaxSA(StochasticAutomaton, Estimator):
                 other=self.treba_args, obs_file=obs_file)
 
         if self.verbose:
-            print "Running treba with command: "
-            print command
+            print("Running treba with command: ")
+            print(command)
             treba_output = subprocess.check_output(command.split())
         else:
             with open(os.devnull, 'w') as FNULL:
@@ -207,7 +207,7 @@ class ExpMaxSA(StochasticAutomaton, Estimator):
         with remove_file(self.em_temp):
             for i in range(max_valid_rounds):
                 if self.verbose:
-                    print ("Starting validation iteration %d" + "=" * 10) % i
+                    print(("Starting validation iteration %d" + "=" * 10) % i)
 
                 model_file = os.path.join(self.directory, self.em_temp)
                 with open(model_file, "w") as fp:
@@ -222,8 +222,8 @@ class ExpMaxSA(StochasticAutomaton, Estimator):
                         other=self.treba_args, obs_file=obs_file)
 
                 if self.verbose:
-                    print "Running treba with command: "
-                    print command
+                    print("Running treba with command: ")
+                    print(command)
                     treba_output = subprocess.check_output(command.split())
                 else:
                     with open(os.devnull, 'w') as FNULL:
@@ -236,7 +236,7 @@ class ExpMaxSA(StochasticAutomaton, Estimator):
                 wer = self.WER(valid_data)
 
                 if self.verbose:
-                    print "WER: ", wer, " KL:", kl
+                    print("WER: ", wer, " KL:", kl)
 
                 if best_kl - kl < IMPROVE_EPS and best_wer - wer < IMPROVE_EPS:
                     n_not_improve += 1
@@ -288,16 +288,16 @@ if __name__ == "__main__":
     spectral_pfass = SpectralSA(n_states, n_symbols, estimator='substring')
     spectral_pfass.fit(train)
 
-    print "EM Log Likelihood: ", em_pfa.mean_log_likelihood(test, string=True)
-    print "Viterbi EM Log Likelihood: ", vit_em_pfa.mean_log_likelihood(test, string=True)
-    print "Spectral Log Likelihood String: ", spectral_pfas.mean_log_likelihood(test, string=True)
-    print "Spectral Log Likelihood Prefix: ", spectral_pfap.mean_log_likelihood(test, string=True)
-    print "Spectral Log Likelihood Substring: ", spectral_pfass.mean_log_likelihood(test, string=True)
-    print "Ground Truth Log Likelihood: ", pfa.mean_log_likelihood(test, string=True)
+    print("EM Log Likelihood: ", em_pfa.mean_log_likelihood(test, string=True))
+    print("Viterbi EM Log Likelihood: ", vit_em_pfa.mean_log_likelihood(test, string=True))
+    print("Spectral Log Likelihood String: ", spectral_pfas.mean_log_likelihood(test, string=True))
+    print("Spectral Log Likelihood Prefix: ", spectral_pfap.mean_log_likelihood(test, string=True))
+    print("Spectral Log Likelihood Substring: ", spectral_pfass.mean_log_likelihood(test, string=True))
+    print("Ground Truth Log Likelihood: ", pfa.mean_log_likelihood(test, string=True))
 
-    print "EM WER: ", em_pfa.WER(test)
-    print "Viterbi EM WER: ", vit_em_pfa.WER(test)
-    print "Spectral WER String: ", spectral_pfas.WER(test)
-    print "Spectral WER Prefix: ", spectral_pfap.WER(test)
-    print "Spectral WER Substring: ", spectral_pfass.WER(test)
-    print "Ground Truth WER: ", pfa.WER(test)
+    print("EM WER: ", em_pfa.WER(test))
+    print("Viterbi EM WER: ", vit_em_pfa.WER(test))
+    print("Spectral WER String: ", spectral_pfas.WER(test))
+    print("Spectral WER Prefix: ", spectral_pfap.WER(test))
+    print("Spectral WER Substring: ", spectral_pfass.WER(test))
+    print("Ground Truth WER: ", pfa.WER(test))

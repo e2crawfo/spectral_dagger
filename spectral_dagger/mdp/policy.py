@@ -2,6 +2,7 @@ import numpy as np
 
 from spectral_dagger import Policy, Space
 from spectral_dagger.utils import sample_multinomial
+import collections
 
 
 class UniformRandomPolicy(Policy):
@@ -42,7 +43,7 @@ class MDPPolicy(Policy):
     def __init__(self, mdp, pi):
         self.is_dict = hasattr(pi, '__getitem__')
 
-        if not self.is_dict and not callable(pi):
+        if not self.is_dict and not isinstance(pi, collections.Callable):
             raise Exception(
                 "pi must be either a dict or a callable.")
 

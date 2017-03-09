@@ -112,7 +112,7 @@ if __name__ == "__main__":
     hmms = [hmm.modified() for hmm in hmms]
     coefficients = rng.dirichlet(np.ones(n_components))
 
-    print(hmms[0].sample_episodes(10, horizon=10))
+    print((hmms[0].sample_episodes(10, horizon=10)))
 
     mixture = MixtureSeqGen(coefficients, hmms)
 

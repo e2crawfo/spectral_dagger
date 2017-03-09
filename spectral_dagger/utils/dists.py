@@ -27,7 +27,7 @@ class Multinomial(Distribution):
         assert self.p.ndim == 1
         assert (self.p >= 0).all()
         assert np.isclose(self.p.sum(), 1)
-        self.dist = rv_discrete(values=(range(len(p)), p))
+        self.dist = rv_discrete(values=(list(range(len(p))), p))
         self.random_state = random_state
 
     def pdf(self, o):
@@ -51,7 +51,7 @@ class MixtureDist(Distribution):
         assert np.isclose(sum(pi), 1)
         self.pi = pi
         self.log_pi = np.log(pi)
-        self.pi_rv = rv_discrete(values=(range(len(pi)), pi))
+        self.pi_rv = rv_discrete(values=(list(range(len(pi))), pi))
         self.dists = dists
         self.random_state = random_state
 

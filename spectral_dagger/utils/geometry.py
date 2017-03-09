@@ -15,9 +15,9 @@ class Position(object):
 
     def __init__(self, x, y=None):
 
-        if is_numeric(x) and is_numeric(y):
-            self.position = np.array([x, y])
-        else:
+        try:
+            self.position = np.array([float(x), float(y)])
+        except:
             try:
                 self.position = np.array(x, copy=True).flatten()
 
@@ -156,7 +156,7 @@ class Rectangle(Shape):
 
         if centre is not None:
             centre = Position(centre)
-            top_left = centre - self.s / 2.0
+            top_left = centre - self.s.position / 2.0
 
         self.top_left = Position(top_left)
         self.closed = closed

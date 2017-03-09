@@ -39,7 +39,7 @@ class ContinuousHMM(Environment):
             The state space of the HMM.
 
         """
-        self._states = range(T.shape[0]) if states is None else states
+        self._states = list(range(T.shape[0])) if states is None else states
         n_states = len(self._states)
 
         self.init_dist = init_dist.copy()
@@ -288,8 +288,8 @@ class GmmHmm(SequenceModel):
 
     def fit(self, data, reuse=None):
         reuse = self.reuse if reuse is None else reuse
-        print("*" * 40)
-        print("Beginning new fit for %s with reuse=%r." % (self.__class__.__name__, reuse))
+        print(("*" * 40))
+        print(("Beginning new fit for %s with reuse=%r." % (self.__class__.__name__, reuse)))
 
         n_restarts = 1 if self.warm_start else self.n_restarts
         n_iters = 0
@@ -297,7 +297,7 @@ class GmmHmm(SequenceModel):
         results = []
 
         for i in range(n_restarts):
-            print("Beginning restart: %d" % i)
+            print(("Beginning restart: %d" % i))
             n_attempts = 0
 
             while True:
@@ -354,7 +354,7 @@ class GmmHmm(SequenceModel):
                     break
                 except Exception:
                     if n_attempts == self.max_attempts:
-                        print("%d failures, giving up." % n_attempts)
+                        print(("%d failures, giving up." % n_attempts))
                         if self.raise_errors:
                             raise
                         else:
@@ -366,12 +366,12 @@ class GmmHmm(SequenceModel):
 
             results.append((log_likelihood, matlab_results))
 
-            print("n_attempts: {0}".format(n_attempts))
-            print("n_iters: {0}".format(n_iters))
-            print("Final (total, not avg) log likelihood: {0}".format(log_likelihood))
+            print(("n_attempts: {0}".format(n_attempts)))
+            print(("n_iters: {0}".format(n_iters)))
+            print(("Final (total, not avg) log likelihood: {0}".format(log_likelihood)))
 
         best_results = max(results, key=lambda r: r[0])
-        print("Chose parameters with total log likelihood: %f" % best_results[0])
+        print(("Chose parameters with total log likelihood: %f" % best_results[0]))
         best_results = best_results[1]
 
         self.pi = best_results['pi'].squeeze()
@@ -538,7 +538,7 @@ def qualitative(data, labels, model=None, n_repeats=1, dir_name=None, prefix=Non
     digits_to_plot = []
     for l in unique_labels:
         n_digits = 0
-        for i in np.random.permutation(range(len(labels))):
+        for i in np.random.permutation(list(range(len(labels)))):
             if labels[i] == l:
                 digits_to_plot.append((data[i], labels[i]))
                 n_digits += 1
@@ -595,7 +595,7 @@ if __name__ == "__main__":
 
     labels = [labels[i] for i in perm]
     data = [data[i] for i in perm]
-    print("Amount of data: ", len(data))
+    print(("Amount of data: ", len(data)))
 
     pct_test = 0.2
     n_train = int((1-pct_test) * len(data))
@@ -616,7 +616,7 @@ if __name__ == "__main__":
             directory="temp", random_state=None, careful=False, left_to_right=True, n_restarts=5)
 
         gmm_hmm.fit(data)
-        print "Using %d states and digits: %s." % (n_states, use_digits)
+        print("Using %d states and digits: %s." % (n_states, use_digits))
         qualitative(
             data, labels, gmm_hmm, n_repeats=3,
             prefix='train_n_states=%d' % n_states, dir_name=dir_name)
@@ -624,8 +624,8 @@ if __name__ == "__main__":
             test_data, test_labels, gmm_hmm, n_repeats=3,
             prefix='test_n_states=%d' % n_states, dir_name=dir_name)
 
-        print gmm_hmm.mean_log_likelihood(test_data)
-        print gmm_hmm.RMSE(test_data)
+        print(gmm_hmm.mean_log_likelihood(test_data))
+        print(gmm_hmm.RMSE(test_data))
 
     # eps = gmm_hmm.sample_episodes(10, horizon=int(np.mean([len(s) for s in data])))
     # for s in eps:

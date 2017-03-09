@@ -39,7 +39,7 @@ class PBVI(LearningAlgorithm):
 
         for i in range(m):
             for j in range(n):
-                print "PBVI Backup Iteration", j
+                print("PBVI Backup Iteration", j)
                 V = self.value_backup(V, belief_points)
 
             if i == m - 1:

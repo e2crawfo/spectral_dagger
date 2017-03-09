@@ -5,6 +5,7 @@ import numpy as np
 import warnings
 import logging
 from itertools import product
+import collections
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +188,7 @@ def _plot_measure(
     mean = mean[np.logical_not(np.isnan(mean[measure].values))]
 
     sv_series = pd.Series(
-        zip(*[mean[sv] for sv in split_vars]), index=mean.index)
+        list(zip(*[mean[sv] for sv in split_vars])), index=mean.index)
 
     if logx is not None:
         ax.set_xscale("log", nonposx='clip', basex=logx)
@@ -203,7 +204,7 @@ def _plot_measure(
         Y = data[measure].values
 
         _kwargs = kwargs.copy()
-        if callable(kwarg_func):
+        if isinstance(kwarg_func, collections.Callable):
             if len(sv) == 1:
                 sv = sv[0]
             _kwargs.update(kwarg_func(sv))
@@ -251,7 +252,7 @@ def single_split_var(display=False):
     rng = np.random.RandomState(10)
 
     iterator = product(
-        range(n_repeats), x_values, zip(funcs, func_names))
+        list(range(n_repeats)), x_values, list(zip(funcs, func_names)))
 
     for i, x, (f, name) in iterator:
         y = f(x) + epsilon * rng.normal()
@@ -289,7 +290,7 @@ def multiple_split_vars(display=False):
     rng = np.random.RandomState(10)
 
     iterator = product(
-        range(n_repeats), x_values, zip(funcs, func_names), epsilon)
+        list(range(n_repeats)), x_values, list(zip(funcs, func_names)), epsilon)
 
     for i, x, (f, name), e in iterator:
         y = f(x) + e * rng.normal()

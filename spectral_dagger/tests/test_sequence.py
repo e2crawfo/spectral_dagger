@@ -65,14 +65,14 @@ def do_test_hmm_learning(
 
     error = 0
 
-    print("*" * 20)
+    print(("*" * 20))
     for seq in test_seqs:
         ground_truth = hmm.string_prob(seq)
         pred = sa.string_prob(seq)
-        print("Seq: ", seq)
+        print(("Seq: ", seq))
         print("String estimate:")
-        print("Ground truth: %f" % ground_truth)
-        print("Prediction: %f" % pred)
+        print(("Ground truth: %f" % ground_truth))
+        print(("Prediction: %f" % pred))
         if n_samples >= 4000:
             assert np.isclose(ground_truth, pred, atol=tol, rtol=0.0)
 
@@ -80,10 +80,10 @@ def do_test_hmm_learning(
 
         ground_truth = hmm.prefix_prob(seq)
         pred = sa.prefix_prob(seq)
-        print("Seq: ", seq)
+        print(("Seq: ", seq))
         print("Prefix estimate:")
-        print("Ground truth: %f" % ground_truth)
-        print("Prediction: %f" % pred)
+        print(("Ground truth: %f" % ground_truth))
+        print(("Prediction: %f" % pred))
         if n_samples >= 4000:
             assert np.isclose(ground_truth, pred, atol=tol, rtol=0.0)
 
@@ -109,7 +109,7 @@ def test_spectral_like(learning_alg):
     seed = 10
     np.random.seed(seed)
 
-    print("Learning with: %s" % learning_alg)
+    print(("Learning with: %s" % learning_alg))
     hmm = simple_hmm()
     dimension = 6
 
@@ -130,8 +130,8 @@ def test_spectral_like(learning_alg):
 
     for bl, horizon, include_empty in params:
         if 2 * bl + 1 <= horizon:
-            print("Basis with length %d, horizon=%d, "
-                  "include_empty: %r." % (bl, horizon, include_empty))
+            print(("Basis with length %d, horizon=%d, "
+                  "include_empty: %r." % (bl, horizon, include_empty)))
             basis = fixed_length_basis(rr_hmm.observations, bl, include_empty)
             do_test_hmm_learning(
                 rr_hmm, learn, horizon=horizon,
@@ -264,17 +264,19 @@ def test_mixture_seq_gen():
     # test that sampling doesn't crash
     mixture_pfa.sample_episodes(10, horizon=3)
 
-    obs_probs = [
-        mixture_pfa.cond_obs_prob(o) for o in range(n_obs)]
-    assert np.isclose(sum(obs_probs), 1)
-
-    mixture_pfa.update(max(range(n_obs), key=obs_probs.__getitem__))
+    mixture_pfa.reset()
 
     obs_probs = [
         mixture_pfa.cond_obs_prob(o) for o in range(n_obs)]
     assert np.isclose(sum(obs_probs), 1)
 
-    mixture_pfa.update(max(range(n_obs), key=obs_probs.__getitem__))
+    mixture_pfa.update(max(list(range(n_obs)), key=obs_probs.__getitem__))
+
+    obs_probs = [
+        mixture_pfa.cond_obs_prob(o) for o in range(n_obs)]
+    assert np.isclose(sum(obs_probs), 1)
+
+    mixture_pfa.update(max(list(range(n_obs)), key=obs_probs.__getitem__))
 
     obs_probs = [
         mixture_pfa.cond_obs_prob(o) for o in range(n_obs)]
@@ -282,14 +284,14 @@ def test_mixture_seq_gen():
 
     prefix_probs = [
         mixture_pfa.prefix_prob(string)
-        for string in product(*[range(n_obs)]*3)]
+        for string in product(*[list(range(n_obs))]*3)]
     assert np.isclose(sum(prefix_probs), 1)
 
     mixture_pfa.reset()
 
     prefix_probs = [
         mixture_pfa.prefix_prob(string)
-        for string in product(*[range(n_obs)]*3)]
+        for string in product(*[list(range(n_obs))]*3)]
     assert np.isclose(sum(prefix_probs), 1)
 
 
@@ -404,9 +406,9 @@ def test_markov_chain_halt(allow_empty):
         else:
             n_ignored += 1
 
-    print("Num tested: %s, " % n_tested)
-    print("Num ignored: %s, " % n_ignored)
-    print("Num unique: %s, " % len(set(tuple(s) for s in empirical_probs)))
+    print(("Num tested: %s, " % n_tested))
+    print(("Num ignored: %s, " % n_ignored))
+    print(("Num unique: %s, " % len(set(tuple(s) for s in empirical_probs))))
 
 
 @pytest.mark.parametrize('from_dist', [True, False])
@@ -439,7 +441,7 @@ def test_markov_chain_learn(from_dist):
     learned_dist = np.array([learned_mc.string_prob(w) for w in words])
 
     error = rmse(true_dist, learned_dist)
-    print("RMSE: %s" % error)
+    print(("RMSE: %s" % error))
     assert error < 0.001
 
 
@@ -465,7 +467,7 @@ def test_gmm_hmm_pendigits():
 
     labels = [labels[i] for i in perm]
     data = [data[i] for i in perm]
-    print("Amount of data: ", len(data))
+    print(("Amount of data: ", len(data)))
 
     pct_test = 0.2
     n_train = int((1-pct_test) * len(data))
@@ -480,7 +482,7 @@ def test_gmm_hmm_pendigits():
     n_dim = 2
 
     for n_states in [10]:
-        print("Training with {0} states.".format(n_states))
+        print(("Training with {0} states.".format(n_states)))
         gmm_hmm = GmmHmm(
             n_states=n_states, n_components=n_components, n_dim=n_dim,
             max_iter=1000, thresh=1e-4, verbose=0, cov_type='full',
@@ -488,8 +490,8 @@ def test_gmm_hmm_pendigits():
 
         gmm_hmm.fit(data)
 
-        print gmm_hmm.mean_log_likelihood(test_data)
-        print gmm_hmm.RMSE(test_data)
+        print(gmm_hmm.mean_log_likelihood(test_data))
+        print(gmm_hmm.RMSE(test_data))
 
 
 def test_gmm_hmm_simple():
@@ -518,8 +520,8 @@ def test_gmm_hmm_simple():
     model.fit(train)
     print("Done.")
 
-    print("GROUND TRUTH MEAN LL: {0}.".format(ground_truth.mean_log_likelihood(test)))
-    print("GROUND TRUTH RMSE: {0}.".format(ground_truth.RMSE(test)))
+    print(("GROUND TRUTH MEAN LL: {0}.".format(ground_truth.mean_log_likelihood(test))))
+    print(("GROUND TRUTH RMSE: {0}.".format(ground_truth.RMSE(test))))
 
-    print("MODEL MEAN LL: {0}.".format(model.mean_log_likelihood(test)))
-    print("MODEL RMSE: {0}.".format(model.RMSE(test)))
+    print(("MODEL MEAN LL: {0}.".format(model.mean_log_likelihood(test))))
+    print(("MODEL RMSE: {0}.".format(model.RMSE(test))))

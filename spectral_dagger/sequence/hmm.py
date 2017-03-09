@@ -32,8 +32,8 @@ class HMM(ProbabilisticAutomaton):
             The observations that can be emitted by the HMM.
 
         """
-        self._states = range(T.shape[0])
-        self._observations = range(O.shape[1])
+        self._states = list(range(T.shape[0]))
+        self._observations = list(range(O.shape[1]))
 
         n_states = len(self._states)
         n_obs = len(self._observations)

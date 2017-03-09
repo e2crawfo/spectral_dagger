@@ -1,4 +1,4 @@
-from __future__ import print_function
+
 import os
 from os import path
 import string
@@ -10,11 +10,15 @@ import smtplib
 from collections import defaultdict
 import dill as pickle
 from email import encoders
-from email.mime.text import MIMEText
-from email.MIMEBase import MIMEBase
-from email.MIMEMultipart import MIMEMultipart
-from email.Utils import formatdate
+try:
+    from email.utils import formatdate
+except ImportError:
+    from email.Utils import formatdate
+from six.moves.email_mime_text import MIMEText
+from six.moves.email_mime_base import MIMEBase
+from six.moves.email_mime_multipart import MIMEMultipart
 from six.moves.configparser import ConfigParser, NoOptionError
+from functools import reduce
 
 _title_width = 80
 _title_format = "\n{{0:=<{0}.{0}s}}".format(_title_width)
@@ -42,7 +46,7 @@ class ObjectSaver(object):
 
     def n_objects(self, kind=None):
         if kind is None:
-            return sum(len(v) for v in self._objects.values())
+            return sum(len(v) for v in list(self._objects.values()))
 
         return len(self._objects.get(kind, {}))
 
@@ -63,8 +67,8 @@ class ObjectSaver(object):
             print("ObjectSaver: Do not need to call ``save`` when running in eager mode.")
             return
 
-        for kind, objects in self._objects.items():
-            for idx, (obj, kwargs) in objects.items():
+        for kind, objects in list(self._objects.items()):
+            for idx, (obj, kwargs) in list(objects.items()):
                 self._save_object(obj, kind, idx, **kwargs)
 
 
@@ -229,7 +233,7 @@ def make_filename(main_title, directory='', config_dict=None, use_time=True,
         directory += '/'
 
     labels = [directory + main_title]
-    key_vals = list(config_dict.iteritems())
+    key_vals = list(config_dict.items())
     key_vals.sort(key=lambda x: x[0])
 
     for key, value in key_vals:
@@ -244,7 +248,7 @@ def make_filename(main_title, directory='', config_dict=None, use_time=True,
     if use_time:
         date_time_string = str(datetime.datetime.now()).split('.')[0]
         date_time_string = reduce(
-            lambda y, z: string.replace(y, z, "_"),
+            lambda y, z: y.replace(z, "_"),
             [date_time_string, ":", " ", "-"])
         labels.append(date_time_string)
 

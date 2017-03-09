@@ -1,9 +1,9 @@
 import os
 import re
 import sys
+import six
 import numpy as np
 from collections import defaultdict
-import six
 from itertools import product
 
 from sklearn.utils import check_random_state
@@ -45,11 +45,11 @@ def all_models():
 
 def print_models():
     for i, model in enumerate(all_models()):
-        print str(i+1) + ": " + "*" * 40
-        print model
-        print "Is PFA?: ", is_pfa(model.b_0, model.B_o, model.b_inf_string)
-        print "Is DPFA?: ", is_dpfa(model.b_0, model.B_o, model.b_inf_string)
-        print "Is HMM?: ", is_hmm(model.b_0, model.B_o, model.b_inf_string)
+        print(str(i+1) + ": " + "*" * 40)
+        print(model)
+        print("Is PFA?: ", is_pfa(model.b_0, model.B_o, model.b_inf_string))
+        print("Is DPFA?: ", is_dpfa(model.b_0, model.B_o, model.b_inf_string))
+        print("Is HMM?: ", is_hmm(model.b_0, model.B_o, model.b_inf_string))
 
 
 def int_or_float(x):
@@ -70,31 +70,31 @@ def load_pautomac_model(problem_idx):
 
         with open(fname, 'r') as f:
             lines = (line.strip() for line in iter(f.readline, ""))
-            lines.next()
+            next(lines)
 
             start_states = []
-            for line in iter(lines.next, "F: (state)"):
+            for line in iter(lambda: next(lines), "F: (state)"):
                 vals = re.split(split_pattern, line)
-                start_states.append(map(int_or_float, vals[1:]))
+                start_states.append(list(map(int_or_float, vals[1:])))
 
             # Probability of emitting symbol, given that
             # we are in state and not halting
             final_states = []
-            for line in iter(lines.next, "S: (state,symbol)"):
+            for line in iter(lambda: next(lines), "S: (state,symbol)"):
                 vals = re.split(split_pattern, line)
-                final_states.append(map(int_or_float, vals[1:]))
+                final_states.append(list(map(int_or_float, vals[1:])))
 
             # Probability of transitioning to state2, given that we are in
             # state1 and emitting symbol and not halting
             symbol_probs = []
-            for line in iter(lines.next, "T: (state,symbol,state)"):
+            for line in iter(lambda: next(lines), "T: (state,symbol,state)"):
                 vals = re.split(split_pattern, line)
-                symbol_probs.append(map(int_or_float, vals[1:]))
+                symbol_probs.append(list(map(int_or_float, vals[1:])))
 
             transition_probs = []
             for line in iter(f.readline, ""):
                 vals = re.split(split_pattern, line)
-                transition_probs.append(map(int_or_float, vals[1:]))
+                transition_probs.append(list(map(int_or_float, vals[1:])))
 
     except IOError:
         raise ValueError("No model exists with index %d." % problem_idx)
@@ -218,7 +218,7 @@ def _populate_prob_table(shape, density, alpha=1.0, random_state=None):
     except TypeError:
         alpha = alpha * np.ones(n_nonzero_per_row)
 
-    row_indices = product(*[range(l) for l in shape[:-1]])
+    row_indices = product(*[list(range(l)) for l in shape[:-1]])
 
     probs = np.zeros(shape)
     nonzero_indices = []
@@ -252,7 +252,7 @@ def make_pautomac_like(
 
     random_state = check_random_state(random_state)
 
-    symbols = range(n_symbols)
+    symbols = list(range(n_symbols))
 
     n_start_states = int(round(transition_density * n_states))
     start_states = random_state.choice(n_states, n_start_states, replace=False)
@@ -314,11 +314,11 @@ if __name__ == "__main__":
     import pprint
 
     problem_idx = int(sys.argv[1]) if len(sys.argv) > 1 else 1
-    print("Parsing problem %d." % problem_idx)
+    print(("Parsing problem %d." % problem_idx))
     pa = load_pautomac_model(problem_idx=problem_idx)
     pp = pprint.PrettyPrinter()
 
-    print("Generated from model. " + "=" * 40)
+    print(("Generated from model. " + "=" * 40))
     n_samples = 10000
     episodes = pa.sample_episodes(n_samples)
 
@@ -328,14 +328,14 @@ if __name__ == "__main__":
     hankel1 = hankels[2].toarray()
     pp.pprint(hankel1)
 
-    print("True samples. " + "=" * 40)
+    print(("True samples. " + "=" * 40))
     pautomac_train = load_pautomac_train(problem_idx)
     hankels = estimate_hankels(
         pautomac_train, basis, pa.observations, 'prefix')
     hankel2 = hankels[2].toarray()
     pp.pprint(hankel2)
 
-    print("Perturbed model. " + "=" * 40)
+    print(("Perturbed model. " + "=" * 40))
     pert = perturb_pfa_additive(pa, noise=1.0/pa.b_0.size**0.01)
 
     n_samples = 10000
@@ -346,7 +346,7 @@ if __name__ == "__main__":
     hankel3 = hankels[2].toarray()
     pp.pprint(hankel3)
 
-    print("Generated from model again. " + "=" * 40)
+    print(("Generated from model again. " + "=" * 40))
     n_samples = 10000
     episodes = pa.sample_episodes(n_samples)
 
@@ -356,6 +356,6 @@ if __name__ == "__main__":
     hankel4 = hankels[2].toarray()
     pp.pprint(hankel4)
 
-    print("RMSE estimated Hankel: ", rmse(hankel1, hankel2))
-    print("RMSE perturbed Hankel: ", rmse(hankel1, hankel3))
-    print("RMSE re-estimated Hankel: ", rmse(hankel2, hankel4))
+    print(("RMSE estimated Hankel: ", rmse(hankel1, hankel2)))
+    print(("RMSE perturbed Hankel: ", rmse(hankel1, hankel3)))
+    print(("RMSE re-estimated Hankel: ", rmse(hankel2, hankel4)))

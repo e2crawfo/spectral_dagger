@@ -251,9 +251,9 @@ class WorldMap(object):
         self.world_map[index] = item
 
     def array_rep(self):
-        env = np.zeros(self.world_map.shape, dtype=np.dtype('S1'))
-        for i in xrange(self.world_map.shape[0]):
-            for j in xrange(self.world_map.shape[1]):
+        env = np.zeros(self.world_map.shape, dtype=object)
+        for i in range(self.world_map.shape[0]):
+            for j in range(self.world_map.shape[1]):
                 if (i, j) == self.init_position:
                     env[i, j] = WorldMap.START_MARKER
                 elif (i, j) == self.goal_position:
@@ -274,8 +274,8 @@ class WorldMap(object):
     def __str__(self):
         env = self.array_rep()
 
-        for i in xrange(self.world_map.shape[0]):
-            for j in xrange(self.world_map.shape[1]):
+        for i in range(self.world_map.shape[0]):
+            for j in range(self.world_map.shape[1]):
                 if (self.current_position is not None
                         and (i, j) == self.current_position):
                     env[i, j] = 'A'
@@ -401,33 +401,20 @@ class GridWorld(MDP):
           equal to self.init_position.
 
         """
-        if isinstance(state, GridState):
-            self.current_position = Position(state.position)
-        elif isinstance(state, int):
-            self.current_position = self.positions[state]
-        elif state is None:
+        if state is None:
             if self.init_position is None:
-                locations = set(self.positions)
-                locations -= set(self.pit_positions)
-                locations -= set(self.puddle_positions)
-                locations -= set(self.death_positions)
-                locations -= set(self.trap_positions)
-                locations -= set([self.goal_position])
+                positions = set(self.positions)
+                positions -= set(self.pit_positions)
+                positions -= set(self.puddle_positions)
+                positions -= set(self.death_positions)
+                positions -= set(self.trap_positions)
+                positions -= set([self.goal_position])
+                positions = list(positions)
 
-                locations = list(locations)
-
-                self.current_position = (
-                    locations[self.random_state.randint(len(locations))])
+                state = positions[self.random_state.randint(len(positions))]
             else:
-                self.current_position = Position(self.init_position)
-
-        else:
-            try:
-                self.current_position = Position(state)
-            except:
-                raise ValueError(
-                    "GridWorld.reset received invalid starting "
-                    "state: %s" % state)
+                state = self.init_position
+        self.current_position = state
 
         return self.pos2state(self.current_position)
 
@@ -481,12 +468,19 @@ class GridWorld(MDP):
 
     @current_position.setter
     def current_position(self, pos):
-        try:
-            self.world_map.current_position = Position(pos)
-        except:
-            raise TypeError(
-                "Cannot set current position to %s with "
-                "type %s." % (pos, type(pos)))
+        if isinstance(pos, GridState):
+            cp = Position(pos.position)
+        else:
+            try:
+                cp = self.positions[pos]
+            except:
+                try:
+                    cp = Position(pos)
+                except:
+                    raise TypeError(
+                        "Cannot set current position to %s with "
+                        "type %s." % (pos, type(pos)))
+        self.world_map.current_position = cp
 
     @property
     def current_state(self):
@@ -547,7 +541,7 @@ class GridWorld(MDP):
                     probs = local_transitions[key]
                     T[a, i, i] = probs[0]
 
-                    iterator = zip(key, [straight, right, left], probs[1:])
+                    iterator = list(zip(key, [straight, right, left], probs[1:]))
                     for invalid, direction, prob in iterator:
                         if not invalid:
                             T[a, i, state_indices[direction]] = prob
@@ -594,9 +588,9 @@ class GridWorld(MDP):
             init_dist[self.positions.index(self.init_position)] = 1.0
         else:
             init_dist = np.array(
-                [not self.world_map.is_pit_state(p)
-                 and not self.world_map.is_puddle_state(p)
-                 and not self.world_map.is_terminal_state(p)
+                [not self.world_map.is_pit_state(p) and
+                 not self.world_map.is_puddle_state(p) and
+                 not self.world_map.is_terminal_state(p)
                  for p in self.positions])
 
             init_dist = init_dist / float(sum(init_dist))
@@ -619,8 +613,8 @@ class GridWorld(MDP):
         value_func = self.world_map.copy()
         value_func = value_func.astype('|S%s' % max_length)
 
-        for i in xrange(self.world_map.world_map.shape[0]):
-            for j in xrange(self.world_map.world_map.shape[1]):
+        for i in range(self.world_map.world_map.shape[0]):
+            for j in range(self.world_map.world_map.shape[1]):
                 pos = (i, j)
                 if pos in self.positions:
                     value_func[pos] = str(V[self.pos2state(pos)])
@@ -635,8 +629,8 @@ class GridWorld(MDP):
 
         policy = self.world_map.copy()
 
-        for i in xrange(self.world_map.world_map.shape[0]):
-            for j in xrange(self.world_map.world_map.shape[1]):
+        for i in range(self.world_map.world_map.shape[0]):
+            for j in range(self.world_map.world_map.shape[1]):
                 pos = (i, j)
                 if pos in self.positions:
                     policy[pos] = GridAction.symbols[pi[self.pos2state(pos)]]
@@ -659,7 +653,7 @@ class GridObservation(Observation):
 
     def get_id(self):
         return sum(
-            [d * self.n_values**e for d, e in zip(self.values, range(4))])
+            [d * self.n_values**e for d, e in zip(self.values, list(range(4)))])
 
     def __str__(self):
         return ("<GridObs id: %d, N: %d, E: %d, "
@@ -667,7 +661,7 @@ class GridObservation(Observation):
 
     @staticmethod
     def get_all_observations(n_values):
-        d = range(n_values)
+        d = list(range(n_values))
         observations = [
             GridObservation(*(i + (n_values,)))
             for i in itertools.product(d, d, d, d)]
@@ -718,7 +712,6 @@ class EgoGridWorld(POMDP):
 
     def reset(self, init_dist=None):
         """ Resets the state of the grid world. """
-
         if init_dist is not None:
             if len(init_dist) != self.n_states:
                 raise ValueError(
@@ -727,7 +720,6 @@ class EgoGridWorld(POMDP):
 
             sample = sample_multinomial(init_dist, self.random_state)
             self.grid_world.reset(sample)
-
         else:
             self.grid_world.reset()
 
@@ -757,7 +749,6 @@ class EgoGridWorld(POMDP):
 
     def make_O(self):
         """ Make observation operator. """
-
         temp_state = self.current_state
 
         O = np.zeros((
@@ -798,6 +789,6 @@ class GridKeyboardPolicy(MDPPolicy):
         return Space(name="ObsSpace")
 
     def get_action(self):
-        x = raw_input()
+        x = input()
         assert len(x) == 1
         return self.mapping[x]

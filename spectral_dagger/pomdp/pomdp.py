@@ -3,6 +3,7 @@ import numpy as np
 from spectral_dagger import Policy, Environment, Space
 from spectral_dagger.mdp import MDP
 from spectral_dagger.utils import sample_multinomial
+import collections
 
 
 class POMDP(Environment):
@@ -187,7 +188,7 @@ class BeliefStatePolicy(Policy):
 
             pi = f
 
-        assert callable(pi)
+        assert isinstance(pi, collections.Callable)
         self.pi = pi
 
     @property

@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 import matplotlib.pyplot as plt
 from matplotlib import animation
@@ -57,7 +57,7 @@ class ABLine2D(plt.Line2D):
 
         # if unspecified, get the current line color from the axes
         if not ('color' in kwargs or 'c' in kwargs):
-            kwargs.update({'color': ax._get_lines.color_cycle.next()})
+            kwargs.update({'color': next(ax._get_lines.color_cycle)})
 
         # init the line, add it to the axes
         super(ABLine2D, self).__init__([], [], *args, **kwargs)

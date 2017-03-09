@@ -25,7 +25,7 @@ class ConvexOptSA(StochasticAutomaton, Estimator):
         self.b_inf = None
         self.B_o = None
 
-        self._observations = range(n_observations)
+        self._observations = list(range(n_observations))
         self.estimator = estimator
         self.tau = tau
         self.max_k = max_k

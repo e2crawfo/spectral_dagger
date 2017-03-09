@@ -18,7 +18,7 @@ class LinearMarkovChain(MDP):
 
         assert n_states > 2, "LinearMarkovChain needs at least 3 states"
 
-        self.states = range(n_states)
+        self.states = list(range(n_states))
         self.p = p
         self.gamma = gamma
         self.left_reward = left_reward
@@ -43,7 +43,7 @@ class LinearMarkovChain(MDP):
         self._R.flags.writeable = False
 
         self.actions = [0]
-        self.states = range(n_states)
+        self.states = list(range(n_states))
 
         self.init_dist = np.zeros(n_states)
         self.init_dist[int(np.floor(n_states / 2.0))] = 1.0

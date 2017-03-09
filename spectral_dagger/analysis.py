@@ -29,7 +29,7 @@ def do_pbvi(do_plot=False):
         for trial in range(n_trials):
             pomdp = EgoGridWorld(n_colors, world, gamma=0.99)
 
-            print "Training model..."
+            print("Training model...")
             alg = PBVI()
             policy = alg.fit(pomdp)
 
@@ -38,16 +38,16 @@ def do_pbvi(do_plot=False):
 
             rewards[-1].append(sum(r for a, s, r in epsiode))
 
-            print "Reward using %d colors: %f" % (n_colors, rewards[-1][-1])
+            print("Reward using %d colors: %f" % (n_colors, rewards[-1][-1]))
 
     if do_plot:
         import matplotlib.pyplot as plt
 
         means = [np.mean(r) for r in rewards]
 
-        plt.plot(range(len(colors)), means)
+        plt.plot(list(range(len(colors))), means)
         plt.errorbar(
-            range(len(colors)), means, yerr=[np.std(r) for r in rewards])
+            list(range(len(colors))), means, yerr=[np.std(r) for r in rewards])
         plt.xlim(-1, len(colors))
 
         plt.show()

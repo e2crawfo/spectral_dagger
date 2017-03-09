@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 def verbose_print(obj, verbosity, threshold=1.0):
     if verbosity >= threshold:
-        print obj
+        print(obj)
 
 
 def cached(directory, version=None, verbosity=0.0):

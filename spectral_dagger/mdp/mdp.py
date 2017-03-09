@@ -331,6 +331,6 @@ def evaluate_policy(mdp, policy=None, threshold=0.00001):
 
         j += 1
 
-    print "Value function converged after {0} iterations".format(j)
+    print("Value function converged after {0} iterations".format(j))
 
     return V

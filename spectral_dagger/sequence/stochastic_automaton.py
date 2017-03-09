@@ -1,4 +1,4 @@
-from __future__ import print_function
+
 import numpy as np
 from scipy.sparse import csr_matrix
 from scipy.optimize import minimize
@@ -32,7 +32,7 @@ class StochasticAutomaton(SequenceModel):
     """
     def __init__(self, b_0, B_o, b_inf, estimator):
 
-        self._observations = B_o.keys()
+        self._observations = list(B_o.keys())
 
         self.B_o = B_o
         self.B = sum(self.B_o.values())
@@ -291,7 +291,7 @@ class SpectralSA(StochasticAutomaton, Estimator):
         self.B_o = None
 
         self._n_states = n_states
-        self._observations = range(n_observations)
+        self._observations = list(range(n_observations))
         self.estimator = estimator
 
     @property

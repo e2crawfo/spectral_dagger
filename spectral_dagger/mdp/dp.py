@@ -29,7 +29,7 @@ class PolicyIteration(LearningAlgorithm):
         while not stable:
             old_V = np.inf * np.ones(V.shape)
 
-            print "Starting iteration {0} of policy iteration".format(i)
+            print("Starting iteration {0} of policy iteration".format(i))
 
             j = 0
             # Evaluate policy, obtaining value function
@@ -43,7 +43,7 @@ class PolicyIteration(LearningAlgorithm):
 
                 j += 1
 
-            print "Value function converged after {0} iterations".format(j)
+            print("Value function converged after {0} iterations".format(j))
 
             greedy = GreedyPolicy(mdp, V)
 
@@ -95,7 +95,7 @@ class ValueIteration(LearningAlgorithm):
 
             iteration_count += 1
 
-        print "Num iterations for value iteration: ", iteration_count
+        print("Num iterations for value iteration: ", iteration_count)
 
         self.V = V
 

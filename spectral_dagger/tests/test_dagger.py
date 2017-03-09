@@ -26,7 +26,7 @@ def test_dagger(display=False):
 
     mdp = GridWorld(world_map)
 
-    print "Computing expert policy..."
+    print("Computing expert policy...")
     alg = ValueIteration()
     expert = alg.fit(mdp)
 
@@ -36,12 +36,12 @@ def test_dagger(display=False):
     learning_alg = StateClassifier(predictor, Identity(2))
     beta = itertools.chain([1], iter(lambda: 0, 1))
 
-    print "Running DAgger..."
+    print("Running DAgger...")
     policies = dagger(
         mdp, expert, learning_alg, beta,
         n_iterations=5, n_samples_per_iter=500, horizon=5)
 
-    print "Testing final policy returned by DAgger..."
+    print("Testing final policy returned by DAgger...")
     mdp.sample_episodes(10, policies[-1], horizon=10, hook=display_hook)
 
 
@@ -59,7 +59,7 @@ def test_po_dagger(display=False):
 
     pomdp = EgoGridWorld(n_colors=1, world_map=world_map)
 
-    print "Computing expert policy..."
+    print("Computing expert policy...")
     alg = PBVI(m=4, n=20)
     expert = alg.fit(pomdp)
     pomdp.sample_episode(expert, horizon=20, hook=display_hook)
@@ -68,11 +68,11 @@ def test_po_dagger(display=False):
     learning_alg = BeliefStateClassifier(predictor)
     beta = itertools.chain([1], iter(lambda: 0, 1))
 
-    print "Running DAgger..."
+    print("Running DAgger...")
     policies = po_dagger(
         pomdp, expert, learning_alg, beta,
         n_iterations=2, n_samples_per_iter=1000,
         horizon=3)
 
-    print "Testing final policy returned by DAgger..."
+    print("Testing final policy returned by DAgger...")
     pomdp.sample_episodes(10, policies[-1], horizon=10, hook=display_hook)

@@ -270,4 +270,4 @@ def discounted_features(trajectory, feature_extractor, gamma):
 if __name__ == "__main__":
     cc = CircularCoarseCoding(40, (1.0, 1.0), 0.3)
     vec = cc.as_vector((0.5, 0.5))
-    print vec
+    print(vec)

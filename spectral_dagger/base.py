@@ -497,11 +497,11 @@ def make_print_hook(delay=0.0):
     def delay_print_hook(env, action, obs, t, *args, **kwargs):
         """ A display hook for use with ``sample_episodes``. """
 
-        print "\n"
-        print "t =", t
-        print "Action: ", action
-        print "Obs: ", obs
-        print str(env)
+        print("\n")
+        print("t =", t)
+        print("Action: ", action)
+        print("Obs: ", obs)
+        print(str(env))
 
         if delay:
             time.sleep(delay)
@@ -552,7 +552,7 @@ class Estimator(BaseEstimator):
     @property
     def record_attrs(self):
         attrs = []
-        for pn, param in self.get_params(deep=False).items():
+        for pn, param in list(self.get_params(deep=False).items()):
             if hasattr(param, 'record_attrs'):
                 sub = param.record_attrs
                 attrs.extend(['{}__{}'.format(pn, a) for a in sub])
@@ -560,10 +560,10 @@ class Estimator(BaseEstimator):
 
     def point_distribution(self, context):
         _point_distribution = {}
-        for pn, param in self.get_params(deep=False).items():
+        for pn, param in list(self.get_params(deep=False).items()):
             if hasattr(param, 'point_distribution'):
                 pd = param.point_distribution(context)
-                for k, v in pd.items():
+                for k, v in list(pd.items()):
                     _point_distribution['{}__{}'.format(pn, k)] = v
 
         return _point_distribution
@@ -575,7 +575,7 @@ class Estimator(BaseEstimator):
     def _set_directory(self, directory):
         self._directory = directory
 
-        for pn, param in self.get_params(deep=False).items():
+        for pn, param in list(self.get_params(deep=False).items()):
             if isinstance(param, Estimator):
                 param._set_directory(directory)
 

@@ -52,7 +52,7 @@ def get_minibatches_idx(n, minibatch_size, shuffle=False):
 def unzip_weights(zipped, theano_weights):
     """ Extract parameter values stored in ``weights`` inside ``theano_weights``,
         a set of active shared Theano variables. """
-    for kk, vv in zipped.items():
+    for kk, vv in list(zipped.items()):
         theano_weights[kk].set_value(vv)
 
 
@@ -60,7 +60,7 @@ def zip_weights(unzipped):
     """ Store parameter values from ``theano_weights`` (an active set of shared
         Theano variables) inside ``weights``. """
     new_weights = OrderedDict()
-    for kk, vv in unzipped.items():
+    for kk, vv in list(unzipped.items()):
         new_weights[kk] = vv.get_value()
     return new_weights
 
@@ -71,7 +71,7 @@ def _p(pp, name):
 
 def load_weights(path, weights):
     pp = np.load(path)
-    for kk, vv in weights.items():
+    for kk, vv in list(weights.items()):
         if kk not in pp:
             raise Warning('%s is not in the archive' % kk)
         weights[kk] = pp[kk]
@@ -234,7 +234,7 @@ def sgd(lr, theano_weights, grads, x, mask, cost):
     # New set of shared variable that will contain the gradient
     # for a mini-batch.
     gshared = [theano.shared(p.get_value() * 0., name='%s_grad' % k)
-               for k, p in theano_weights.items()]
+               for k, p in list(theano_weights.items())]
     gsup = [(gs, g) for gs, g in zip(gshared, grads)]
 
     # Function that computes gradients for a mini-batch, but do not
@@ -242,7 +242,7 @@ def sgd(lr, theano_weights, grads, x, mask, cost):
     f_grad_shared = theano.function([x, mask], cost, updates=gsup,
                                     name='sgd_f_grad_shared')
 
-    pup = [(p, p - lr * g) for p, g in zip(theano_weights.values(), gshared)]
+    pup = [(p, p - lr * g) for p, g in zip(list(theano_weights.values()), gshared)]
 
     # Function that updates the weights from the previously computed
     # gradient.
@@ -281,13 +281,13 @@ def adadelta(lr, theano_weights, grads, x, mask, cost):
 
     zipped_grads = [theano.shared(p.get_value() * np_floatX(0.),
                                   name='%s_grad' % k)
-                    for k, p in theano_weights.items()]
+                    for k, p in list(theano_weights.items())]
     running_up2 = [theano.shared(p.get_value() * np_floatX(0.),
                                  name='%s_rup2' % k)
-                   for k, p in theano_weights.items()]
+                   for k, p in list(theano_weights.items())]
     running_grads2 = [theano.shared(p.get_value() * np_floatX(0.),
                                     name='%s_rgrad2' % k)
-                      for k, p in theano_weights.items()]
+                      for k, p in list(theano_weights.items())]
 
     zgup = [(zg, g) for zg, g in zip(zipped_grads, grads)]
     rg2up = [(rg2, 0.95 * rg2 + 0.05 * (g ** 2))
@@ -302,7 +302,7 @@ def adadelta(lr, theano_weights, grads, x, mask, cost):
                                      running_grads2)]
     ru2up = [(ru2, 0.95 * ru2 + 0.05 * (ud ** 2))
              for ru2, ud in zip(running_up2, updir)]
-    param_up = [(p, p + ud) for p, ud in zip(theano_weights.values(), updir)]
+    param_up = [(p, p + ud) for p, ud in zip(list(theano_weights.values()), updir)]
 
     f_update = theano.function([lr], [], updates=ru2up + param_up,
                                on_unused_input='ignore',
@@ -342,13 +342,13 @@ def rmsprop(lr, theano_weights, grads, x, mask, cost):
 
     zipped_grads = [theano.shared(p.get_value() * np_floatX(0.),
                                   name='%s_grad' % k)
-                    for k, p in theano_weights.items()]
+                    for k, p in list(theano_weights.items())]
     running_grads = [theano.shared(p.get_value() * np_floatX(0.),
                                    name='%s_rgrad' % k)
-                     for k, p in theano_weights.items()]
+                     for k, p in list(theano_weights.items())]
     running_grads2 = [theano.shared(p.get_value() * np_floatX(0.),
                                     name='%s_rgrad2' % k)
-                      for k, p in theano_weights.items()]
+                      for k, p in list(theano_weights.items())]
 
     zgup = [(zg, g) for zg, g in zip(zipped_grads, grads)]
     rgup = [(rg, 0.95 * rg + 0.05 * g) for rg, g in zip(running_grads, grads)]
@@ -361,12 +361,12 @@ def rmsprop(lr, theano_weights, grads, x, mask, cost):
 
     updir = [theano.shared(p.get_value() * np_floatX(0.),
                            name='%s_updir' % k)
-             for k, p in theano_weights.items()]
+             for k, p in list(theano_weights.items())]
     updir_new = [(ud, 0.9 * ud - 1e-4 * zg / T.sqrt(rg2 - rg ** 2 + 1e-4))
                  for ud, zg, rg, rg2 in zip(updir, zipped_grads, running_grads,
                                             running_grads2)]
     param_up = [(p, p + udn[1])
-                for p, udn in zip(theano_weights.values(), updir_new)]
+                for p, udn in zip(list(theano_weights.values()), updir_new)]
     f_update = theano.function([lr], [], updates=updir_new + param_up,
                                on_unused_input='ignore',
                                name='rmsprop_f_update')
@@ -1193,7 +1193,7 @@ def qualitative(data, labels, model=None):
 
     digits_to_plot = []
     for l in unique_labels:
-        for i in np.random.permutation(range(len(labels))):
+        for i in np.random.permutation(list(range(len(labels)))):
             if labels[i] == l:
                 digits_to_plot.append(data[i])
                 break
@@ -1226,7 +1226,7 @@ if __name__ == "__main__":
     data = [d for dd in data for d in dd]
     labels = [l for ll in labels for l in ll]
 
-    permutation = np.random.permutation(range(len(labels)))
+    permutation = np.random.permutation(list(range(len(labels))))
     data = [data[i] for i in permutation]
     labels = [labels[i] for i in permutation]
 

@@ -22,7 +22,7 @@ class LatentDirichletSA(StochasticAutomaton):
 
         self.n_components = n_components
         self.n_observations = n_observations
-        self.observations = range(n_observations)
+        self.observations = list(range(n_observations))
         self.alpha = alpha
         self.eta = eta
         self.direct = direct

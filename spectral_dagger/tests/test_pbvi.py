@@ -24,7 +24,7 @@ def test_pbvi(display=False):
     for n_colors in colors:
         pomdp = EgoGridWorld(n_colors, world, gamma=0.99)
 
-        print "Training model..."
+        print("Training model...")
         alg = PBVI()
         policy = alg.fit(pomdp)
 

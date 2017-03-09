@@ -89,9 +89,9 @@ class UnipenParser(object):
                             name = line[4]
                             parsing_digit = True
 
-            print("Parsed %d digits, filtered out %d digits, "
+            print(("Parsed %d digits, filtered out %d digits, "
                   "ignored %d multi-segment digits." % (
-                      parsed_digits, filtered_digits, ignored_digits))
+                      parsed_digits, filtered_digits, ignored_digits)))
 
             return digits
 
@@ -223,7 +223,7 @@ def get_data(
                 for s in seq:
                     size += np.linalg.norm(s, ord=2)
                     n += 1
-        print("Average distance: %f" % (size/n))
+        print(("Average distance: %f" % (size/n)))
 
     return data, labels
 

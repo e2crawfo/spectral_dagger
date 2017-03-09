@@ -83,8 +83,8 @@ class ExpMax(SequenceEstimator):
                 verbose=False, **em_kwargs)
             self.stoch_auto_.fit(X.data)
         except subprocess.CalledProcessError as e:
-            print "CalledProcessError: "
-            print e.output
+            print("CalledProcessError: ")
+            print(e.output)
             raise e
 
         return self

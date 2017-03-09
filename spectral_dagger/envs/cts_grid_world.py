@@ -38,8 +38,8 @@ class ContinuousWorldMap(WorldMap):
 
         env_shape = [int(i) for i in self.bounds.s]
         self.lattice = np.meshgrid(
-            *[range(i+1) for i in env_shape], indexing='ij')
-        self.lattice = zip(*[a.flatten() for a in self.lattice])
+            *[list(range(i+1)) for i in env_shape], indexing='ij')
+        self.lattice = list(zip(*[a.flatten() for a in self.lattice]))
         self.lattice = [Rectangle((1, 1), centre=c) for c in self.lattice]
 
     def is_valid_position(self, pos):

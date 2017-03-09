@@ -148,7 +148,7 @@ def perturb_pfa_bernoulli(pfa, p, increment=None, rng=None):
     rng = check_random_state(rng)
     increment = (
         increment if increment is not None
-        else np.mean(np.mean(np.hstack(pfa.B_o.values()))))
+        else np.mean(np.mean(np.hstack(list(pfa.B_o.values())))))
 
     Bo_prime = {}
     for o, b in six.iteritems(pfa.B_o):

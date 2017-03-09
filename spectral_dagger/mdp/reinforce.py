@@ -61,7 +61,7 @@ class REINFORCE(LearningAlgorithm):
             *self.policy_args, **self.policy_kwargs)
 
         _alpha = alpha
-        alpha = _alpha.next()
+        alpha = next(_alpha)
 
         gradient = np.zeros(feature_extractor.n_features)
 
@@ -83,7 +83,7 @@ class REINFORCE(LearningAlgorithm):
 
             if hasattr(_alpha, 'next'):
                 try:
-                    next_alpha = _alpha.next()
+                    next_alpha = next(_alpha)
                     alpha = next_alpha
                 except StopIteration:
                     pass
@@ -92,10 +92,10 @@ class REINFORCE(LearningAlgorithm):
                 sum(obs.reward for (_, obs) in tau) for tau in sample_eps]
 
             for i, r in enumerate(returns):
-                print "Return from iter %d:  %f" % (i, r)
+                print("Return from iter %d:  %f" % (i, r))
 
-            print (
-                "Updated theta with alpha: %s, theta norm: %s" % (alpha, norm))
+            print((
+                "Updated theta with alpha: %s, theta norm: %s" % (alpha, norm)))
 
             self.logger.info("*" * 20 + "Iteration: %s" % n_steps)
             self.logger.info("Gradient step")

@@ -41,11 +41,11 @@ class BadExampleMDP(MDP):
         n_states = len(self.states)
         self._T = np.zeros((2, n_states, n_states))
 
-        self._T[A_0][range(5), [1, 2, 1, 4, 3]] = 1.0 - reset_prob
-        self._T[A_0][range(5), 0] = reset_prob
+        self._T[A_0][list(range(5)), [1, 2, 1, 4, 3]] = 1.0 - reset_prob
+        self._T[A_0][list(range(5)), 0] = reset_prob
 
-        self._T[A_1][range(5), [3, 2, 1, 4, 3]] = 1.0 - reset_prob
-        self._T[A_1][range(5), 0] = reset_prob
+        self._T[A_1][list(range(5)), [3, 2, 1, 4, 3]] = 1.0 - reset_prob
+        self._T[A_1][list(range(5)), 0] = reset_prob
 
         self._R = np.zeros((2, n_states, n_states))
 
@@ -105,11 +105,11 @@ class GoodExampleMDP(MDP):
         n_states = len(self.states)
         self._T = np.zeros((2, n_states, n_states))
 
-        self._T[A_0][range(8), [1, 2, 1, 4, 5, 6, 7, 3]] = 1 - reset_prob
-        self._T[A_0][range(8), 0] = reset_prob
+        self._T[A_0][list(range(8)), [1, 2, 1, 4, 5, 6, 7, 3]] = 1 - reset_prob
+        self._T[A_0][list(range(8)), 0] = reset_prob
 
-        self._T[A_1][range(8), [3, 2, 1, 4, 5, 6, 7, 3]] = 1 - reset_prob
-        self._T[A_1][range(8), 0] = reset_prob
+        self._T[A_1][list(range(8)), [3, 2, 1, 4, 5, 6, 7, 3]] = 1 - reset_prob
+        self._T[A_1][list(range(8)), 0] = reset_prob
 
         self._R = np.zeros((2, n_states, n_states))
 
@@ -146,13 +146,13 @@ if __name__ == "__main__":
         env = GoodExampleMDP(0.1)
         good_mapping = {0: 1, 1: 0, 2: 1, 3: 1, 4: 0, 5: 1, 6: 0, 7: 1}
         good_mapping = {
-            s: GoodExampleMDP.actions[a] for s, a in good_mapping.iteritems()}
+            s: GoodExampleMDP.actions[a] for s, a in good_mapping.items()}
         expert = MDPPolicy(env, good_mapping)
     elif args.type == "bad":
         env = BadExampleMDP(0.1)
         bad_mapping = {0: 1, 1: 0, 2: 1, 3: 0, 4: 1}
         bad_mapping = {
-            s: BadExampleMDP.actions[a] for s, a in bad_mapping.iteritems()}
+            s: BadExampleMDP.actions[a] for s, a in bad_mapping.items()}
         expert = MDPPolicy(env, bad_mapping)
     else:
         raise NotImplementedError(
@@ -174,8 +174,8 @@ if __name__ == "__main__":
 
     for i, p in enumerate(policies):
         if hasattr(p, 'classifier'):
-            print "Policy", i, ": coef: ", p.classifier.coef_
-            print "Policy", i, ": intercept: ", p.classifier.intercept_
+            print("Policy", i, ": coef: ", p.classifier.coef_)
+            print("Policy", i, ": intercept: ", p.classifier.intercept_)
 
     n_test_trajectories = 0
     test_horizon = 10
@@ -202,7 +202,7 @@ if __name__ == "__main__":
 
     x = np.linspace(*xlim, num=20)
     y = np.linspace(*ylim, num=20)
-    mesh = map(lambda x: x.flatten(), np.meshgrid(x, y))
+    mesh = [x.flatten() for x in np.meshgrid(x, y)]
 
     # Plot the states of the mdp
     m = {str(a): a.name for a in env.actions}
@@ -218,7 +218,7 @@ if __name__ == "__main__":
         expert.reset(s)
         exp_mapping.append(expert.get_action())
 
-    x, y = zip(*[s.position for s in env.states])
+    x, y = list(zip(*[s.position for s in env.states]))
     plt.scatter(x, y, s=np.pi*10**2, c=[a.name for a in exp_mapping])
 
     # Plot lines representing poliices

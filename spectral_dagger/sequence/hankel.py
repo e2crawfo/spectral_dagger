@@ -510,7 +510,7 @@ def top_k_basis(data, k, estimator='string', max_length=np.inf, square=True):
         top_k_prefix.extend(
             heapq.nlargest(k, prefix_counts, key=prefix_counts.get))
     else:
-        top_k_prefix.extend(prefix_counts.keys())
+        top_k_prefix.extend(list(prefix_counts.keys()))
 
     top_k_suffix = [()]
 
@@ -518,7 +518,7 @@ def top_k_basis(data, k, estimator='string', max_length=np.inf, square=True):
         top_k_suffix.extend(
             heapq.nlargest(k, suffix_counts, key=suffix_counts.get))
     else:
-        top_k_suffix.extend(suffix_counts.keys())
+        top_k_suffix.extend(list(suffix_counts.keys()))
 
     if square:
         min_length = min(len(top_k_prefix), len(top_k_suffix))
