@@ -61,7 +61,8 @@ setup(
     entry_points={
         'console_scripts': [
             'sdagger = spectral_dagger.main:main',
-            'sd-experiment = spectral_dagger.utils.experiment:run_scenario',
+            'sd-experiment = spectral_dagger.utils.experiment:_run_scenario',
+            'sd-submit = spectral_dagger.utils.submit_job:_submit_job',
         ]
     },
     zip_safe=False,

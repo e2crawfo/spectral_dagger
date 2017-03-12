@@ -79,7 +79,7 @@ class ObjectLoader(object):
     def load_object(self, kind, idx):
         kind_dir = path.join(self._dirname, kind)
         if not path.isdir(kind_dir):
-            raise Exception("Found no objects of kind {}.".format(kind))
+            raise KeyError("Found no objects of kind {}.".format(kind))
 
         object_file = path.join(kind_dir, str(idx))
         try:

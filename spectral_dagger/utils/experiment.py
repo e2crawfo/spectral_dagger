@@ -1,4 +1,3 @@
-
 import pprint
 import logging
 import six
@@ -1172,7 +1171,9 @@ def parallel_exp_plot(directory, **plot_kwargs):
     __plot(score_names, x_var_name, df, 'plot.pdf', **plot_kwargs)
 
 
-def _run_scenario(task, scenario_idx=-1, d='.', seed=None, force=0, verbose=0, **kwargs):
+def run_scenario(task, scenario_idx=-1, d='.', seed=None,
+                 force=0, verbose=0, **kwargs):
+
     logging.basicConfig(level=logging.INFO, format='')
 
     if task == 'cv':
@@ -1185,6 +1186,6 @@ def _run_scenario(task, scenario_idx=-1, d='.', seed=None, force=0, verbose=0, *
         raise ValueError("Unknown task {} for parallel experiment.".format(task))
 
 
-def run_scenario():
+def _run_scenario():
     from clify import command_line
-    command_line(_run_scenario, collect_kwargs=1)()
+    command_line(run_scenario, collect_kwargs=1, verbose=True)()

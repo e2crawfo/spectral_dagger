@@ -3,6 +3,8 @@ import os
 import datetime
 import subprocess
 
+from spectral_dagger.utils.misc import make_symlink
+
 
 def make_directory_name(experiments_dir, network_name, add_date=True):
     if add_date:
@@ -18,21 +20,13 @@ def make_directory_name(experiments_dir, network_name, add_date=True):
     return working_dir
 
 
-def make_sym_link(target, name):
-    try:
-        os.remove(name)
-    except OSError:
-        pass
-
-    os.symlink(target, name)
-
-
-def main(
+def submit_job(
         task, n_jobs, input_zip, n_nodes=1, ppn=12, walltime="1:00:00",
         add_date=False, test=0, scratch=None, exclude="", verbose=0, show_script=0):
+
     name = os.path.splitext(os.path.basename(input_zip))[0]
     exclude = "--exclude " + exclude if exclude else ""
-    kwargs = locals()
+    kwargs = locals().copy()
     kwargs['n_procs'] = n_nodes * ppn
     kwargs['input_zip'] = os.path.abspath(input_zip)
     kwargs['input_zip_bn'] = os.path.basename(input_zip)
@@ -111,7 +105,7 @@ cp {name}_{task}.zip {original_dir}''')
         os.makedirs(scratch)
 
     # Create convenience `latest` symlink
-    make_sym_link(scratch, os.path.join(experiments_dir, 'latest'))
+    make_symlink(scratch, os.path.join(experiments_dir, 'latest'))
 
     os.chdir(scratch)
 
@@ -121,17 +115,23 @@ cp {name}_{task}.zip {original_dir}''')
 
     if test:
         print("Testing.")
-        subprocess.check_output(['sh', submit_script])
+        output = subprocess.check_output(['sh', submit_script])
+        print(output)
     else:
+        print("Submitting.")
         # Submit to queue
-        job_id = subprocess.check_output(['qsub', submit_script])
-        job_id = job_id.split('.')[0]
+        output = subprocess.check_output(['qsub', submit_script])
+        job_id = output.split('.')[0]
 
         # Create a file in the directory with the job_id as its name
         open(job_id, 'w').close()
         print("Job ID: {}".format(job_id))
 
 
-if __name__ == "__main__":
+def _submit_job():
     from clify import command_line
-    command_line(main)()
+    command_line(submit_job, collect_kwargs=1, verbose=True)()
+
+
+if __name__ == "__main__":
+    _submit_job()
