@@ -87,7 +87,7 @@ class ObjectLoader(object):
                 kwargs = pickle.load(f)
         except IOError as e:
             if 'No such file or directory:' in str(e):
-                raise Exception(
+                raise KeyError(
                     "Could not find an object of kind {} with index {}.".format(kind, idx))
 
         obj = kwargs.pop('__object')

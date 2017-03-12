@@ -1029,28 +1029,64 @@ class ParallelExperiment(Experiment):
             'round': r, self.x_var_name: x, 'method': est.name}
 
 
+def scenario(scenario_type, creates):
+    """ Scenarios check whether they need to run before they run.
+
+    Parameter
+    ---------
+    creates: str or list of str
+        Key that this scenario creates.
+
+    """
+    if isinstance(creates, str):
+        creates = [creates]
+
+    def f(w):
+        def wrapper(directory, scenario_idx, verbose, force):
+            loader = ObjectLoader(directory)
+
+            finished = True
+            for c in creates:
+                try:
+                    loader.load_object(c, scenario_idx)
+                except KeyError:
+                    finished = False
+                    break
+
+            if finished and not force:
+                print("Skipping {} scenario {} since it has "
+                      "already been run.".format(scenario_type, scenario_idx))
+            else:
+                w(directory, scenario_idx, verbose)
+
+        return wrapper
+
+    return f
+
+
+@scenario('training', 'cv_score')
 def run_training_scenario(directory, scenario_idx, verbose):
-    if verbose:
-        print("Beginning training scenario {}.".format(scenario_idx))
+        if verbose:
+            print("Beginning training scenario {}.".format(scenario_idx))
 
-    loader = ObjectLoader(directory)
+        loader = ObjectLoader(directory)
 
-    estimator, kwargs = loader.load_object('train_scenario', scenario_idx)
-    estimator.directory = pjoin(directory, 'train_scratch/{}'.format(scenario_idx))
-    dataset_idx = kwargs.pop('dataset_idx')
-    train, train_kwargs = loader.load_object('train', dataset_idx)
+        estimator, kwargs = loader.load_object('train_scenario', scenario_idx)
+        estimator.directory = pjoin(directory, 'train_scratch/{}'.format(scenario_idx))
+        dataset_idx = kwargs.pop('dataset_idx')
+        train, train_kwargs = loader.load_object('train', dataset_idx)
 
-    scoring = kwargs.get('scoring', None)
-    cv = kwargs.get('cv', None)
+        scoring = kwargs.get('scoring', None)
+        cv = kwargs.get('cv', None)
 
-    cv_score = cross_val_score(
-        estimator, train.X, train.y, scoring=scoring, cv=cv, n_jobs=1, verbose=0)
+        cv_score = cross_val_score(
+            estimator, train.X, train.y, scoring=scoring, cv=cv, n_jobs=1, verbose=0)
 
-    saver = ObjectSaver(directory, eager=True)
-    saver.add_object(cv_score, 'cv_score', scenario_idx)
+        saver = ObjectSaver(directory, eager=True)
+        saver.add_object(cv_score, 'cv_score', scenario_idx)
 
-    if verbose:
-        print("Done training scenario {}.".format(scenario_idx))
+        if verbose:
+            print("Done training scenario {}.".format(scenario_idx))
 
 
 def make_idx_print(idx):
@@ -1059,11 +1095,12 @@ def make_idx_print(idx):
     return idx_print
 
 
+@scenario('testing', 'test_scores')
 def run_testing_scenario(directory, scenario_idx, verbose):
+    # Read in the results of running, choose winner of CVs, test each.
     if verbose:
         print("Beginning testing scenario {}.".format(scenario_idx))
 
-    # Read in the results of running, choose winner of CVs, test each.
     loader = ObjectLoader(directory)
 
     estimator, kwargs = loader.load_object('test_scenario', scenario_idx)
@@ -1135,13 +1172,13 @@ def parallel_exp_plot(directory, **plot_kwargs):
     __plot(score_names, x_var_name, df, 'plot.pdf', **plot_kwargs)
 
 
-def _run_scenario(task, scenario_idx=-1, d='.', seed=None, verbose=0, **kwargs):
+def _run_scenario(task, scenario_idx=-1, d='.', seed=None, force=0, verbose=0, **kwargs):
     logging.basicConfig(level=logging.INFO, format='')
 
     if task == 'cv':
-        run_training_scenario(d, scenario_idx, verbose)
+        run_training_scenario(d, scenario_idx, verbose, force)
     elif task == 'test':
-        run_testing_scenario(d, scenario_idx, verbose)
+        run_testing_scenario(d, scenario_idx, verbose, force)
     elif task == 'plot':
         parallel_exp_plot(d, **kwargs)
     else:
