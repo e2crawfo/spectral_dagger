@@ -63,12 +63,12 @@ module load python/2.7.2'''
 
     if test:
         command = '''
-seq 0 $(({n_jobs}-1)) | time parallel --no-notice -j{n_procs} --workdir $PWD sd-experiment {task} {{}} --d {local_scratch}/{name}_{task} --verbose {verbose} > {scratch}/stdout.txt 2> {scratch}/stderr.txt
+seq 0 $(({n_jobs}-1)) | time parallel --no-notice -j{n_procs} --joblog {scratch}/joblog.txt --workdir $PWD sd-experiment {task} {{}} --d {local_scratch}/{name}_{task} --verbose {verbose} > {scratch}/stdout.txt 2> {scratch}/stderr.txt
 '''
     else:
         command = '''
 # START PARALLEL JOBS USING NODE LIST IN $PBS_NODEFILE
-seq 0 $(({n_jobs}-1)) | time parallel --no-notice -j{n_procs} --sshloginfile $PBS_NODEFILE --workdir $PWD sd-experiment {task} {{}} --d {local_scratch}/{name}_{task} --verbose {verbose}
+seq 0 $(({n_jobs}-1)) | time parallel --no-notice -j{n_procs} --joblog {scratch}/joblog.txt --sshloginfile $PBS_NODEFILE --workdir $PWD sd-experiment {task} {{}} --d {local_scratch}/{name}_{task} --verbose {verbose}
 ''' # noqa
 
     code = (preamble + '''
@@ -115,15 +115,16 @@ cp {name}_{task}.zip {original_dir}''')
 
     if test:
         print("Testing.")
-        output = subprocess.check_output(['sh', submit_script])
+        output = subprocess.check_output(['sh', submit_script], stderr=subprocess.STDOUT)
         print(output)
     else:
         print("Submitting.")
         # Submit to queue
-        output = subprocess.check_output(['qsub', submit_script])
-        job_id = output.split('.')[0]
+        output = subprocess.check_output(['qsub', submit_script], stderr=subprocess.STDOUT)
+        print(output)
 
         # Create a file in the directory with the job_id as its name
+        job_id = output.split('.')[0]
         open(job_id, 'w').close()
         print("Job ID: {}".format(job_id))
 
