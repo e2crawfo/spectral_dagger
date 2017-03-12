@@ -842,7 +842,7 @@ def run_experiment_and_plot(
         experiment.build()
 
         archive_name = experiment.exp_dir.exp_dir
-        print("Zipping built experiment as {}.tar.gz.".format(archive_name))
+        print("Zipping built experiment as {}.zip.".format(archive_name))
         shutil.make_archive(archive_name, 'zip', *os.path.split(experiment.exp_dir._path))
 
         print("Experiment has been built, execute using the ``sd-experiment`` command-line utility.")

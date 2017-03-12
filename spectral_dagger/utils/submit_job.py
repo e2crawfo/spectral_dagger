@@ -25,7 +25,7 @@ def submit_job(
         add_date=False, test=0, scratch=None, exclude="", verbose=0, show_script=0):
 
     name = os.path.splitext(os.path.basename(input_zip))[0]
-    exclude = "--exclude " + exclude if exclude else ""
+    exclude = "--exclude \*{}\*".format(exclude) if exclude else ""
     kwargs = locals().copy()
     kwargs['n_procs'] = n_nodes * ppn
     kwargs['input_zip'] = os.path.abspath(input_zip)
@@ -67,6 +67,7 @@ seq 0 $(({n_jobs}-1)) | time parallel --no-notice -j{n_procs} --workdir $PWD sd-
 '''
     else:
         command = '''
+# START PARALLEL JOBS USING NODE LIST IN $PBS_NODEFILE
 seq 0 $(({n_jobs}-1)) | time parallel --no-notice -j{n_procs} --sshloginfile $PBS_NODEFILE --workdir $PWD sd-experiment {task} {{}} --d {local_scratch}/{name}_{task} --verbose {verbose}
 ''' # noqa
 
@@ -80,7 +81,6 @@ mpiexec -np {n_nodes} -pernode sh -c 'cp {input_zip} {local_scratch} && \\
                                       unzip -q {local_scratch}/{input_zip_bn} -d {local_scratch} && \\
                                       mv {local_scratch}/{name} {local_scratch}/{name}_{task}'
 
-# START PARALLEL JOBS USING NODE LIST IN $PBS_NODEFILE
 ''' + command + '''
 cd {local_scratch}
 mpiexec -np {n_nodes} -pernode sh -c 'zip -rq $OMPI_COMM_WORLD_RANK {name}_{task} {exclude} && \\
