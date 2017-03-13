@@ -28,7 +28,7 @@ def test_experiment_estimator():
 
 class DummyEstimator(Estimator):
     def __init__(self, a=10, arg=None, nested_est=None, name="Dummy", random_state=None):
-        self._init(locals())
+        self._set_attrs(locals())
 
     def point_distribution(self, context=None):
         return {}

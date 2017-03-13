@@ -60,7 +60,7 @@ class SequenceEstimator(Estimator):
 
 class Spectral(SequenceEstimator):
     def __init__(self, n_states=1, name="Spectral"):
-        self._init(locals())
+        self._set_attrs(locals())
 
     def fit(self, X, y=None):
         self.stoch_auto_ = SpectralSA(self.n_states, X.n_symbols)
@@ -71,7 +71,7 @@ class Spectral(SequenceEstimator):
 
 class Compressed(SequenceEstimator):
     def __init__(self, n_states=1, name="Compressed"):
-        self._init(locals())
+        self._set_attrs(locals())
 
     def fit(self, X, y=None):
         self.stoch_auto_ = CompressedSA(self.n_states, X.n_symbols)
@@ -87,7 +87,7 @@ class ExpMax(SequenceEstimator):
             self, n_states=1, em_kwargs=None,
             directory=".", name="ExpMax"):
 
-        self._init(locals())
+        self._set_attrs(locals())
 
     def fit(self, X, y=None):
         em_kwargs = (

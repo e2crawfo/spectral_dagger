@@ -69,7 +69,7 @@ class ExpMax(SequenceEstimator):
             self, n_states=1, em_kwargs=None, max_iters=10,
             directory=".", name="ExpMax"):
 
-        self._init(locals())
+        self._set_attrs(locals())
 
     def fit(self, X, y=None):
         em_kwargs = (

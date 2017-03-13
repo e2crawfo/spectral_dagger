@@ -534,7 +534,7 @@ class Estimator(BaseEstimator):
     _name = None
     _directory = None
 
-    def _init(self, _locals):
+    def _set_attrs(self, _locals):
         if 'self' in _locals:
             del _locals['self']
 
