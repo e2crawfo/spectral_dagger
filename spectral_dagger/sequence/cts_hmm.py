@@ -4,7 +4,7 @@ from sklearn.utils import check_random_state
 from scipy.misc import logsumexp
 import shutil
 
-from spectral_dagger import Space, Environment
+from spectral_dagger import Space, Environment, Estimator
 from spectral_dagger.sequence import SequenceModel
 from spectral_dagger.utils.math import sample_multinomial, normalize
 from spectral_dagger.utils.dists import MixtureDist, GMM
@@ -113,7 +113,7 @@ class ContinuousHMM(Environment):
             [self._O[s].pdf(o) for s in self._states])
 
 
-class GmmHmm(SequenceModel):
+class GmmHmm(SequenceModel, Estimator):
     """
     Parameters
     ----------
@@ -123,11 +123,9 @@ class GmmHmm(SequenceModel):
         Number of (Gaussian) mixture components for each state-conditional emission distribution.
     n_dim: int > 0
         Dimensionality of output.
-    max_iter: 
 
     """
-    seq_length = None
-
+    has_fit = False
 
     def __init__(
             self, n_states=1, n_components=1, n_dim=1,
@@ -137,11 +135,10 @@ class GmmHmm(SequenceModel):
             max_attempts=10, raise_errors=False, initial_params=None,
             delete_matlab_files=True):
 
-        self.rng = check_random_state(random_state)
+        self.random_state = random_state
         self.n_states = n_states
         self.n_components = n_components
         self.n_dim = n_dim
-
         self.max_iter = max_iter
         self.thresh = thresh
         self.verbose = verbose
@@ -152,37 +149,19 @@ class GmmHmm(SequenceModel):
         self.n_restarts = n_restarts
         self.max_attempts = max_attempts
         self.raise_errors = raise_errors
-        self.warm_start = False
-
         self.delete_matlab_files = delete_matlab_files
         self.directory = directory
-
-        if initial_params is not None:
-            self.n_states = initial_params['pi'].shape[0]
-            self.n_components = initial_params['M'].shape[1]
-            self.n_dim = initial_params['mu'].shape[0]
-
-            self.pi = initial_params['pi'].copy()
-            self.T = initial_params['T'].copy()
-            self.mu = initial_params['mu'].copy()
-            self.sigma = initial_params['sigma'].copy()
-            self.M = initial_params['M'].copy()
-            self._validate_params()
-            self.warm_start = True
+        self.initial_params = initial_params
 
     @property
-    def directory(self):
-        return self._directory
+    def record_attrs(self):
+        return super(GmmHmm, self).record_attrs or set(['n_states'])
 
-    @directory.setter
-    def directory(self, _directory):
-        if _directory is None:
-            self._directory = "results/%s" % self.__class__.__name__
-        else:
-            self._directory = _directory
-
-        if not os.path.isdir(self._directory):
-            os.makedirs(self._directory)
+    def point_distribution(self, context):
+        pd = super(GmmHmm, self).point_distribution(context)
+        if 'max_states' in context:
+            pd.update(n_states=list(range(2, context['max_states'])))
+        return pd
 
     def _validate_params(self):
         if self.mu.ndim < 3:
@@ -223,35 +202,35 @@ class GmmHmm(SequenceModel):
                 covs=[self.sigma[:, :, i, j] for j in range(self.n_components)])
             for i in range(self.n_states)]
 
-    def _random_init(self):
+    def _random_init(self, random_state):
         n_states = self.n_states
         n_components = self.n_components
         n_dim = self.n_dim
 
-        pi = np.abs(self.rng.randn(n_states))
+        pi = np.abs(self.random_state.randn(n_states))
         pi = normalize(pi, ord=1)
 
-        T = np.abs(self.rng.randn(n_states, n_states))
+        T = np.abs(self.random_state.randn(n_states, n_states))
         if self.left_to_right:
             T = np.triu(T)
         T = normalize(T, ord=1, axis=1)
 
-        mu = np.abs(self.rng.randn(n_dim, n_states, n_components))
+        mu = np.abs(self.random_state.randn(n_dim, n_states, n_components))
 
         sigma = np.zeros((n_dim, n_dim, n_states, n_components))
         for i in range(n_states):
             for j in range(n_components):
                 if self.cov_type == 'full':
-                    A = self.rng.rand(n_dim, n_dim)
+                    A = self.random_state.rand(n_dim, n_dim)
                     sigma[:, :, i, j] = n_dim * np.eye(n_dim) + 0.5 * (A + A.T)
                 elif self.cov_type == 'diagonal':
-                    sigma[:, :, i, j] = np.diag(self.rng.rand(n_dim))
+                    sigma[:, :, i, j] = np.diag(self.random_state.rand(n_dim))
                 elif self.cov_type == 'spherical':
-                    sigma[:, :, i, j] = self.rng.rand() * np.eye(n_dim)
+                    sigma[:, :, i, j] = self.random_state.rand() * np.eye(n_dim)
                 else:
                     raise Exception("Unrecognized covariance type %s." % self.cov_type)
 
-        M = np.abs(self.rng.randn(n_states, n_components))
+        M = np.abs(self.random_state.randn(n_states, n_components))
         M = normalize(M, ord=1, axis=1)
 
         self.pi = pi
@@ -291,10 +270,20 @@ class GmmHmm(SequenceModel):
         print(("*" * 40))
         print(("Beginning new fit for %s with reuse=%r." % (self.__class__.__name__, reuse)))
 
-        n_restarts = 1 if self.warm_start else self.n_restarts
+        warm_start = self.initial_params or (self.has_fit and reuse)
+        if self.initial_params and not (self.has_fit and reuse):
+            self.pi = self.initial_params['pi'].copy()
+            self.T = self.initial_params['T'].copy()
+            self.mu = self.initial_params['mu'].copy()
+            self.sigma = self.initial_params['sigma'].copy()
+            self.M = self.initial_params['M'].copy()
+            self._validate_params()
+
+        n_restarts = 1 if warm_start else self.n_restarts
         n_iters = 0
         log_likelihood = 0
         results = []
+        random_state = check_random_state(self.random_state)
 
         for i in range(n_restarts):
             print(("Beginning restart: %d" % i))
@@ -302,8 +291,8 @@ class GmmHmm(SequenceModel):
 
             while True:
                 n_attempts += 1
-                if not self.warm_start:
-                    self._random_init()
+                if not warm_start:
+                    self._random_init(random_state)
 
                 # TODO: Remove requirement that all sequences be the same length.
                 data = self._pad_data(data)
@@ -344,7 +333,7 @@ class GmmHmm(SequenceModel):
                         raise Exception("Calculated positive likelihood.")
                     n_iters = matlab_results['ll_trace'].shape[1]
 
-                    self.pi = matlab_results['pi'].squeeze()
+                    self.pi = matlab_results['pi'].reshape(-1)
                     self.T = matlab_results['T']
                     self.mu = matlab_results['mu']
                     self.sigma = matlab_results['sigma']
@@ -358,7 +347,7 @@ class GmmHmm(SequenceModel):
                         if self.raise_errors:
                             raise
                         else:
-                            self._random_init()
+                            self._random_init(random_state)
                             matlab_results = dict(
                                 pi=self.pi, T=self.T, mu=self.mu, sigma=self.sigma, M=self.M)
                             log_likelihood = -np.inf
@@ -374,14 +363,12 @@ class GmmHmm(SequenceModel):
         print(("Chose parameters with total log likelihood: %f" % best_results[0]))
         best_results = best_results[1]
 
-        self.pi = best_results['pi'].squeeze()
+        self.pi = best_results['pi'].reshape(-1)
         self.T = best_results['T']
         self.mu = best_results['mu']
         self.sigma = best_results['sigma']
         self.M = best_results['M']
-
         self._validate_params()
-        self.warm_start = self.reuse
 
         self.reset()
 

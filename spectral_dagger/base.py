@@ -523,7 +523,6 @@ class LearningAlgorithm(SpectralDaggerObject):
         raise NotImplementedError()
 
 
-@six.add_metaclass(abc.ABCMeta)
 class Estimator(BaseEstimator):
     """ If deriving classes define an attribute ``record_attrs``
         giving a list of strings, then those attributes will be queried

@@ -15,7 +15,7 @@ import seaborn.apionly as sns
 import traceback
 import copy
 import dill as pickle
-from pprint import pprint
+from future.utils import raise_with_traceback
 
 from sklearn.base import clone
 from sklearn.utils import check_random_state
@@ -562,7 +562,6 @@ class Experiment(object):
         if self.mode == 'estimator':
             dists.pop(self.x_var_name, None)
 
-        # We can only do this check at the top level of params.
         for key in dists:
             if key not in est.get_params(deep=True):
                 raise ValueError(
@@ -800,7 +799,7 @@ def run_experiment_and_plot(
              "the error if the experiment failed, or the created plot if the "
              "experiment completed successfully.")
     parser.add_argument(
-        '-r', action='store_true',
+        '--raise', action='store_true', dest='_raise',
         help="If supplied, exceptions encountered during "
              "cross-validation will propagated all the way up. Otherwise, "
              "such exceptions are caught and the candidate parameter setting "
@@ -828,7 +827,7 @@ def run_experiment_and_plot(
 
     exp_kwargs['search_kwargs'].update(
         n_jobs=args.n_jobs,
-        error_score='raise' if args.r else -np.inf)
+        error_score='raise' if args._raise else -np.inf)
 
     if 'directory' not in exp_kwargs:
         exp_kwargs['directory'] = '/data/experiment'
@@ -868,14 +867,9 @@ def run_experiment_and_plot(
 
         try:
             experiment.run('results.csv', random_state=random_state)
-        except:
-            exc_info = sys.exc_info()
-            try:
-                fig = _finish(experiment, args.email_cfg, False, **plot_kwargs)
-            except:
-                print("Error while cleaning up:")
-                traceback.print_exc()
-            raise exc_info[0](exc_info[1]).with_traceback(exc_info[2])
+        except Exception as e:
+            fig = _finish(experiment, args.email_cfg, False, **plot_kwargs)
+            raise_with_traceback(e)
 
         fig = _finish(experiment, args.email_cfg, True, **plot_kwargs)
 
@@ -899,6 +893,7 @@ class ParallelExperiment(Experiment):
         self.saver = ObjectSaver(self.exp_dir._path, eager=True)
 
         rng = check_random_state(random_state)
+        estimator_rng = check_random_state(sd.gen_seed(rng))
         data_rng = check_random_state(sd.gen_seed(rng))
         search_rng = check_random_state(sd.gen_seed(rng))
 
@@ -930,6 +925,9 @@ class ParallelExperiment(Experiment):
                     est = clone(base_est)
                     if self.mode == 'estimator':
                         est.set_params(**{self.x_var_name: x})
+
+                    est_seed = sd.gen_seed(estimator_rng)
+                    est.random_state = est_seed
 
                     train_indices = self._build_train_scenarios(
                         base_est, x, r, train_idx, context, search_rng)
@@ -1042,7 +1040,7 @@ def scenario(scenario_type, creates):
         creates = [creates]
 
     def f(w):
-        def wrapper(directory, scenario_idx, verbose, force):
+        def wrapper(directory, scenario_idx, seed, verbose, force):
             loader = ObjectLoader(directory)
 
             finished = True
@@ -1053,10 +1051,14 @@ def scenario(scenario_type, creates):
                     finished = False
                     break
 
+            if seed is not None:
+                seed = scenario_idx + seed
             if finished and not force:
                 print("Skipping {} scenario {} since it has "
                       "already been run.".format(scenario_type, scenario_idx))
             else:
+                old_state = np.random.get_state()
+                np.random.seed(seed)
                 if verbose:
                     print("Beginning training scenario {}.".format(scenario_idx))
 
@@ -1064,6 +1066,7 @@ def scenario(scenario_type, creates):
 
                 if verbose:
                     print("Done training scenario {}.".format(scenario_idx))
+                np.random.set_state(old_state)
 
         return wrapper
 
@@ -1074,7 +1077,6 @@ def make_idx_print(idx):
     def idx_print(s):
         print("{}: {}".format(idx, s))
     return idx_print
-
 
 
 @scenario('training', 'cv_score')
@@ -1186,9 +1188,9 @@ def inspect(directory, kind, idx):
     obj, kwargs = loader.load_object(kind,  idx)
     print("Loaded object with kind {} and idx {}.".format(kind, idx))
     print("Object:")
-    pprint(obj)
+    pprint.pprint(obj)
     print("Associated kwargs:")
-    pprint(kwargs)
+    pprint.pprint(kwargs)
 
 
 def run_scenario(task, scenario_idx=-1, d='.', seed=None,
@@ -1197,9 +1199,9 @@ def run_scenario(task, scenario_idx=-1, d='.', seed=None,
     logging.basicConfig(level=logging.INFO, format='')
 
     if task == 'cv':
-        run_training_scenario(d, scenario_idx, verbose, force)
+        run_training_scenario(d, scenario_idx, seed, verbose, force)
     elif task == 'test':
-        run_testing_scenario(d, scenario_idx, verbose, force)
+        run_testing_scenario(d, scenario_idx, seed, verbose, force)
     elif task == 'plot':
         parallel_exp_plot(d, **kwargs)
     elif task == 'joblog':
