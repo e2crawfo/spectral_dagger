@@ -15,6 +15,7 @@ import seaborn.apionly as sns
 import traceback
 import copy
 import dill as pickle
+from pprint import pprint
 
 from sklearn.base import clone
 from sklearn.utils import check_random_state
@@ -29,12 +30,10 @@ except ImportError:
 import spectral_dagger as sd
 from spectral_dagger.utils.plot import plot_measures
 from spectral_dagger.utils.misc import (
-    make_symlink, make_filename, indent, as_title, send_email_using_cfg, ObjectLoader, ObjectSaver)
+    make_symlink, make_filename, indent, as_title,
+    send_email_using_cfg, ZipObjectLoader, ObjectLoader, ObjectSaver)
 
-
-pp = pprint.PrettyPrinter()
 verbosity = 2
-
 logger = logging.getLogger(__name__)
 
 
@@ -1033,8 +1032,10 @@ def scenario(scenario_type, creates):
 
     Parameter
     ---------
+    scenario_type: str
+        The type of scenario we are running.
     creates: str or list of str
-        Key that this scenario creates.
+        Key (or list thereof) that this scenario creates.
 
     """
     if isinstance(creates, str):
@@ -1056,36 +1057,17 @@ def scenario(scenario_type, creates):
                 print("Skipping {} scenario {} since it has "
                       "already been run.".format(scenario_type, scenario_idx))
             else:
-                w(directory, scenario_idx, verbose)
+                if verbose:
+                    print("Beginning training scenario {}.".format(scenario_idx))
+
+                w(directory, scenario_idx)
+
+                if verbose:
+                    print("Done training scenario {}.".format(scenario_idx))
 
         return wrapper
 
     return f
-
-
-@scenario('training', 'cv_score')
-def run_training_scenario(directory, scenario_idx, verbose):
-        if verbose:
-            print("Beginning training scenario {}.".format(scenario_idx))
-
-        loader = ObjectLoader(directory)
-
-        estimator, kwargs = loader.load_object('train_scenario', scenario_idx)
-        estimator.directory = pjoin(directory, 'train_scratch/{}'.format(scenario_idx))
-        dataset_idx = kwargs.pop('dataset_idx')
-        train, train_kwargs = loader.load_object('train', dataset_idx)
-
-        scoring = kwargs.get('scoring', None)
-        cv = kwargs.get('cv', None)
-
-        cv_score = cross_val_score(
-            estimator, train.X, train.y, scoring=scoring, cv=cv, n_jobs=1, verbose=0)
-
-        saver = ObjectSaver(directory, eager=True)
-        saver.add_object(cv_score, 'cv_score', scenario_idx)
-
-        if verbose:
-            print("Done training scenario {}.".format(scenario_idx))
 
 
 def make_idx_print(idx):
@@ -1094,12 +1076,33 @@ def make_idx_print(idx):
     return idx_print
 
 
-@scenario('testing', 'test_scores')
-def run_testing_scenario(directory, scenario_idx, verbose):
-    # Read in the results of running, choose winner of CVs, test each.
-    if verbose:
-        print("Beginning testing scenario {}.".format(scenario_idx))
 
+@scenario('training', 'cv_score')
+def run_training_scenario(directory, scenario_idx):
+    loader = ObjectLoader(directory)
+
+    estimator, kwargs = loader.load_object('train_scenario', scenario_idx)
+    estimator.directory = pjoin(directory, 'train_scratch/{}'.format(scenario_idx))
+    dataset_idx = kwargs.pop('dataset_idx')
+    train, train_kwargs = loader.load_object('train', dataset_idx)
+
+    scoring = kwargs.get('scoring', None)
+    cv = kwargs.get('cv', None)
+
+    then = time.time()
+    cv_score = cross_val_score(
+        estimator, train.X, train.y, scoring=scoring, cv=cv, n_jobs=1, verbose=0)
+    cv_time = time.time() - then
+    make_idx_print(scenario_idx)("Cross-validation time: %s seconds." % cv_time)
+
+    saver = ObjectSaver(directory, eager=True)
+    saver.add_object(cv_score, 'cv_score', scenario_idx)
+    saver.add_object(cv_time, 'cv_time', scenario_idx)
+
+
+@scenario('testing', 'test_scores')
+def run_testing_scenario(directory, scenario_idx):
+    # Read in the results of running, choose winner of CVs, test each.
     loader = ObjectLoader(directory)
 
     estimator, kwargs = loader.load_object('test_scenario', scenario_idx)
@@ -1121,7 +1124,8 @@ def run_testing_scenario(directory, scenario_idx, verbose):
     estimator.fit(train.X, train.y)
 
     idx_print = make_idx_print(scenario_idx)
-    idx_print("Fit time: %s seconds." % (time.time() - then))
+    fit_time = time.time() - then
+    idx_print("Fit time: %s seconds." % fit_time)
 
     test, test_kwargs = loader.load_object('test', dataset_idx)
 
@@ -1138,10 +1142,10 @@ def run_testing_scenario(directory, scenario_idx, verbose):
     test_time = time.time() - then
     idx_print("Test time: %s seconds." % test_time)
 
-    saver.add_object(test_scores, 'test_scores', scenario_idx)
+    test_scores['fit_time'] = fit_time
+    test_scores['test_time'] = test_time
 
-    if verbose:
-        print("Done testing scenario {}.".format(scenario_idx))
+    saver.add_object(test_scores, 'test_scores', scenario_idx)
 
 
 def parallel_exp_plot(directory, **plot_kwargs):
@@ -1171,6 +1175,22 @@ def parallel_exp_plot(directory, **plot_kwargs):
     __plot(score_names, x_var_name, df, 'plot.pdf', **plot_kwargs)
 
 
+def process_joblog(directory):
+    joblog = pjoin(directory, 'joblog.txt')
+    df = pd.read_csv(joblog, sep='\t')
+    print(df['JobRuntime'].describe())
+
+
+def inspect(directory, kind, idx):
+    loader = ZipObjectLoader(directory)
+    obj, kwargs = loader.load_object(kind,  idx)
+    print("Loaded object with kind {} and idx {}.".format(kind, idx))
+    print("Object:")
+    pprint(obj)
+    print("Associated kwargs:")
+    pprint(kwargs)
+
+
 def run_scenario(task, scenario_idx=-1, d='.', seed=None,
                  force=0, verbose=0, **kwargs):
 
@@ -1182,6 +1202,14 @@ def run_scenario(task, scenario_idx=-1, d='.', seed=None,
         run_testing_scenario(d, scenario_idx, verbose, force)
     elif task == 'plot':
         parallel_exp_plot(d, **kwargs)
+    elif task == 'joblog':
+        process_joblog(d)
+    elif task == 'inspect':
+        try:
+            kind = kwargs['kind']
+        except KeyError:
+            raise KeyError("``kind`` not supplied, nothing to inspect.")
+        inspect(d, kind, scenario_idx)
     else:
         raise ValueError("Unknown task {} for parallel experiment.".format(task))
 

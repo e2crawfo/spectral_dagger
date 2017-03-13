@@ -52,9 +52,14 @@ mkdir {scratch}/{local_scratch}'''
 #
 #PBS -l nodes={n_nodes}:ppn={ppn},walltime={walltime}
 #PBS -N {name}
+#PBS -M eric.crawford@mail.mcgill.ca
 #PBS -m abe
 #PBS -e stderr.txt
 #PBS -o stdout.txt
+
+echo "Starting job at - "
+date
+SECONDS=0
 
 module load gcc/5.4.0
 module load GNUParallel/20141022
@@ -95,7 +100,10 @@ done
 
 zip -rq {name}_{task} {name}_{task}
 rm -rf {name}_{task}
-cp {name}_{task}.zip {original_dir}''')
+cp {name}_{task}.zip {original_dir}
+
+echo "Job took "$SECONDS" seconds."
+''')
 
     code = code.format(**kwargs)
     if show_script:

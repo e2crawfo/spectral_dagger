@@ -1,4 +1,3 @@
-
 import os
 from os import path
 import string
@@ -19,6 +18,7 @@ from six.moves.email_mime_base import MIMEBase
 from six.moves.email_mime_multipart import MIMEMultipart
 from six.moves.configparser import ConfigParser, NoOptionError
 from functools import reduce
+from zipfile import ZipFile
 
 _title_width = 80
 _title_format = "\n{{0:=<{0}.{0}s}}".format(_title_width)
@@ -86,27 +86,52 @@ class ObjectLoader(object):
             with open(object_file, 'r') as f:
                 kwargs = pickle.load(f)
         except IOError as e:
-            if 'No such file or directory:' in str(e):
-                raise KeyError(
-                    "Could not find an object of kind {} with index {}.".format(kind, idx))
+            raise KeyError(
+                "Could not find an object of kind {} with index {}.".format(kind, idx))
 
         obj = kwargs.pop('__object')
         return obj, kwargs
 
-    def load_objects_of_kind(self, kind):
+    def indices_for_kind(kind):
         kind_path = path.join(self._dirname, kind)
         if not path.exists(kind_path):
-            return {}
-        d = {}
-        for idx in os.listdir(kind_path):
-            d[int(idx)] = self.load_object(kind, int(idx))
+            return []
+        return sorted([int(i) for i in os.listdir(kind_path)])
+
+    def load_objects_of_kind(self, kind):
+        for idx in self.indices_for_kind(kind):
+            d[idx] = self.load_object(kind, idx)
         return d
 
-    def n_objects(self, kind):
-        kind_path = path.join(self._dirname, kind)
-        if not path.exists(kind_path):
-            return 0
-        return len(os.listdir(kind_path))
+    def n_objects_of_kind(self, kind):
+        return len(self.indices_for_kind(kind))
+
+
+class ZipObjectLoader(ObjectLoader):
+    def __init__(self, zipname, eager=True):
+        self._zip = ZipFile(zipname, 'r')
+        self._zipname = os.path.splitext(os.path.basename(zipname))[0]
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self):
+        self._zip.close()
+
+    def load_object(self, kind, idx):
+        name = '{}/{}/{}'.format(self._zipname, kind, idx)
+        z = self._zip.open(name)
+        kwargs = pickle.load(z)
+        obj = kwargs.pop('__object')
+        return obj, kwargs
+
+    def indices_for_kind(kind):
+        kind_path = path.join(self._zipname, kind)
+        indices = []
+        for s in self._zip.namelist():
+            if s.startswith(kind_path):
+                indices.append(int(os.path.basename(s)))
+        return sorted(indices)
 
 
 @contextmanager
