@@ -6,6 +6,7 @@ import time
 import numpy as np
 import pandas as pd
 import dill as pickle
+import sys
 
 from sklearn.base import clone
 from sklearn.utils import check_random_state
@@ -184,9 +185,23 @@ def scenario(scenario_type, creates):
         creates = [creates]
 
     def f(w):
-        def wrapper(directory, scenario_idx, seed, verbose, force):
-            loader = ObjectLoader(directory)
+        def wrapper(directory, scenario_idx, seed, verbose, redirect, force):
+            if redirect:
+                stdout_dir = os.path.join(directory, scenario_type+'_stdout')
+                try:
+                    os.makedirs(stdout_dir)
+                except:
+                    pass
+                sys.stdout = open(os.path.join(stdout_dir, str(scenario_idx)), 'w')
 
+                stderr_dir = os.path.join(directory, scenario_type+'_stderr')
+                try:
+                    os.makedirs(stderr_dir)
+                except:
+                    pass
+                sys.stderr = open(os.path.join(stderr_dir, str(scenario_idx)), 'w')
+
+            loader = ObjectLoader(directory)
             finished = True
             for c in creates:
                 try:
@@ -327,25 +342,41 @@ def process_joblog(directory):
     print(df['JobRuntime'].describe())
 
 
-def inspect(directory, kind, idx):
-    loader = ZipObjectLoader(directory)
-    obj, kwargs = loader.load_object(kind, idx)
-    print("Loaded object with kind {} and idx {}.".format(kind, idx))
-    print("Object:")
-    pprint.pprint(obj)
-    print("Associated kwargs:")
-    pprint.pprint(kwargs)
+def inspect_kind(directory, kind, idx):
+    try:
+        loader = ZipObjectLoader(directory)
+    except:
+        loader = ObjectLoader(directory)
+
+    if idx < 0:
+        objects = loader.load_objects_of_kind(kind)
+        objects = sorted([i for i in objects.items()], key=lambda x: x[0])
+        print("Loaded object with kind {}.".format(kind, idx))
+
+        for i, (o, k) in objects:
+            print("Idx: {}".format(i))
+            print("Object:")
+            pprint.pprint(o)
+            print("Associated kwargs:")
+            pprint.pprint(k)
+    else:
+        obj, kwargs = loader.load_object(kind, idx)
+        print("Loaded object with kind {} and idx {}.".format(kind, idx))
+        print("Object:")
+        pprint.pprint(obj)
+        print("Associated kwargs:")
+        pprint.pprint(kwargs)
 
 
 def run_scenario(task, scenario_idx=-1, d='.', seed=None,
-                 force=0, verbose=0, **kwargs):
+                 force=0, verbose=0, redirect=1, **kwargs):
 
     logging.basicConfig(level=logging.INFO, format='')
 
     if task == 'cv':
-        run_training_scenario(d, scenario_idx, seed, verbose, force)
+        run_training_scenario(d, scenario_idx, seed, verbose, redirect, force)
     elif task == 'test':
-        run_testing_scenario(d, scenario_idx, seed, verbose, force)
+        run_testing_scenario(d, scenario_idx, seed, verbose, redirect, force)
     elif task == 'plot':
         parallel_exp_plot(d, **kwargs)
     elif task == 'joblog':
@@ -355,7 +386,7 @@ def run_scenario(task, scenario_idx=-1, d='.', seed=None,
             kind = kwargs['kind']
         except KeyError:
             raise KeyError("``kind`` not supplied, nothing to inspect.")
-        inspect(d, kind, scenario_idx)
+        inspect_kind(d, kind, scenario_idx)
     else:
         raise ValueError("Unknown task {} for parallel experiment.".format(task))
 
@@ -363,3 +394,7 @@ def run_scenario(task, scenario_idx=-1, d='.', seed=None,
 def _run_scenario():
     from clify import command_line
     command_line(run_scenario, collect_kwargs=1, verbose=True)()
+
+
+if __name__ == "__main__":
+    _run_scenario()
