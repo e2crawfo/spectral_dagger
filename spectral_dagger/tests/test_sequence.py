@@ -15,7 +15,7 @@ from spectral_dagger.sequence import ExpMaxSA
 from spectral_dagger.sequence import ConvexOptSA
 from spectral_dagger.sequence import MixtureSeqGen
 from spectral_dagger.sequence import HMM, MarkovChain, AdjustedMarkovChain
-from spectral_dagger.sequence import GmmHmm
+from spectral_dagger.sequence import GMMHMM
 from spectral_dagger.utils.math import normalize, rmse
 from spectral_dagger.datasets.pautomac import make_pautomac_like
 
@@ -483,7 +483,7 @@ def test_gmm_hmm_pendigits():
 
     for n_states in [10]:
         print(("Training with {0} states.".format(n_states)))
-        gmm_hmm = GmmHmm(
+        gmm_hmm = GMMHMM(
             n_states=n_states, n_components=n_components, n_dim=n_dim,
             max_iter=1000, thresh=1e-4, verbose=0, cov_type='full',
             directory="temp", random_state=None, careful=False, left_to_right=True, n_restarts=5)
@@ -507,7 +507,7 @@ def test_gmm_hmm_simple():
     n_restarts = 5
 
     print("Generating random ground truth model.")
-    ground_truth = GmmHmm(n_states, n_components, n_dim)
+    ground_truth = GMMHMM(n_states, n_components, n_dim)
     ground_truth._random_init()
 
     print("Generating data from ground truth.")
@@ -515,8 +515,7 @@ def test_gmm_hmm_simple():
     test = ground_truth.sample_episodes(n_test, horizon=horizon)
 
     print("Fitting model.")
-    # Fit a GmmHmm to the generated data
-    model = GmmHmm(n_states, n_components, n_dim, n_restarts=n_restarts, verbose=False)
+    model = GMMHMM(n_states, n_components, n_dim, n_restarts=n_restarts, verbose=False)
     model.fit(train)
     print("Done.")
 

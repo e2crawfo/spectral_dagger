@@ -15,7 +15,9 @@ from .pfa import (
     perturb_pfa_bernoulli)
 
 from .hmm import HMM, dummy_hmm, bernoulli_hmm
-from .cts_hmm import ContinuousHMM, GmmHmm
+from .cts_hmm import ContinuousHMM
+from .gmm_hmm import GMMHMM
+from .gaussian_hmm import GaussianHMM
 from .markov_chain import MarkovChain, AdjustedMarkovChain
 
 from .em import ExpMaxSA
