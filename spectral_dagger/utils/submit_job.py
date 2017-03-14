@@ -22,7 +22,8 @@ def make_directory_name(experiments_dir, network_name, add_date=True):
 
 def submit_job(
         task, n_jobs, input_zip, n_nodes=1, ppn=12, walltime="1:00:00",
-        add_date=False, test=0, scratch=None, exclude="", verbose=0, show_script=0):
+        add_date=False, test=0, scratch=None, exclude="", verbose=0, show_script=0,
+        dry_run=0):
 
     name = os.path.splitext(os.path.basename(input_zip))[0]
     exclude = "--exclude \*{}\*".format(exclude) if exclude else ""
@@ -121,20 +122,23 @@ cp {name}_{task}.zip {original_dir}
     with open(submit_script, 'w') as f:
         f.write(code)
 
-    if test:
-        print("Testing.")
-        output = subprocess.check_output(['sh', submit_script], stderr=subprocess.STDOUT)
-        print(output)
+    if dry_run:
+        print("Dry run, so not submitting.")
     else:
-        print("Submitting.")
-        # Submit to queue
-        output = subprocess.check_output(['qsub', submit_script], stderr=subprocess.STDOUT)
-        print(output)
+        if test:
+            print("Testing.")
+            output = subprocess.check_output(['sh', submit_script], stderr=subprocess.STDOUT)
+            print(output)
+        else:
+            print("Submitting.")
+            # Submit to queue
+            output = subprocess.check_output(['qsub', submit_script], stderr=subprocess.STDOUT)
+            print(output)
 
-        # Create a file in the directory with the job_id as its name
-        job_id = output.split('.')[0]
-        open(job_id, 'w').close()
-        print("Job ID: {}".format(job_id))
+            # Create a file in the directory with the job_id as its name
+            job_id = output.split('.')[0]
+            open(job_id, 'w').close()
+            print("Job ID: {}".format(job_id))
 
 
 def _submit_job():

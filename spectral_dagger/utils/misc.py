@@ -74,7 +74,7 @@ class ObjectSaver(object):
 
 
 class ObjectLoader(object):
-    def __init__(self, dirname, eager=True):
+    def __init__(self, dirname):
         self._dirname = dirname
 
     def load_object(self, kind, idx):
@@ -110,7 +110,7 @@ class ObjectLoader(object):
 
 
 class ZipObjectLoader(ObjectLoader):
-    def __init__(self, zipname, eager=True):
+    def __init__(self, zipname):
         self._zip = ZipFile(zipname, 'r')
         self._zipname = os.path.splitext(os.path.basename(zipname))[0]
 
