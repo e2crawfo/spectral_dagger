@@ -2,6 +2,7 @@ from __future__ import print_function
 import os
 import datetime
 import subprocess
+from future.utils import raise_with_traceback
 
 from spectral_dagger.utils.misc import make_symlink
 
@@ -125,20 +126,28 @@ cp {name}_{task}.zip {original_dir}
     if dry_run:
         print("Dry run, so not submitting.")
     else:
-        if test:
-            print("Testing.")
-            output = subprocess.check_output(['sh', submit_script], stderr=subprocess.STDOUT)
-            print(output)
-        else:
-            print("Submitting.")
-            # Submit to queue
-            output = subprocess.check_output(['qsub', submit_script], stderr=subprocess.STDOUT)
-            print(output)
+        try:
+            if test:
+                command = ['sh', submit_script]
+                print("Testing.")
+                output = subprocess.check_output(command, stderr=subprocess.STDOUT)
+                print(output)
+            else:
+                command = ['qsub', submit_script]
+                print("Submitting.")
+                # Submit to queue
+                output = subprocess.check_output(command, stderr=subprocess.STDOUT)
+                print(output)
 
-            # Create a file in the directory with the job_id as its name
-            job_id = output.split('.')[0]
-            open(job_id, 'w').close()
-            print("Job ID: {}".format(job_id))
+                # Create a file in the directory with the job_id as its name
+                job_id = output.split('.')[0]
+                open(job_id, 'w').close()
+                print("Job ID: {}".format(job_id))
+        except subprocess.CalledProcessError as e:
+            print("CalledProcessError has been raised while execiting command: {}.".format(' '.join(command)))
+            print("Output of process: ")
+            print(e.output)
+            raise_with_traceback(e)
 
 
 def _submit_job():
