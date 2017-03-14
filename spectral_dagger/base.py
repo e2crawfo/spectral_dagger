@@ -593,7 +593,4 @@ class Estimator(BaseEstimator):
 
     @name.setter
     def name(self, _name):
-        if _name is None:
-            self._name = self.__class__.__name__
-        else:
-            self._name = _name
+        self._name = self.__class__.__name__ if _name is None else _name

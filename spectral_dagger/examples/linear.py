@@ -64,7 +64,7 @@ class Lasso(linear_model.Lasso, Estimator):
         return {'alpha': LogUniform(-4, -.5, 10)}
 
 
-def data_experiment(display=False):
+def data_experiment(directory=None, display=False):
     """ Explore how lasso and ridge regression performance changes
     as the amount of training data changes. """
 
@@ -85,7 +85,8 @@ def data_experiment(display=False):
         'data', [Ridge(0.1), Lasso(0.1)],
         'train_size', np.linspace(0.1, 0.8, 8),
         generate_diabetes_data, [(mse_score, 'NMSE'), (mae_score, 'NMAE')],
-        search_kwargs=dict(cv=2, n_jobs=2), directory='experiments')
+        search_kwargs=dict(cv=2, n_jobs=2), directory=directory,
+        use_time=False)
     df = experiment.run()
 
     plt.figure(figsize=(10, 10))
@@ -106,7 +107,7 @@ class Lasso2(Lasso):
         return {}
 
 
-def estimator_experiment(display=False):
+def estimator_experiment(directory=None, display=False):
     """ Implement the sklearn LASSO example. """
 
     def generate_diabetes_data(random_state=None):
@@ -122,12 +123,12 @@ def estimator_experiment(display=False):
     experiment = Experiment(
         'estimator', [Ridge(), Lasso()], 'alpha', alphas,
         generate_diabetes_data, n_repeats=1,
-        search_kwargs=dict(n_jobs=1), directory='experiments',
-        save_datasets=True, save_estimators=True)
+        search_kwargs=dict(n_jobs=1), directory=directory,
+        save_datasets=True, save_estimators=True, use_time=False)
 
     df = experiment.run()
-    scores = df[df['method'] == 'Lasso']['training_score'].values
-    scores_std = df[df['method'] == 'Lasso']['training_score_std'].values
+    scores = df[df['method'] == 'Lasso']['cv_score'].values
+    scores_std = df[df['method'] == 'Lasso']['cv_score_std'].values
 
     plt.figure(figsize=(4, 3))
     plt.semilogx(alphas, scores)
@@ -146,5 +147,5 @@ def estimator_experiment(display=False):
 
 
 if __name__ == "__main__":
-    e, df = data_experiment(True)
-    e, df = estimator_experiment(True)
+    e, df = data_experiment(display=True)
+    e, df = estimator_experiment(display=True)

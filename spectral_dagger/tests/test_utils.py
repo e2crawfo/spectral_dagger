@@ -18,12 +18,12 @@ def test_plot_multiple():
     multiple_split_vars()
 
 
-def test_experiment_data():
-    data_experiment()
+def test_experiment_data(tmpdir):
+    data_experiment(directory=str(tmpdir), display=False)
 
 
-def test_experiment_estimator():
-    estimator_experiment()
+def test_experiment_estimator(tmpdir):
+    estimator_experiment(directory=str(tmpdir), display=False)
 
 
 class DummyEstimator(Estimator):
@@ -52,17 +52,17 @@ def _generate_data(arg=None, nested_arg=None, random_state=None):
     return Dataset(rng.rand(10, 3)), Dataset(rng.rand(10, 3))
 
 
-def test_experiment_hierarchical():
+def test_experiment_hierarchical(tmpdir):
+    tmpdir = str(tmpdir)
     e = Experiment(
-        'estimator', [DummyEstimator(nested_est=DummyEstimator(a=20))], 'nested_est__a', [1, 2, 3],
-        _generate_data, n_repeats=1, name="test_hierarchical:estimator",
-        directory='/data/dummy')
+        'estimator', [DummyEstimator(nested_est=DummyEstimator(a=20))],
+        'nested_est__a', [1, 2, 3], _generate_data, n_repeats=1, directory=tmpdir,
+        name="experiment1")
     e.run()
 
     e = Experiment(
         'data', [DummyEstimator()], 'nested_arg__b__p', [1, 2, 3],
-        _generate_data, n_repeats=1, name="test_hierarchical:data",
-        directory='/data/dummy')
+        _generate_data, n_repeats=1, directory=tmpdir, name="experiment2")
     e.run()
 
 

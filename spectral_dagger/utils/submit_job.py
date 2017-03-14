@@ -57,10 +57,6 @@ mkdir {scratch}/{local_scratch}'''
 #PBS -e stderr.txt
 #PBS -o stdout.txt
 
-echo "Starting job at - "
-date
-SECONDS=0
-
 module load gcc/5.4.0
 module load GNUParallel/20141022
 module load MPI/Gnu/gcc4.9.2/openmpi/1.10.2
@@ -68,12 +64,12 @@ module load python/2.7.2'''
 
     if test:
         command = '''
-seq 0 $(({n_jobs}-1)) | time parallel --no-notice -j{n_procs} --joblog {scratch}/joblog.txt --workdir $PWD sd-experiment {task} {{}} --d {local_scratch}/{name}_{task} --verbose {verbose} > {scratch}/stdout.txt 2> {scratch}/stderr.txt
+seq 0 $(({n_jobs}-1)) | parallel --no-notice -j{n_procs} --joblog {scratch}/joblog.txt --workdir $PWD sd-experiment {task} {{}} --d {local_scratch}/{name}_{task} --verbose {verbose} > {scratch}/stdout.txt 2> {scratch}/stderr.txt
 '''
     else:
         command = '''
 # START PARALLEL JOBS USING NODE LIST IN $PBS_NODEFILE
-seq 0 $(({n_jobs}-1)) | time parallel --no-notice -j{n_procs} --joblog {scratch}/joblog.txt --sshloginfile $PBS_NODEFILE --workdir $PWD sd-experiment {task} {{}} --d {local_scratch}/{name}_{task} --verbose {verbose}
+seq 0 $(({n_jobs}-1)) | parallel --no-notice -j{n_procs} --joblog {scratch}/joblog.txt --sshloginfile $PBS_NODEFILE --workdir $PWD sd-experiment {task} {{}} --d {local_scratch}/{name}_{task} --verbose {verbose}
 ''' # noqa
 
     code = (preamble + '''
@@ -86,7 +82,12 @@ mpiexec -np {n_nodes} -pernode sh -c 'cp {input_zip} {local_scratch} && \\
                                       unzip -q {local_scratch}/{input_zip_bn} -d {local_scratch} && \\
                                       mv {local_scratch}/{name} {local_scratch}/{name}_{task}'
 
+echo "Starting job at - "
+date
+SECONDS=0
 ''' + command + '''
+echo "Job took "$SECONDS" seconds."
+
 cd {local_scratch}
 mpiexec -np {n_nodes} -pernode sh -c 'zip -rq $OMPI_COMM_WORLD_RANK {name}_{task} {exclude} && \\
                                       cp $OMPI_COMM_WORLD_RANK.zip {scratch}'
@@ -102,7 +103,6 @@ zip -rq {name}_{task} {name}_{task}
 rm -rf {name}_{task}
 cp {name}_{task}.zip {original_dir}
 
-echo "Job took "$SECONDS" seconds."
 ''')
 
     code = code.format(**kwargs)

@@ -1,5 +1,6 @@
 import os
 from os import path
+import shutil
 import string
 import datetime
 from contextlib import contextmanager
@@ -85,20 +86,21 @@ class ObjectLoader(object):
         try:
             with open(object_file, 'r') as f:
                 kwargs = pickle.load(f)
-        except IOError as e:
+        except IOError:
             raise KeyError(
                 "Could not find an object of kind {} with index {}.".format(kind, idx))
 
         obj = kwargs.pop('__object')
         return obj, kwargs
 
-    def indices_for_kind(kind):
+    def indices_for_kind(self, kind):
         kind_path = path.join(self._dirname, kind)
         if not path.exists(kind_path):
             return []
         return sorted([int(i) for i in os.listdir(kind_path)])
 
     def load_objects_of_kind(self, kind):
+        d = {}
         for idx in self.indices_for_kind(kind):
             d[idx] = self.load_object(kind, idx)
         return d
@@ -125,7 +127,7 @@ class ZipObjectLoader(ObjectLoader):
         obj = kwargs.pop('__object')
         return obj, kwargs
 
-    def indices_for_kind(kind):
+    def indices_for_kind(self, kind):
         kind_path = path.join(self._zipname, kind)
         indices = []
         for s in self._zip.namelist():
@@ -172,12 +174,25 @@ def redirect_stderr(f):
 
 
 @contextmanager
-def remove_file(name):
+def remove_file(path):
+    path = os.path.abspath(path)
     try:
         yield
     finally:
         try:
-            os.remove(name)
+            os.remove(path)
+        except:
+            pass
+
+
+@contextmanager
+def remove_tree(path):
+    path = os.path.abspath(path)
+    try:
+        yield
+    finally:
+        try:
+            shutil.rmtree(path)
         except:
             pass
 
