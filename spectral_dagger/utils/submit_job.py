@@ -32,7 +32,6 @@ def submit_job(
     kwargs['n_procs'] = n_nodes * ppn
     kwargs['input_zip'] = os.path.abspath(input_zip)
     kwargs['input_zip_bn'] = os.path.basename(input_zip)
-    kwargs['original_dir'] = os.path.abspath(os.path.dirname(input_zip))
 
     # Create directory to run the job from - should be on local_scratch.
     scratch = os.path.abspath(scratch or os.getenv('SCRATCH'))
@@ -103,7 +102,6 @@ done
 
 zip -rq {name}_{task} {name}_{task}
 rm -rf {name}_{task}
-cp {name}_{task}.zip {original_dir}
 
 ''')
 
