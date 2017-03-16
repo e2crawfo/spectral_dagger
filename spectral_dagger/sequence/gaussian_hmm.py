@@ -15,7 +15,16 @@ from spectral_dagger.datasets import pendigits
 machine_eps = np.finfo(float).eps
 
 
-class GaussianHMM(Estimator, hmm.GaussianHMM, SequenceModel):
+class GaussianHMM(Estimator, SequenceModel):
+
+    def __init__(
+            self, n_components=1, covariance_type='diag',
+            min_covar=1e-3, startprob_prior=1.0, transmat_prior=1.0,
+            means_prior=0, means_weight=0, covars_prior=1e-2,
+            covars_weight=1, algorithm="viterbi", random_state=None,
+            n_iter=10, tol=1e-2, verbose=False,
+            params="stmc", init_params="stmc"):
+        self._set_attrs(locals())
 
     @property
     def record_attrs(self):
@@ -28,15 +37,20 @@ class GaussianHMM(Estimator, hmm.GaussianHMM, SequenceModel):
         return pd
 
     def fit(self, data):
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             X = np.vstack(data)
             lengths = [len(d) for d in data]
-            hmm.GaussianHMM.fit(self, X, lengths)
+            kwargs = self.get_params()
+            if len(X) > self.n_components:
+                kwargs['n_components'] = len(X)
+            self.gmm_ = hmm.GaussianHMM(**kwargs)
+            self.gmm_.fit(self, X, lengths)
 
         self.obs_dists_ = [
             multivariate_normal(mean=m, cov=c)
-            for m, c in zip(self.means_, self._get_covars())]
+            for m, c in zip(self.gmm_.means_, self.gmm_._get_covars())]
 
         return self
 
@@ -59,13 +73,13 @@ class GaussianHMM(Estimator, hmm.GaussianHMM, SequenceModel):
 
     @property
     def obs_dim(self):
-        return self.gmms[0].means_.shape[1]
+        return self.gmm_.means_.shape[1]
 
     def check_terminal(self, o):
         return False
 
     def _reset(self, initial=None):
-        self._b = np.log(self.startprob_)
+        self._b = np.log(self.gmm_.startprob_)
         b = np.exp(self._b)
         assert np.isclose(b.sum(), 1), "Should sum to 1: %s, %f" % (b, b.sum())
 
@@ -76,7 +90,7 @@ class GaussianHMM(Estimator, hmm.GaussianHMM, SequenceModel):
         try:
             self._log_T
         except AttributeError:
-            self._log_T = np.log(self.transmat_)
+            self._log_T = np.log(self.gmm_.transmat_)
         return self._log_T
 
     def update(self, o):
@@ -106,7 +120,7 @@ class GaussianHMM(Estimator, hmm.GaussianHMM, SequenceModel):
 
     def cond_predict(self):
         most_likely = np.argmax(self._b)
-        return self.means_[most_likely]
+        return self.gmm_.means_[most_likely]
 
     def predicts(self, seq):
         self.reset()
@@ -117,7 +131,7 @@ class GaussianHMM(Estimator, hmm.GaussianHMM, SequenceModel):
         return np.array(predictions)
 
     def string_prob(self, string, log=False):
-        log_prob = self.score(string)
+        log_prob = self.gmm_.score(string)
 
         if log:
             return log_prob

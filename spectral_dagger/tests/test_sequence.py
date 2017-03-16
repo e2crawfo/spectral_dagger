@@ -15,7 +15,7 @@ from spectral_dagger.sequence import ExpMaxSA
 from spectral_dagger.sequence import ConvexOptSA
 from spectral_dagger.sequence import MixtureSeqGen
 from spectral_dagger.sequence import HMM, MarkovChain, AdjustedMarkovChain
-from spectral_dagger.sequence import GMMHMM
+from spectral_dagger.sequence import GMMHMM, GaussianHMM
 from spectral_dagger.utils.math import normalize, rmse
 from spectral_dagger.datasets.pautomac import make_pautomac_like
 
@@ -446,7 +446,7 @@ def test_markov_chain_learn(from_dist):
 
 
 @pytest.mark.skipif(True, reason="Incomplete implementation.")
-def test_gmm_hmm_pendigits():
+def test_continuous_hmm_pendigits():
     import matplotlib.pyplot as plt
     from spectral_dagger.datasets import pendigits
 
@@ -494,7 +494,8 @@ def test_gmm_hmm_pendigits():
         print(gmm_hmm.RMSE(test_data))
 
 
-def test_gmm_hmm_simple():
+@pytest.mark.parametrize("learning_alg", [GaussianHMM, GMMHMM])
+def test_continuous_hmm_simple(learning_alg):
     n_states = 10
     n_components = 2
     n_dim = 5
