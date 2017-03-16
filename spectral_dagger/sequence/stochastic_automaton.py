@@ -110,7 +110,7 @@ class StochasticAutomaton(SequenceModel):
             p = [np.clip(_p, machine_eps, 1) for _p in p]
 
             p = _normalize(p, ord=1)
-            self._cond_obs_dist = Multinomial(p)
+            self._cond_obs_dist = Multinomial(p, random_state=self.random_state)
 
         return self._cond_obs_dist
 

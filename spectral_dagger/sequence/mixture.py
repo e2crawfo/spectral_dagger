@@ -131,7 +131,8 @@ class MixtureSeqGen(SequenceModel):
 
         """
         return MixtureDist(self.state_dist,
-                           [sg.cond_obs_dist() for sg in self._filter_seq_gens])
+                           [sg.cond_obs_dist() for sg in self._filter_seq_gens],
+                           random_state=self.random_state)
 
     def string_prob(self, string, log=False):
         """ Get probability of string. """

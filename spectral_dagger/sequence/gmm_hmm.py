@@ -344,9 +344,11 @@ class GMMHMM(SequenceModel, Estimator):
     def cond_obs_dist(self):
         if self._cond_obs_dist is None:
             if self.careful:
-                self._cond_obs_dist = MixtureDist(np.exp(self._b), self.dists)
+                self._cond_obs_dist = MixtureDist(
+                    np.exp(self._b), self.dists, random_state=self.random_state)
             else:
-                self._cond_obs_dist = MixtureDist(self._b, self.dists)
+                self._cond_obs_dist = MixtureDist(
+                    self._b, self.dists, random_state=self.random_state)
 
         return self._cond_obs_dist
 

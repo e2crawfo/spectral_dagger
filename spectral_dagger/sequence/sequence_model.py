@@ -107,7 +107,8 @@ def RMSE(self, test_data):
 
         for o in seq:
             prediction = self.cond_predict()
-            error += (prediction - o).dot(prediction - o)
+            e = prediction - o
+            error += e.dot(e)
             n_predictions += 1
 
             self.update(o)

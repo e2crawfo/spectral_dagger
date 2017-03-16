@@ -447,12 +447,10 @@ def test_markov_chain_learn(from_dist):
 
 @pytest.mark.skipif(True, reason="Incomplete implementation.")
 def test_continuous_hmm_pendigits():
-    import matplotlib.pyplot as plt
     from spectral_dagger.datasets import pendigits
 
     use_digits = [0]
     difference = True
-    simplify = True
 
     max_data_points = None
 
@@ -473,7 +471,6 @@ def test_continuous_hmm_pendigits():
     n_train = int((1-pct_test) * len(data))
 
     test_data = data[n_train:]
-    test_labels = labels[n_train:]
 
     data = data[:n_train]
     labels = labels[:n_train]
@@ -494,10 +491,9 @@ def test_continuous_hmm_pendigits():
         print(gmm_hmm.RMSE(test_data))
 
 
-@pytest.mark.parametrize("learning_alg", [GaussianHMM, GMMHMM])
+@pytest.mark.parametrize("learning_alg", ["gmm_hmm", "ghmm"])
 def test_continuous_hmm_simple(learning_alg):
     n_states = 10
-    n_components = 2
     n_dim = 5
 
     n_train = 100
@@ -507,17 +503,33 @@ def test_continuous_hmm_simple(learning_alg):
 
     n_restarts = 5
 
+    random_state = np.random.RandomState(1000)
+
     print("Generating random ground truth model.")
-    ground_truth = GMMHMM(n_states, n_components, n_dim)
-    ground_truth._random_init()
+    ground_truth = GMMHMM(
+        n_states=n_states, n_components=1, n_dim=n_dim, random_state=random_state)
+    ground_truth._random_init(random_state=random_state)
 
     print("Generating data from ground truth.")
     train = ground_truth.sample_episodes(n_train, horizon=horizon)
+    print(train)
     test = ground_truth.sample_episodes(n_test, horizon=horizon)
+    print(test)
 
     print("Fitting model.")
-    model = GMMHMM(n_states, n_components, n_dim, n_restarts=n_restarts, verbose=False)
+
+    if learning_alg == "ghmm":
+        model = GaussianHMM(
+            n_states=n_states, verbose=True, n_iter=1000,
+            tol=1e-2, random_state=random_state)
+    else:
+        model = GMMHMM(
+            n_states=n_states, n_components=1,
+            n_dim=n_dim, n_restarts=n_restarts, verbose=True,
+            random_state=random_state)
+
     model.fit(train)
+
     print("Done.")
 
     print(("GROUND TRUTH MEAN LL: {0}.".format(ground_truth.mean_log_likelihood(test))))

@@ -572,7 +572,8 @@ class GenerativeRNN(SequenceModel):
             mean = self.persist_pred_()
             term_prob = float(self.persist_halt_())
             self._cond_obs_dist = TerminationDist(
-                multivariate_normal(mean=mean), term_prob=term_prob)
+                multivariate_normal(mean=mean), term_prob=term_prob,
+                random_state=self.random_state)
 
         return self._cond_obs_dist
 

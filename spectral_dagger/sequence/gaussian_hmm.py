@@ -18,22 +18,22 @@ machine_eps = np.finfo(float).eps
 class GaussianHMM(Estimator, SequenceModel):
 
     def __init__(
-            self, n_components=1, covariance_type='diag',
+            self, n_states=1, covariance_type='diag',
             min_covar=1e-3, startprob_prior=1.0, transmat_prior=1.0,
             means_prior=0, means_weight=0, covars_prior=1e-2,
             covars_weight=1, algorithm="viterbi", random_state=None,
-            n_iter=10, tol=1e-2, verbose=False,
+            n_iter=1000, tol=1e-2, verbose=False,
             params="stmc", init_params="stmc"):
         self._set_attrs(locals())
 
     @property
     def record_attrs(self):
-        return super(GaussianHMM, self).record_attrs or set(['n_components'])
+        return super(GaussianHMM, self).record_attrs or set(['n_states'])
 
     def point_distribution(self, context):
         pd = super(GaussianHMM, self).point_distribution(context)
         if 'max_states' in context:
-            pd.update(n_components=list(range(2, context['max_states'])))
+            pd.update(n_states=list(range(2, context['max_states'])))
         return pd
 
     def fit(self, data):
@@ -43,10 +43,12 @@ class GaussianHMM(Estimator, SequenceModel):
             X = np.vstack(data)
             lengths = [len(d) for d in data]
             kwargs = self.get_params()
-            if len(X) > self.n_components:
-                kwargs['n_components'] = len(X)
+            if len(X) < self.n_states:
+                kwargs['n_states'] = len(X)
+            kwargs['n_components'] = kwargs['n_states']
+            del kwargs['n_states']  # hmm.GaussianHMM calls states components
             self.gmm_ = hmm.GaussianHMM(**kwargs)
-            self.gmm_.fit(self, X, lengths)
+            self.gmm_.fit(X, lengths)
 
         self.obs_dists_ = [
             multivariate_normal(mean=m, cov=c)
@@ -115,7 +117,8 @@ class GaussianHMM(Estimator, SequenceModel):
 
     def cond_obs_dist(self):
         if self._cond_obs_dist is None:
-            self._cond_obs_dist = MixtureDist(np.exp(self._b), self.obs_dists_)
+            self._cond_obs_dist = MixtureDist(
+                np.exp(self._b), self.obs_dists_, random_state=self.random_state)
         return self._cond_obs_dist
 
     def cond_predict(self):
@@ -221,20 +224,20 @@ if __name__ == "__main__":
     data = data[:n_train]
     labels = labels[:n_train]
 
-    n_components = 1
+    n_states = 1
 
-    for n_components in [10, 20, 30, 40, 50]:
+    for n_states in [10, 20, 30, 40, 50]:
         gmm_hmm = GaussianHMM(
-            n_components=n_components,
+            n_states=n_states,
             covariance_type='full', verbose=False, tol=1e-4, n_iter=1000)
         gmm_hmm.fit(data)
-        print("Using %d states and digits: %s." % (n_components, use_digits))
+        print("Using %d states and digits: %s." % (n_states, use_digits))
         qualitative(
             data, labels, gmm_hmm, n_repeats=3,
-            prefix='train_n_components=%d' % n_components, dir_name=dir_name)
+            prefix='train_n_states=%d' % n_states, dir_name=dir_name)
         qualitative(
             test_data, test_labels, gmm_hmm, n_repeats=3,
-            prefix='test_n_components=%d' % n_components, dir_name=dir_name)
+            prefix='test_n_states=%d' % n_states, dir_name=dir_name)
 
         print(gmm_hmm.mean_log_likelihood(test_data))
         print(gmm_hmm.RMSE(test_data))
