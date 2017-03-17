@@ -132,7 +132,10 @@ class ZipObjectLoader(ObjectLoader):
         indices = []
         for s in self._zip.namelist():
             if s.startswith(kind_path):
-                indices.append(int(os.path.basename(s)))
+                try:
+                    indices.append(int(os.path.basename(s)))
+                except ValueError:
+                    pass
         return sorted(indices)
 
 
@@ -398,3 +401,28 @@ def send_email_using_cfg(cfg_name, **kwargs):
             pass
 
     return send_email(**new_kwargs)
+
+
+def str_int_list(l, sep=', '):
+    if not l:
+        return '[]'
+    l = sorted(l)
+    s = []
+    start = l[0]
+    cur = l[0]
+    for i in l[1:]:
+        if i == cur + 1:
+            cur += 1
+        else:
+            if start != cur:
+                s.append('{}-{}'.format(start, cur))
+            else:
+                s.append(str(start))
+            start, cur = i, i
+
+    if start != cur:
+        s.append('{}-{}'.format(start, cur))
+    else:
+        s.append(str(start))
+
+    return '[' + sep.join(s) + ']'

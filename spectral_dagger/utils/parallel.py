@@ -19,7 +19,8 @@ except ImportError:
 
 import spectral_dagger as sd
 from spectral_dagger.utils.experiment import Experiment, get_n_points, __plot
-from spectral_dagger.utils.misc import ZipObjectLoader, ObjectLoader, ObjectSaver
+from spectral_dagger.utils.misc import (
+    ZipObjectLoader, ObjectLoader, ObjectSaver, str_int_list)
 
 logger = logging.getLogger(__name__)
 
@@ -368,8 +369,8 @@ def inspect_kind(directory, kind, idx):
         pprint.pprint(kwargs)
 
 
-def run_scenario(task, scenario_idx=-1, d='.', seed=None,
-                 force=0, verbose=0, redirect=1, **kwargs):
+def sd_experiment(task, scenario_idx=-1, d='.', seed=None,
+                  force=0, verbose=0, redirect=1, **kwargs):
 
     logging.basicConfig(level=logging.INFO, format='')
 
@@ -387,14 +388,41 @@ def run_scenario(task, scenario_idx=-1, d='.', seed=None,
         except KeyError:
             raise KeyError("``kind`` not supplied, nothing to inspect.")
         inspect_kind(d, kind, scenario_idx)
+    elif task == 'complete':
+        try:
+            loader = ZipObjectLoader(d)
+        except:
+            loader = ObjectLoader(d)
+
+        train_scenario_idx = set(loader.indices_for_kind('train_scenario'))
+        cv_score_idx = set(loader.indices_for_kind('cv_score'))
+
+        unfinished = train_scenario_idx.difference(cv_score_idx)
+
+        if unfinished:
+            print("CV not finished. {} scenarios left to do.".format(len(unfinished)))
+            print(str_int_list(unfinished))
+        else:
+            print("CV finished, {} scenarios complete.".format(len(train_scenario_idx)))
+
+        test_scenario_idx = set(loader.indices_for_kind('test_scenario'))
+        test_score_idx = set(loader.indices_for_kind('test_scores'))
+
+        unfinished = test_scenario_idx.difference(test_score_idx)
+
+        if unfinished:
+            print("Testing not finished. {} scenarios left to do.".format(len(unfinished)))
+            print(str_int_list(unfinished))
+        else:
+            print("Testing finished, {} scenarios complete.".format(len(test_scenario_idx)))
     else:
         raise ValueError("Unknown task {} for parallel experiment.".format(task))
 
 
-def _run_scenario():
+def _sd_experiment():
     from clify import command_line
-    command_line(run_scenario, collect_kwargs=1, verbose=True)()
+    command_line(sd_experiment, collect_kwargs=1, verbose=True)()
 
 
 if __name__ == "__main__":
-    _run_scenario()
+    _sd_experiment()

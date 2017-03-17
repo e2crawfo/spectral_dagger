@@ -3,8 +3,10 @@ import os
 import datetime
 import subprocess
 from future.utils import raise_with_traceback
+from zipfile import ZipFile
+from datetime import timedelta
 
-from spectral_dagger.utils.misc import make_symlink
+from spectral_dagger.utils.misc import make_symlink, str_int_list, ZipObjectLoader
 
 
 def make_directory_name(experiments_dir, network_name, add_date=True):
@@ -21,24 +23,44 @@ def make_directory_name(experiments_dir, network_name, add_date=True):
     return working_dir
 
 
-def submit_job(
-        task, n_jobs, input_zip, n_nodes=1, ppn=12, walltime="1:00:00",
-        add_date=False, test=0, scratch=None, exclude="", verbose=0, show_script=0,
-        dry_run=0):
+def parse_timedelta(s):
+    """ s should be of the form HH:MM:SS """
+    args = [int(i) for i in s.split(":")]
+    return timedelta(hours=args[0], minutes=args[1], seconds=args[2])
 
+
+def submit_job(
+        task, input_zip, n_jobs=-1, n_nodes=1, ppn=12, walltime="1:00:00",
+        cleanup_time="00:15:00", add_date=False, test=0, scratch=None,
+        exclude="", verbose=0, show_script=0, dry_run=0):
+
+    idx_file = 'job_indices.txt'
     name = os.path.splitext(os.path.basename(input_zip))[0]
     exclude = "--exclude \*{}\*".format(exclude) if exclude else ""
-    kwargs = locals().copy()
-    kwargs['n_procs'] = n_nodes * ppn
-    kwargs['input_zip'] = os.path.abspath(input_zip)
-    kwargs['input_zip_bn'] = os.path.basename(input_zip)
-
-    # Create directory to run the job from - should be on local_scratch.
+    # Create directory to run the job from - should be on scratch.
     scratch = os.path.abspath(scratch or os.getenv('SCRATCH'))
     experiments_dir = os.path.join(scratch, "experiments")
     scratch = make_directory_name(experiments_dir, name, add_date=add_date)
-    kwargs['scratch'] = scratch
-    kwargs['local_scratch'] = 'LSCRATCH' if test else '$LSCRATCH'
+    dirname = min(
+       [z.filename for z in ZipFile(input_zip).infolist()], key=lambda s: len(s))
+
+    job_results = os.path.abspath(os.path.join(experiments_dir, 'job_results'))
+
+    n_procs = n_nodes * ppn
+    input_zip = os.path.abspath(input_zip)
+    input_zip_bn = os.path.basename(input_zip)
+    local_scratch = 'LSCRATCH' if test else '$LSCRATCH'
+
+    cleanup_time = parse_timedelta(cleanup_time)
+    walltime = parse_timedelta(walltime)
+    execution_time = int((walltime - cleanup_time).total_seconds())
+
+    kwargs = locals().copy()
+
+    try:
+        os.makedirs(job_results)
+    except:
+        pass
 
     if test:
         preamble = '''
@@ -65,46 +87,50 @@ module load python/2.7.2'''
 
     if test:
         command = '''
-seq 0 $(({n_jobs}-1)) | parallel --no-notice -j{n_procs} --joblog {scratch}/joblog.txt --workdir $PWD sd-experiment {task} {{}} --d {local_scratch}/{name}_{task} --verbose {verbose} > {scratch}/stdout.txt 2> {scratch}/stderr.txt
+timeout --signal=TERM {execution_time}s parallel --no-notice -j{n_procs} --joblog {scratch}/joblog.txt --workdir $PWD sd-experiment {task} {{}} --d {local_scratch}/{dirname} --verbose {verbose} < {idx_file} > {scratch}/stdout.txt 2> {scratch}/stderr.txt
 '''
     else:
         command = '''
-# START PARALLEL JOBS USING NODE LIST IN $PBS_NODEFILE
-seq 0 $(({n_jobs}-1)) | parallel --no-notice -j{n_procs} --joblog {scratch}/joblog.txt --sshloginfile $PBS_NODEFILE --workdir $PWD sd-experiment {task} {{}} --d {local_scratch}/{name}_{task} --verbose {verbose}
+timeout --signal=TERM {execution_time}s parallel --no-notice -j{n_procs} --joblog {scratch}/joblog.txt --sshloginfile $PBS_NODEFILE --workdir $PWD sd-experiment {task} {{}} --d {local_scratch}/{dirname} --verbose {verbose} < {idx_file}
 ''' # noqa
 
     code = (preamble + '''
 
-# Turn off implicit threading in Python, R
+# Turn off implicit threading in Python
 export OMP_NUM_THREADS=1
+
+cleanup(){{
+    echo "Cleaning up."
+    cd {local_scratch}
+    mpiexec -np {n_nodes} -pernode sh -c 'zip -rq $OMPI_COMM_WORLD_RANK {dirname} {exclude} && \\
+                                          cp $OMPI_COMM_WORLD_RANK.zip {scratch}'
+    cd {scratch}
+
+    mv 0.zip {name}.zip
+    for i in `seq 1 $(({n_nodes}-1))`;
+    do
+        zip $i.zip --out {name}.zip
+        rm $i.zip
+    done
+
+    sd-experiment complete --d {name}.zip
+    cp {name}.zip {job_results}
+}}
 
 cd {scratch}
 mpiexec -np {n_nodes} -pernode sh -c 'cp {input_zip} {local_scratch} && \\
-                                      unzip -q {local_scratch}/{input_zip_bn} -d {local_scratch} && \\
-                                      mv {local_scratch}/{name} {local_scratch}/{name}_{task}'
-
+                                      unzip -q {local_scratch}/{input_zip_bn} -d {local_scratch}'
 echo "Starting job at - "
 date
-SECONDS=0
 ''' + command + '''
-echo "Job took "$SECONDS" seconds."
 
-cd {local_scratch}
-mpiexec -np {n_nodes} -pernode sh -c 'zip -rq $OMPI_COMM_WORLD_RANK {name}_{task} {exclude} && \\
-                                      cp $OMPI_COMM_WORLD_RANK.zip {scratch}'
-cd {scratch}
+if [ "$?" -eq 124 ]; then
+    echo Timed out after {execution_time} seconds.
+fi
 
-for i in `seq 0 $(({n_nodes}-1))`;
-do
-    unzip -qn $i.zip
-    rm $i.zip
-done
-
-zip -rq {name}_{task} {name}_{task}
-rm -rf {name}_{task}
+cleanup
 
 ''')
-
     code = code.format(**kwargs)
     if show_script:
         print(code)
@@ -115,7 +141,31 @@ rm -rf {name}_{task}
     # Create convenience `latest` symlink
     make_symlink(scratch, os.path.join(experiments_dir, 'latest'))
 
+    loader = ZipObjectLoader(input_zip)
+
     os.chdir(scratch)
+
+    # Write unfinished indices to file, which is given as input to ``parallel`` command
+    if task == 'cv':
+        scenario_idx = set(loader.indices_for_kind('train_scenario'))
+        finished_idx = set(loader.indices_for_kind('cv_score'))
+    else:
+        scenario_idx = set(loader.indices_for_kind('test_scenario'))
+        finished_idx = set(loader.indices_for_kind('test_scores'))
+    unfinished = list(scenario_idx.difference(finished_idx))
+    if n_jobs >= 0:
+        unfinished = unfinished[:n_jobs]
+    else:
+        print("Got negative value for ``n_jobs``, so submitting all unfinished jobs.")
+    if not unfinished:
+        print("All jobs are finished! Exiting.")
+        return
+
+    print("Submitting {} unfinished jobs:\n{}.".format(len(unfinished), str_int_list(unfinished)))
+
+
+    with open(idx_file, 'w') as f:
+        [f.write('{}\n'.format(u)) for u in unfinished]
 
     submit_script = "submit_script.sh"
     with open(submit_script, 'w') as f:
