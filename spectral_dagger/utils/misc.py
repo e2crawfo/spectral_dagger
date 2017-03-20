@@ -148,6 +148,14 @@ class ZipObjectLoader(ObjectLoader):
         return sorted(indices)
 
 
+def get_object_loader(name):
+    try:
+        loader = ZipObjectLoader(name)
+    except:
+        loader = ObjectLoader(name)
+    return loader
+
+
 def zip_root(zipfile):
     """ Get the name of the root directory of a zip file, if it has one. """
     if isinstance(zipfile, str):

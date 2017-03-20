@@ -20,8 +20,7 @@ except ImportError:
 
 import spectral_dagger as sd
 from spectral_dagger.utils.experiment import Experiment, get_n_points, __plot
-from spectral_dagger.utils.misc import (
-    ZipObjectLoader, ObjectLoader, ObjectSaver, str_int_list)
+from spectral_dagger.utils.misc import get_object_loader, ObjectSaver, str_int_list
 
 logger = logging.getLogger(__name__)
 
@@ -187,23 +186,23 @@ def scenario(scenario_type, creates):
         creates = [creates]
 
     def f(w):
-        def wrapper(directory, scenario_idx, seed, verbose, redirect, force):
+        def wrapper(input_archive, output_dir, scenario_idx, seed, verbose, redirect, force):
             if redirect:
-                stdout_dir = os.path.join(directory, scenario_type+'_stdout')
+                stdout_dir = os.path.join(output_dir, scenario_type+'_stdout')
                 try:
                     os.makedirs(stdout_dir)
                 except:
                     pass
                 sys.stdout = open(os.path.join(stdout_dir, str(scenario_idx)), 'w')
 
-                stderr_dir = os.path.join(directory, scenario_type+'_stderr')
+                stderr_dir = os.path.join(output_dir, scenario_type+'_stderr')
                 try:
                     os.makedirs(stderr_dir)
                 except:
                     pass
                 sys.stderr = open(os.path.join(stderr_dir, str(scenario_idx)), 'w')
 
-            loader = ObjectLoader(directory)
+            loader = get_object_loader(input_archive)
             finished = True
             for c in creates:
                 try:
@@ -223,7 +222,7 @@ def scenario(scenario_type, creates):
                 if verbose:
                     print("Beginning training scenario {}.".format(scenario_idx))
 
-                w(directory, scenario_idx)
+                w(input_archive, output_dir, scenario_idx)
 
                 if verbose:
                     print("Done training scenario {}.".format(scenario_idx))
@@ -242,10 +241,7 @@ def make_idx_print(idx):
 
 @scenario('training', 'cv_score')
 def run_training_scenario(input_archive, output_dir, scenario_idx):
-    try:
-        loader = ZipObjectLoader(input_archive)
-    except:
-        loader = ObjectLoader(input_archive)
+    loader = get_object_loader(input_archive)
 
     estimator, kwargs = loader.load_object('train_scenario', scenario_idx)
     estimator.directory = os.path.join(output_dir, 'train_scratch/{}'.format(scenario_idx))
@@ -269,10 +265,7 @@ def run_training_scenario(input_archive, output_dir, scenario_idx):
 @scenario('testing', 'test_scores')
 def run_testing_scenario(input_archive, output_dir, scenario_idx):
     # Choose winner of CVs, test each.
-    try:
-        loader = ZipObjectLoader(input_archive)
-    except:
-        loader = ObjectLoader(input_archive)
+    loader = get_object_loader(input_archive)
 
     estimator, kwargs = loader.load_object('test_scenario', scenario_idx)
     estimator.directory = os.path.join(output_dir, 'test_scratch/{}'.format(scenario_idx))
@@ -327,7 +320,7 @@ def parallel_exp_plot(directory, **plot_kwargs):
         with open(os.path.join(directory, '_results.pkl'), 'r') as f:
             results = pickle.load(f)
 
-        loader = ObjectLoader(directory)
+        loader = get_object_loader(directory)
         test_scores = loader.load_objects_of_kind('test_scores')
 
         for test_scenario_idx, (ts, _) in list(test_scores.items()):
@@ -351,10 +344,7 @@ def process_joblog(directory):
 
 
 def inspect_kind(directory, kind, idx):
-    try:
-        loader = ZipObjectLoader(directory)
-    except:
-        loader = ObjectLoader(directory)
+    loader = get_object_loader(directory)
 
     if idx < 0:
         objects = loader.load_objects_of_kind(kind)
@@ -417,10 +407,7 @@ def sd_experiment(task, directory, scenario_idx=-1, **kwargs):
         for d in directories:
             print("\nChecking completion for:\n{}".format(d))
 
-            try:
-                loader = ZipObjectLoader(d)
-            except IOError:
-                loader = ObjectLoader(d)
+            loader = get_object_loader(d)
 
             train_scenario_idx = set(loader.indices_for_kind('train_scenario'))
             cv_score_idx = set(loader.indices_for_kind('cv_score'))
