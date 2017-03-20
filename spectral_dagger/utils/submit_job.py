@@ -62,13 +62,8 @@ def submit_job(
     except:
         pass
 
-    if test:
-        preamble = '''#!/bin/bash
-
-mkdir {scratch}/{local_scratch}'''
-
-    else:
-        preamble = '''#!/bin/bash
+    code = '''
+#!/bin/bash
 
 # MOAB/Torque submission script for multiple, dynamically-run serial jobs on SciNet GPC
 #
@@ -82,28 +77,20 @@ mkdir {scratch}/{local_scratch}'''
 module load gcc/5.4.0
 module load GNUParallel/20141022
 module load MPI/Gnu/gcc4.9.2/openmpi/1.10.2
-module load python/2.7.2'''
-
-    if test:
-        command = '''
-timeout --signal=TERM {execution_time}s parallel --no-notice -j{ppn} --joblog {scratch}/joblog.txt --workdir $PWD sd-experiment {task} {local_scratch}/{dirname} {{}} --verbose {verbose} < {idx_file} > {scratch}/stdout.txt 2> {scratch}/stderr.txt
-'''
-    else:
-        command = '''
-timeout --signal=TERM {execution_time}s parallel --no-notice -j{ppn} --basefile {input_zip} --cleanup --return {}.zip  --joblog {scratch}/joblog.txt --sshloginfile $PBS_NODEFILE sd-experiment {task} "{local_scratch}"/{dirname} {{}} --verbose {verbose} < {idx_file}
-''' # noqa
-
-    code = (preamble + '''
+module load python/2.7.2
 
 # Turn off implicit threading in Python
 export OMP_NUM_THREADS=1
 
 cd {scratch}
-mpiexec -np {n_nodes} -pernode sh -c 'cp {input_zip} {local_scratch} && \\
-                                      unzip -q {local_scratch}/{input_zip_bn} -d {local_scratch}'
 echo "Starting job at - "
 date
-''' + command + '''
+
+timeout --signal=TERM {execution_time}s \\
+    parallel --no-notice -j{ppn} --workdir "{local_scratch}" --basefile {input_zip} \\
+             --cleanup --joblog {scratch}/joblog.txt --env OMP_NUM_THREADS \\
+             --sshloginfile $PBS_NODEFILE \\
+             sd-experiment {task} {input_zip_bn} {dirname} {{}} --verbose {verbose} < {idx_file}
 
 if [ "$?" -eq 124 ]; then
     echo Timed out after {execution_time} seconds.
@@ -112,14 +99,17 @@ fi
 echo "Cleaning up at - "
 date
 
-echo "Moving results off of local scratch..."
-mpiexec -np {n_nodes} -pernode sh -c 'cd {local_scratch} && \\
-                                      zip -rq $OMPI_COMM_WORLD_RANK {dirname} {exclude} && \\
-                                      rm -rf {dirname} && \\
-                                      rm -rf {input_zip_bn} && \\
-                                      cp $OMPI_COMM_WORLD_RANK.zip {scratch}'
-
 cd {scratch}
+
+seq 0 $(({n_nodes}}-1)) | \\
+    parallel --no-notice -j1 --workdir "{local_scratch}" --cleanup --return {{}}.zip \\
+             --joblog {scratch}/cleanup_joblog.txt --env OMP_NUM_THREADS \\
+             --sshloginfile $PBS_NODEFILE \\
+             zip -rq {{}} {dirname}
+
+ls
+echo "Unzipping basefile..."
+unzip -q {input_zip}
 
 echo "Unzipping results from different nodes..."
 for i in `seq 0 $(({n_nodes}-1))`;
@@ -131,12 +121,13 @@ done
 
 echo "Zipping final results..."
 zip -qr {name} {dirname}
+echo "Removing final results directory..."
 rm -rf {dirname}
 
 sd-experiment complete {name}.zip
 cp {name}.zip {job_results}
 
-''')
+'''
     code = code.format(**kwargs)
     if show_script:
         print(code)

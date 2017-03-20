@@ -380,16 +380,16 @@ def inspect_kind(directory, kind, idx):
         pprint.pprint(kwargs)
 
 
-def sd_parallel(task, input_archive, output_archive, scenario_idx=-1, seed=None,
+def sd_parallel(task, input_archive, output_dir, scenario_idx=-1, seed=None,
                 force=0, verbose=0, redirect=1, **kwargs):
 
     logging.basicConfig(level=logging.INFO, format='')
     print("Running {} scenario {}.".format(task, scenario_idx))
 
     if task == 'cv':
-        run_training_scenario(input_archive, output_archive, scenario_idx, seed, verbose, redirect, force)
+        run_training_scenario(input_archive, output_dir, scenario_idx, seed, verbose, redirect, force)
     elif task == 'test':
-        run_testing_scenario(input_archive, output_archive, scenario_idx, seed, verbose, redirect, force)
+        run_testing_scenario(input_archive, output_dir, scenario_idx, seed, verbose, redirect, force)
     else:
         raise ValueError("Unknown task {} for sd-parallel.".format(task))
 
