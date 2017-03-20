@@ -75,6 +75,8 @@ class ObjectSaver(object):
 
 class ObjectLoader(object):
     def __init__(self, dirname):
+        if not os.path.isdir(dirname):
+            raise ValueError("{} is not a directory.".format(dirname))
         self._dirname = dirname
 
     def load_object(self, kind, idx):
@@ -86,12 +88,15 @@ class ObjectLoader(object):
         try:
             with open(object_file, 'r') as f:
                 kwargs = pickle.load(f)
+            obj = kwargs.pop('__object')
+            return obj, kwargs
+        except EOFError:
+            with open(object_file, 'r') as f:
+                s = f.read()
+            return s, {}
         except IOError:
             raise KeyError(
                 "Could not find an object of kind {} with index {}.".format(kind, idx))
-
-        obj = kwargs.pop('__object')
-        return obj, kwargs
 
     def indices_for_kind(self, kind):
         kind_path = path.join(self._dirname, kind)
@@ -112,7 +117,7 @@ class ObjectLoader(object):
 class ZipObjectLoader(ObjectLoader):
     def __init__(self, zipname):
         self._zip = ZipFile(zipname, 'r')
-        self._zipname = os.path.splitext(os.path.basename(zipname))[0]
+        self._ziproot = zip_root(zipname)
 
     def __enter__(self):
         pass
@@ -121,14 +126,18 @@ class ZipObjectLoader(ObjectLoader):
         self._zip.close()
 
     def load_object(self, kind, idx):
-        name = '{}/{}/{}'.format(self._zipname, kind, idx)
-        z = self._zip.open(name)
-        kwargs = pickle.load(z)
-        obj = kwargs.pop('__object')
-        return obj, kwargs
+        name = os.path.join(self._ziproot, kind, str(idx))
+        try:
+            z = self._zip.open(name)
+            kwargs = pickle.load(z)
+            obj = kwargs.pop('__object')
+            return obj, kwargs
+        except:
+            z = self._zip.open(name)
+            return z.read(), {}
 
     def indices_for_kind(self, kind):
-        kind_path = path.join(self._zipname, kind)
+        kind_path = path.join(self._ziproot, kind)
         indices = []
         for s in self._zip.namelist():
             if s.startswith(kind_path):
@@ -137,6 +146,17 @@ class ZipObjectLoader(ObjectLoader):
                 except ValueError:
                     pass
         return sorted(indices)
+
+
+def zip_root(zipfile):
+    """ Get the name of the root directory of a zip file, if it has one. """
+    if isinstance(zipfile, str):
+        zipfile = ZipFile(zipfile, 'r')
+    assert isinstance(zipfile, ZipFile)
+    zip_root = min(
+        [z.filename for z in zipfile.infolist()],
+        key=lambda s: len(s))
+    return zip_root
 
 
 @contextmanager

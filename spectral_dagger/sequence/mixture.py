@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.misc import logsumexp
+from pprint import pformat
 
 from spectral_dagger.utils import normalize, sample_multinomial
 from spectral_dagger.sequence import SequenceModel
@@ -8,10 +9,10 @@ from spectral_dagger.utils.dists import MixtureDist
 
 class MixtureSeqGen(SequenceModel):
     def __init__(self, coefficients, seq_gens):
-        assert (0 <= coefficients).all()
-        assert (1 >= coefficients).all()
-        assert coefficients.ndim == 1
-        assert np.isclose(coefficients.sum(), 1)
+        assert (0 <= coefficients).all(), pformat(coefficients)
+        assert (1 >= coefficients).all(), pformat(coefficients)
+        assert coefficients.ndim == 1, pformat(coefficients)
+        assert np.isclose(coefficients.sum(), 1), pformat(coefficients)
         self.coefficients = coefficients
 
         assert len(coefficients) == len(seq_gens)

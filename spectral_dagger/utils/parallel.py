@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import dill as pickle
 import sys
+import glob
 
 from sklearn.base import clone
 from sklearn.utils import check_random_state
@@ -240,11 +241,14 @@ def make_idx_print(idx):
 
 
 @scenario('training', 'cv_score')
-def run_training_scenario(directory, scenario_idx):
-    loader = ObjectLoader(directory)
+def run_training_scenario(input_archive, output_dir, scenario_idx):
+    try:
+        loader = ZipObjectLoader(input_archive)
+    except:
+        loader = ObjectLoader(input_archive)
 
     estimator, kwargs = loader.load_object('train_scenario', scenario_idx)
-    estimator.directory = os.path.join(directory, 'train_scratch/{}'.format(scenario_idx))
+    estimator.directory = os.path.join(output_dir, 'train_scratch/{}'.format(scenario_idx))
     dataset_idx = kwargs.pop('dataset_idx')
     train, train_kwargs = loader.load_object('train', dataset_idx)
 
@@ -257,18 +261,21 @@ def run_training_scenario(directory, scenario_idx):
     cv_time = time.time() - then
     make_idx_print(scenario_idx)("Cross-validation time: %s seconds." % cv_time)
 
-    saver = ObjectSaver(directory, eager=True)
+    saver = ObjectSaver(output_dir, eager=True)
     saver.add_object(cv_score, 'cv_score', scenario_idx)
     saver.add_object(cv_time, 'cv_time', scenario_idx)
 
 
 @scenario('testing', 'test_scores')
-def run_testing_scenario(directory, scenario_idx):
-    # Read in the results of running, choose winner of CVs, test each.
-    loader = ObjectLoader(directory)
+def run_testing_scenario(input_archive, output_dir, scenario_idx):
+    # Choose winner of CVs, test each.
+    try:
+        loader = ZipObjectLoader(input_archive)
+    except:
+        loader = ObjectLoader(input_archive)
 
     estimator, kwargs = loader.load_object('test_scenario', scenario_idx)
-    estimator.directory = os.path.join(directory, 'test_scratch/{}'.format(scenario_idx))
+    estimator.directory = os.path.join(output_dir, 'test_scratch/{}'.format(scenario_idx))
     dataset_idx = kwargs.pop('dataset_idx')
 
     train_indices = kwargs.get('train_indices')
@@ -291,7 +298,7 @@ def run_testing_scenario(directory, scenario_idx):
 
     test, test_kwargs = loader.load_object('test', dataset_idx)
 
-    saver = ObjectSaver(directory, eager=True)
+    saver = ObjectSaver(output_dir, eager=True)
 
     idx_print("Running tests...")
     then = time.time()
@@ -363,60 +370,82 @@ def inspect_kind(directory, kind, idx):
     else:
         obj, kwargs = loader.load_object(kind, idx)
         print("Loaded object with kind {} and idx {}.".format(kind, idx))
-        print("Object:")
-        pprint.pprint(obj)
+        if isinstance(obj, str):
+            print("File contents:")
+            print(obj)
+        else:
+            print("Object:")
+            pprint.pprint(obj)
         print("Associated kwargs:")
         pprint.pprint(kwargs)
 
 
-def sd_experiment(task, scenario_idx=-1, d='.', seed=None,
-                  force=0, verbose=0, redirect=1, **kwargs):
+def sd_parallel(task, input_archive, output_archive, scenario_idx=-1, seed=None,
+                force=0, verbose=0, redirect=1, **kwargs):
 
     logging.basicConfig(level=logging.INFO, format='')
+    print("Running {} scenario {}.".format(task, scenario_idx))
 
     if task == 'cv':
-        run_training_scenario(d, scenario_idx, seed, verbose, redirect, force)
+        run_training_scenario(input_archive, output_archive, scenario_idx, seed, verbose, redirect, force)
     elif task == 'test':
-        run_testing_scenario(d, scenario_idx, seed, verbose, redirect, force)
-    elif task == 'plot':
-        parallel_exp_plot(d, **kwargs)
+        run_testing_scenario(input_archive, output_archive, scenario_idx, seed, verbose, redirect, force)
+    else:
+        raise ValueError("Unknown task {} for sd-parallel.".format(task))
+
+
+def sd_experiment(task, directory, scenario_idx=-1, **kwargs):
+
+    logging.basicConfig(level=logging.INFO, format='')
+    if task == 'plot':
+        parallel_exp_plot(directory, **kwargs)
     elif task == 'joblog':
-        process_joblog(d)
+        process_joblog(directory)
     elif task == 'inspect':
         try:
             kind = kwargs['kind']
         except KeyError:
             raise KeyError("``kind`` not supplied, nothing to inspect.")
-        inspect_kind(d, kind, scenario_idx)
-    elif task == 'complete':
         try:
-            loader = ZipObjectLoader(d)
-        except:
-            loader = ObjectLoader(d)
+            idx = kwargs['idx']
+        except KeyError:
+            raise KeyError("``idx`` not supplied, nothing to inspect.")
 
-        train_scenario_idx = set(loader.indices_for_kind('train_scenario'))
-        cv_score_idx = set(loader.indices_for_kind('cv_score'))
+        inspect_kind(directory, kind, idx)
+    elif task == 'complete':
+        directories = sorted(glob.glob(directory))
+        for d in directories:
+            print("\nChecking completion for:\n{}".format(d))
 
-        unfinished = train_scenario_idx.difference(cv_score_idx)
+            try:
+                loader = ZipObjectLoader(d)
+            except IOError:
+                loader = ObjectLoader(d)
 
-        if unfinished:
-            print("CV not finished. {} scenarios left to do.".format(len(unfinished)))
-            print(str_int_list(unfinished))
-        else:
-            print("CV finished, {} scenarios complete.".format(len(train_scenario_idx)))
+            train_scenario_idx = set(loader.indices_for_kind('train_scenario'))
+            cv_score_idx = set(loader.indices_for_kind('cv_score'))
+            unfinished = train_scenario_idx.difference(cv_score_idx)
+            if unfinished:
+                print("CV not finished. {} scenarios left to do.".format(len(unfinished)))
+                print(str_int_list(unfinished))
+            else:
+                print("CV finished, {} scenarios complete.".format(len(train_scenario_idx)))
 
-        test_scenario_idx = set(loader.indices_for_kind('test_scenario'))
-        test_score_idx = set(loader.indices_for_kind('test_scores'))
-
-        unfinished = test_scenario_idx.difference(test_score_idx)
-
-        if unfinished:
-            print("Testing not finished. {} scenarios left to do.".format(len(unfinished)))
-            print(str_int_list(unfinished))
-        else:
-            print("Testing finished, {} scenarios complete.".format(len(test_scenario_idx)))
+            test_scenario_idx = set(loader.indices_for_kind('test_scenario'))
+            test_score_idx = set(loader.indices_for_kind('test_scores'))
+            unfinished = test_scenario_idx.difference(test_score_idx)
+            if unfinished:
+                print("Testing not finished. {} scenarios left to do.".format(len(unfinished)))
+                print(str_int_list(unfinished))
+            else:
+                print("Testing finished, {} scenarios complete.".format(len(test_scenario_idx)))
     else:
-        raise ValueError("Unknown task {} for parallel experiment.".format(task))
+        raise ValueError("Unknown task {} for sd-experiment.".format(task))
+
+
+def _sd_parallel():
+    from clify import command_line
+    command_line(sd_parallel, collect_kwargs=1, verbose=True)()
 
 
 def _sd_experiment():
@@ -425,4 +454,4 @@ def _sd_experiment():
 
 
 if __name__ == "__main__":
-    _sd_experiment()
+    _sd_parallel()

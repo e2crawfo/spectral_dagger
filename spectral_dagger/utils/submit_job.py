@@ -6,7 +6,8 @@ from future.utils import raise_with_traceback
 from zipfile import ZipFile
 from datetime import timedelta
 
-from spectral_dagger.utils.misc import make_symlink, str_int_list, ZipObjectLoader
+from spectral_dagger.utils.misc import (
+    make_symlink, str_int_list, ZipObjectLoader, zip_root)
 
 
 def make_directory_name(experiments_dir, network_name, add_date=True):
@@ -40,13 +41,12 @@ def submit_job(
     # Create directory to run the job from - should be on scratch.
     scratch = os.path.abspath(scratch or os.getenv('SCRATCH'))
     experiments_dir = os.path.join(scratch, "experiments")
-    scratch = make_directory_name(experiments_dir, name, add_date=add_date)
-    dirname = min(
-       [z.filename for z in ZipFile(input_zip).infolist()], key=lambda s: len(s))
+    scratch = make_directory_name(
+        experiments_dir, '{}_{}'.format(name, task), add_date=add_date)
+    dirname = zip_root(input_zip)
 
     job_results = os.path.abspath(os.path.join(experiments_dir, 'job_results'))
 
-    n_procs = n_nodes * ppn
     input_zip = os.path.abspath(input_zip)
     input_zip_bn = os.path.basename(input_zip)
     local_scratch = 'LSCRATCH' if test else '$LSCRATCH'
@@ -63,13 +63,12 @@ def submit_job(
         pass
 
     if test:
-        preamble = '''
-#!/bin/bash
+        preamble = '''#!/bin/bash
+
 mkdir {scratch}/{local_scratch}'''
 
     else:
-        preamble = '''
-#!/bin/bash
+        preamble = '''#!/bin/bash
 
 # MOAB/Torque submission script for multiple, dynamically-run serial jobs on SciNet GPC
 #
@@ -87,35 +86,17 @@ module load python/2.7.2'''
 
     if test:
         command = '''
-timeout --signal=TERM {execution_time}s parallel --no-notice -j{n_procs} --joblog {scratch}/joblog.txt --workdir $PWD sd-experiment {task} {{}} --d {local_scratch}/{dirname} --verbose {verbose} < {idx_file} > {scratch}/stdout.txt 2> {scratch}/stderr.txt
+timeout --signal=TERM {execution_time}s parallel --no-notice -j{ppn} --joblog {scratch}/joblog.txt --workdir $PWD sd-experiment {task} {local_scratch}/{dirname} {{}} --verbose {verbose} < {idx_file} > {scratch}/stdout.txt 2> {scratch}/stderr.txt
 '''
     else:
         command = '''
-timeout --signal=TERM {execution_time}s parallel --no-notice -j{n_procs} --joblog {scratch}/joblog.txt --sshloginfile $PBS_NODEFILE --workdir $PWD sd-experiment {task} {{}} --d {local_scratch}/{dirname} --verbose {verbose} < {idx_file}
+timeout --signal=TERM {execution_time}s parallel --no-notice -j{ppn} --basefile {input_zip} --cleanup --return {}.zip  --joblog {scratch}/joblog.txt --sshloginfile $PBS_NODEFILE sd-experiment {task} "{local_scratch}"/{dirname} {{}} --verbose {verbose} < {idx_file}
 ''' # noqa
 
     code = (preamble + '''
 
 # Turn off implicit threading in Python
 export OMP_NUM_THREADS=1
-
-cleanup(){{
-    echo "Cleaning up."
-    cd {local_scratch}
-    mpiexec -np {n_nodes} -pernode sh -c 'zip -rq $OMPI_COMM_WORLD_RANK {dirname} {exclude} && \\
-                                          cp $OMPI_COMM_WORLD_RANK.zip {scratch}'
-    cd {scratch}
-
-    mv 0.zip {name}.zip
-    for i in `seq 1 $(({n_nodes}-1))`;
-    do
-        zip $i.zip --out {name}.zip
-        rm $i.zip
-    done
-
-    sd-experiment complete --d {name}.zip
-    cp {name}.zip {job_results}
-}}
 
 cd {scratch}
 mpiexec -np {n_nodes} -pernode sh -c 'cp {input_zip} {local_scratch} && \\
@@ -128,7 +109,32 @@ if [ "$?" -eq 124 ]; then
     echo Timed out after {execution_time} seconds.
 fi
 
-cleanup
+echo "Cleaning up at - "
+date
+
+echo "Moving results off of local scratch..."
+mpiexec -np {n_nodes} -pernode sh -c 'cd {local_scratch} && \\
+                                      zip -rq $OMPI_COMM_WORLD_RANK {dirname} {exclude} && \\
+                                      rm -rf {dirname} && \\
+                                      rm -rf {input_zip_bn} && \\
+                                      cp $OMPI_COMM_WORLD_RANK.zip {scratch}'
+
+cd {scratch}
+
+echo "Unzipping results from different nodes..."
+for i in `seq 0 $(({n_nodes}-1))`;
+do
+    echo "Storing results from node "$i
+    unzip -qu $i.zip
+    rm $i.zip
+done
+
+echo "Zipping final results..."
+zip -qr {name} {dirname}
+rm -rf {dirname}
+
+sd-experiment complete {name}.zip
+cp {name}.zip {job_results}
 
 ''')
     code = code.format(**kwargs)
@@ -138,8 +144,10 @@ cleanup
     if not os.path.isdir(scratch):
         os.makedirs(scratch)
 
-    # Create convenience `latest` symlink
+    # Create convenience `latest` symlinks
     make_symlink(scratch, os.path.join(experiments_dir, 'latest'))
+    make_symlink(
+        scratch, os.path.join(experiments_dir, 'latest_{}_{}'.format(name, task)))
 
     loader = ZipObjectLoader(input_zip)
 
@@ -162,7 +170,6 @@ cleanup
         return
 
     print("Submitting {} unfinished jobs:\n{}.".format(len(unfinished), str_int_list(unfinished)))
-
 
     with open(idx_file, 'w') as f:
         [f.write('{}\n'.format(u)) for u in unfinished]
