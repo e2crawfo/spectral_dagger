@@ -375,6 +375,11 @@ def sd_parallel(task, input_archive, output_dir, scenario_idx=-1, seed=None,
 
     logging.basicConfig(level=logging.INFO, format='')
     print("Running {} scenario {}.".format(task, scenario_idx))
+    idx_print = make_idx_print(scenario_idx)
+    idx_print("Listing directory.")
+    idx_print(pprint.pformat(os.listdir('.')))
+    idx_print("CWD: ")
+    idx_print(pprint.pformat(os.getcwd()))
 
     if task == 'cv':
         run_training_scenario(input_archive, output_dir, scenario_idx, seed, verbose, redirect, force)

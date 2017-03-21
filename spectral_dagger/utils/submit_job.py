@@ -65,7 +65,7 @@ def submit_job(
     code = '''
 #!/bin/bash
 
-# MOAB/Torque submission script for multiple, dynamically-run serial jobs on SciNet GPC
+# MOAB/Torque submission script for multiple, dynamically-run serial jobs
 #
 #PBS -l nodes={n_nodes}:ppn={ppn},walltime={walltime}
 #PBS -N {name}
@@ -86,11 +86,17 @@ cd {scratch}
 echo "Starting job at - "
 date
 
+parallel --sshloginfile $PBS NODEFILE --nonall \\
+         echo Ramdisk on host \\$HOSTNAME is \\$RAMDISK
+
+parallel --sshloginfile $PBS NODEFILE --nonall \\
+         cp {input_zip} \\$RAMDISK
+
 timeout --signal=TERM {execution_time}s \\
-    parallel --no-notice -j{ppn} --workdir "{local_scratch}" --basefile {input_zip} \\
-             --cleanup --joblog {scratch}/joblog.txt --env OMP_NUM_THREADS \\
-             --sshloginfile $PBS_NODEFILE \\
-             sd-experiment {task} {input_zip_bn} {dirname} {{}} --verbose {verbose} < {idx_file}
+        parallel --no-notice -j{ppn} --workdir $PWD \\
+                 --joblog {scratch}/joblog.txt --env OMP_NUM_THREADS \\
+                 --sshloginfile $PBS_NODEFILE \\
+                 sd-parallel {task} \\$RAMDISK/{input_zip_bn} \\$RAMDISK/{dirname} {{}} --verbose {verbose} < {idx_file}
 
 if [ "$?" -eq 124 ]; then
     echo Timed out after {execution_time} seconds.
@@ -99,14 +105,13 @@ fi
 echo "Cleaning up at - "
 date
 
+parallel --no-notice -j1 --workdir $PWD --return \\$PARALLEL_SEQ.zip \\
+         --joblog {scratch}/cleanup_joblog.txt --env OMP_NUM_THREADS \\
+         --sshloginfile $PBS_NODEFILE \\
+         zip -rq \\$PARALLEL_SEQ \\$RAMDISK/{dirname}
+
 cd {scratch}
-
-seq 0 $(({n_nodes}}-1)) | \\
-    parallel --no-notice -j1 --workdir "{local_scratch}" --cleanup --return {{}}.zip \\
-             --joblog {scratch}/cleanup_joblog.txt --env OMP_NUM_THREADS \\
-             --sshloginfile $PBS_NODEFILE \\
-             zip -rq {{}} {dirname}
-
+echo In scratch dir: $PWD
 ls
 echo "Unzipping basefile..."
 unzip -q {input_zip}
