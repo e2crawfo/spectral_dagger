@@ -29,6 +29,9 @@ class ObjectSaver(object):
     def __init__(self, dirname, eager=True):
         self._objects = defaultdict(lambda: {})
         self._counts = defaultdict(int)
+        if os.path.isdir(dirname):
+            shutil.rmtree(dirname)
+        os.makedirs(dirname)
         self._dirname = dirname
         self.eager = eager
 
