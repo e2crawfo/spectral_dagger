@@ -162,7 +162,7 @@ def _plot_measure(
 
             for name, group in grouped:
                 values = group[measure].values
-                values = values[np.logical_not(np.isnan(values))]
+                values = values[np.logical_not(np.isnan(values)) & np.logical_not(np.isinf(values))]
 
                 if len(values) > 1:
                     try:
@@ -185,7 +185,9 @@ def _plot_measure(
         mean['ci_upper'] = ci_upper
 
     mean = mean.reset_index()
-    mean = mean[np.logical_not(np.isnan(mean[measure].values))]
+    mean = mean[
+        np.logical_not(np.isnan(mean[measure].values)) &
+        np.logical_not(np.isinf(mean[measure].values))]
 
     sv_series = pd.Series(
         list(zip(*[mean[sv] for sv in split_vars])), index=mean.index)
@@ -222,14 +224,18 @@ def _plot_measure(
             l = ax.plot(X, Y, **_kwargs)
             lines.extend(l)
 
-    lo_x = results[x_var].min()
-    hi_x = results[x_var].max()
+    def _remove_inf(s):
+        return s.replace([np.inf, -np.inf], np.nan)
+
+    lo_x = _remove_inf(results[x_var]).min()
+    hi_x = _remove_inf(results[x_var]).max()
+
     xlim_lo = lo_x - 0.05 * (hi_x - lo_x)
     xlim_hi = hi_x + 0.05 * (hi_x - lo_x)
     ax.set_xlim(xlim_lo, xlim_hi)
 
-    lo_y = results[measure].min()
-    hi_y = results[measure].max()
+    lo_y = _remove_inf(results[measure]).min()
+    hi_y = _remove_inf(results[measure]).max()
 
     ylim_lo = lo_y - 0.05 * (hi_y - lo_y)
     ylim_hi = hi_y + 0.05 * (hi_y - lo_y)
