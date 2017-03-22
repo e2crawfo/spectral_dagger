@@ -65,9 +65,16 @@ class ParallelExperiment(Experiment):
             for r in range(self.n_repeats):
                 train, test, context = self._draw_dataset(x, r, data_rng)
 
+                # dataset indices
                 train_idx = self.saver.add_object(train, 'train', context=context)
                 test_idx = self.saver.add_object(test, 'test', context=context)
                 assert train_idx == test_idx
+
+                if context and 'true_model' in context:
+                    logger.info("Testing ground-truth model...")
+
+                    self._build_test_scenario(
+                        context['true_model'], x, r, test_idx, None, context, name='true_model')
 
                 for base_est in self.base_estimators:
                     est = clone(base_est)
@@ -161,14 +168,14 @@ class ParallelExperiment(Experiment):
 
         return train_indices
 
-    def _build_test_scenario(self, est, x, r, test_idx, train_indices, context):
+    def _build_test_scenario(self, est, x, r, test_idx, train_indices, context, name=None):
         test_scenario_idx = self.saver.add_object(
             est, 'test_scenario', scores=self.scores,
             score_names=self.score_names,
             train_indices=train_indices, dataset_idx=test_idx)
 
         self.results[test_scenario_idx] = {
-            'round': r, self.x_var_name: x, 'method': est.name}
+            'round': r, self.x_var_name: x, 'method': name or est.name}
 
 
 def scenario(scenario_type, creates):
@@ -275,11 +282,13 @@ def run_testing_scenario(input_archive, output_dir, scenario_idx):
     scores = kwargs.get('scores', None)
     score_names = kwargs.get('score_names', None)
 
-    cv_scores = {idx: np.mean(loader.load_object('cv_score', idx)[0]) for idx in train_indices}
-    best_idx, best_cv_score = max(list(cv_scores.items()), key=lambda x: x[1])
-    best_params = train_indices[best_idx]
+    best_params = {}
+    if train_indices is not None:
+        cv_scores = {idx: np.mean(loader.load_object('cv_score', idx)[0]) for idx in train_indices}
+        best_idx, best_cv_score = max(list(cv_scores.items()), key=lambda x: x[1])
+        best_params = train_indices[best_idx]
 
-    estimator.set_params(**best_params)
+        estimator.set_params(**best_params)
 
     train, train_kwargs = loader.load_object('train', dataset_idx)
     then = time.time()
@@ -307,7 +316,7 @@ def run_testing_scenario(input_archive, output_dir, scenario_idx):
     test_scores['fit_time'] = fit_time
     test_scores['test_time'] = test_time
 
-    saver.add_object(test_scores, 'test_scores', scenario_idx)
+    saver.add_object(test_scores, 'test_scores', scenario_idx, params=best_params)
 
 
 def parallel_exp_plot(directory, **plot_kwargs):
