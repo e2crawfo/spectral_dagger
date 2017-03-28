@@ -25,5 +25,3 @@ from .convex_opt import ConvexOptSA
 from .lda import LatentDirichletSA
 
 from .mixture import MixtureSeqGen
-
-from .neural import GenerativeRNN, GenerativeGRU, GenerativeLSTM

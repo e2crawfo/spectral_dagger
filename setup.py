@@ -55,9 +55,10 @@ setup(
         "scikits.bootstrap",
         "rdp",
         "gensim",
-        "theano",
         "pytest",
-        "hmmlearn"
+        "hmmlearn",
+        "future",
+        "six",
     ],
     entry_points={
         'console_scripts': [
