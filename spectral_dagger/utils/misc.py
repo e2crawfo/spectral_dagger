@@ -82,24 +82,31 @@ class ObjectLoader(object):
             raise ValueError("{} is not a directory.".format(dirname))
         self._dirname = dirname
 
-    def load_object(self, kind, idx):
-        kind_dir = path.join(self._dirname, kind)
-        if not path.isdir(kind_dir):
-            raise KeyError("Found no objects of kind {}.".format(kind))
-
-        object_file = path.join(kind_dir, str(idx))
+    def _load(self, object_file):
         try:
             with open(object_file, 'r') as f:
                 kwargs = pickle.load(f)
             obj = kwargs.pop('__object')
-            return obj, kwargs
-        except EOFError:
+        except:
             with open(object_file, 'r') as f:
-                s = f.read()
-            return s, {}
+                obj = f.read()
+            kwargs = {}
+        return obj, kwargs
+
+    def load_object(self, kind, idx=-1):
+        if idx == -1:
+            return self._load(path.join(self._dirname, kind))  # Load from top level, treat kind as a filename
+
+        kind_dir = path.join(self._dirname, kind)
+        if not path.isdir(kind_dir):
+            raise KeyError("Found no objects of kind {}.".format(kind))
+
+        try:
+            obj, kwargs = self._load(path.join(kind_dir, str(idx)))
         except IOError:
             raise KeyError(
                 "Could not find an object of kind {} with index {}.".format(kind, idx))
+        return obj, kwargs
 
     def indices_for_kind(self, kind):
         kind_path = path.join(self._dirname, kind)
@@ -116,10 +123,15 @@ class ObjectLoader(object):
     def n_objects_of_kind(self, kind):
         return len(self.indices_for_kind(kind))
 
+    def add_object(self, name, obj):
+        raise NotImplementedError()
+        with open(os.path.join(self._dirname, name), 'w') as f:
+            pickle.dump(obj, f, protocol=pickle.HIGHEST_PROTOCOL)
+
 
 class ZipObjectLoader(ObjectLoader):
     def __init__(self, zipname):
-        self._zip = ZipFile(zipname, 'r')
+        self._zip = ZipFile(zipname, 'a')
         self._ziproot = zip_root(zipname)
 
     def __enter__(self):
@@ -128,14 +140,22 @@ class ZipObjectLoader(ObjectLoader):
     def __exit__(self):
         self._zip.close()
 
-    def load_object(self, kind, idx):
-        name = os.path.join(self._ziproot, kind, str(idx))
+    def load_object(self, kind, idx=-1):
+        if idx == -1:
+            name = os.path.join(self._ziproot, kind)
+        else:
+            name = os.path.join(self._ziproot, kind, str(idx))
+
         try:
             z = self._zip.open(name)
             kwargs = pickle.load(z)
-            obj = kwargs.pop('__object')
+            if '__object' in kwargs:
+                obj = kwargs.pop('__object')
+            else:
+                obj = kwargs
+                kwargs = {}
             return obj, kwargs
-        except:
+        except Exception:
             z = self._zip.open(name)
             return z.read(), {}
 
@@ -150,11 +170,16 @@ class ZipObjectLoader(ObjectLoader):
                     pass
         return sorted(indices)
 
+    def add_object(self, name, obj):
+        raise NotImplementedError()
+        obj = pickle.dumps(obj, protocol=pickle.HIGHEST_PROTOCOL)
+        self._zip.writestr(name, obj)
+
 
 def get_object_loader(name):
     try:
         loader = ZipObjectLoader(name)
-    except:
+    except Exception:
         loader = ObjectLoader(name)
     return loader
 

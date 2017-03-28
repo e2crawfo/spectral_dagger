@@ -5,7 +5,6 @@ import os
 import time
 import numpy as np
 import pandas as pd
-import dill as pickle
 import sys
 import glob
 
@@ -320,24 +319,17 @@ def run_testing_scenario(input_archive, output_dir, scenario_idx):
 
 
 def parallel_exp_plot(directory, **plot_kwargs):
-    results_file = os.path.join(directory, 'results.pkl')
-
-    if os.path.exists(results_file):
-        with open(os.path.join(directory, 'results.pkl'), 'r') as f:
-            results = pickle.load(f)
-    else:
-        with open(os.path.join(directory, '_results.pkl'), 'r') as f:
-            results = pickle.load(f)
-
-        loader = get_object_loader(directory)
+    loader = get_object_loader(directory)
+    try:
+        results, _ = loader.load_object('results.pkl')
+    except Exception:
+        results, _ = loader.load_object('_results.pkl')
         test_scores = loader.load_objects_of_kind('test_scores')
 
+        print(results)
         for test_scenario_idx, (ts, _) in list(test_scores.items()):
             for sn, s in list(ts.items()):
                 results['results'][test_scenario_idx][sn] = s
-
-        with open(os.path.join(directory, 'results.pkl'), 'w') as f:
-            pickle.dump(results, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     score_names = results['score_names']
     x_var_name = results['x_var_name']
@@ -355,7 +347,7 @@ def process_joblog(directory):
 def inspect_kind(directory, kind, idx):
     loader = get_object_loader(directory)
 
-    if idx < 0:
+    if idx < -1:
         objects = loader.load_objects_of_kind(kind)
         objects = sorted([i for i in objects.items()], key=lambda x: x[0])
         print("Loaded object with kind {}.".format(kind, idx))
@@ -411,7 +403,7 @@ def sd_experiment(task, directory, scenario_idx=-1, **kwargs):
         except KeyError:
             raise KeyError("``kind`` not supplied, nothing to inspect.")
         try:
-            idx = kwargs['idx']
+            idx = int(kwargs['idx'])
         except KeyError:
             raise KeyError("``idx`` not supplied, nothing to inspect.")
 
