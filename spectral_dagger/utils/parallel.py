@@ -7,6 +7,10 @@ import numpy as np
 import pandas as pd
 import sys
 import glob
+from contextlib import contextmanager
+import warnings
+import numbers
+from sklearn.exceptions import FitFailedWarning
 
 from sklearn.base import clone
 from sklearn.utils import check_random_state
@@ -37,7 +41,7 @@ class ParallelExperiment(Experiment):
         """
         print("Building parallel experiment file for experiment {}, "
               "storing in directory:\n{}".format(self.name, self.exp_dir.path))
-        self.saver = ObjectSaver(self.exp_dir.path, eager=True)
+        self.saver = ObjectSaver(self.exp_dir.path, eager=True, force_fresh=False)
 
         rng = check_random_state(random_state)
         estimator_rng = check_random_state(sd.gen_seed(rng))
@@ -245,8 +249,30 @@ def make_idx_print(idx):
     return idx_print
 
 
+@contextmanager
+def handle_ml_exception(results, error_score):
+    start_time = time.time()
+    try:
+        yield
+    except Exception as e:
+        results['duration'] = time.time() - start_time
+        if error_score == 'raise':
+            raise
+        elif isinstance(error_score, numbers.Number):
+            results['score'] = error_score
+            warnings.warn("Fit failed. The score for "
+                          "these parameters will be set to %f. "
+                          "Details: \n%r" % (error_score, e), FitFailedWarning)
+        else:
+            raise ValueError("error_score must be the string 'raise' or a"
+                             " numeric value. (Hint: if using 'raise', please"
+                             " make sure that it has been spelled correctly.)")
+    else:
+        results['duration'] = time.time() - start_time
+
+
 @scenario('training', 'cv_score')
-def run_training_scenario(input_archive, output_dir, scenario_idx):
+def run_training_scenario(input_archive, output_dir, scenario_idx, error_score=-np.inf):
     loader = get_object_loader(input_archive)
 
     estimator, kwargs = loader.load_object('train_scenario', scenario_idx)
@@ -257,21 +283,23 @@ def run_training_scenario(input_archive, output_dir, scenario_idx):
     scoring = kwargs.get('scoring', None)
     cv = kwargs.get('cv', None)
 
-    then = time.time()
-    cv_score = cross_val_score(
-        estimator, train.X, train.y, scoring=scoring, cv=cv, n_jobs=1, verbose=0)
-    cv_time = time.time() - then
-    make_idx_print(scenario_idx)("Cross-validation time: %s seconds." % cv_time)
+    results = {}
+    with handle_ml_exception(results, error_score):
+        results['score'] = cross_val_score(
+            estimator, train.X, train.y, scoring=scoring, cv=cv, n_jobs=1, verbose=0)
 
-    saver = ObjectSaver(output_dir, eager=True)
-    saver.add_object(cv_score, 'cv_score', scenario_idx)
-    saver.add_object(cv_time, 'cv_time', scenario_idx)
+    make_idx_print(scenario_idx)("Cross-validation time: %s seconds." % results['duration'])
+    saver = ObjectSaver(output_dir, eager=True, force_fresh=False)
+    saver.add_object(results['duration'], 'cv_score', scenario_idx)
+    saver.add_object(results['score'], 'cv_time', scenario_idx)
 
 
 @scenario('testing', 'test_scores')
-def run_testing_scenario(input_archive, output_dir, scenario_idx):
+def run_testing_scenario(input_archive, output_dir, scenario_idx, error_score=-np.inf):
     # Choose winner of CVs, test each.
     loader = get_object_loader(input_archive)
+
+    idx_print = make_idx_print(scenario_idx)
 
     estimator, kwargs = loader.load_object('test_scenario', scenario_idx)
     estimator.directory = os.path.join(output_dir, 'test_scratch/{}'.format(scenario_idx))
@@ -290,30 +318,28 @@ def run_testing_scenario(input_archive, output_dir, scenario_idx):
         estimator.set_params(**best_params)
 
     train, train_kwargs = loader.load_object('train', dataset_idx)
-    then = time.time()
-    estimator.fit(train.X, train.y)
-
-    idx_print = make_idx_print(scenario_idx)
-    fit_time = time.time() - then
-    idx_print("Fit time: %s seconds." % fit_time)
+    fit_results = {}
+    with handle_ml_exception(fit_results, error_score):
+        estimator.fit(train.X, train.y)
+    idx_print("Fit time: %s seconds." % fit_results['duration'])
 
     test, test_kwargs = loader.load_object('test', dataset_idx)
 
-    saver = ObjectSaver(output_dir, eager=True)
+    saver = ObjectSaver(output_dir, eager=True, force_fresh=False)
 
     idx_print("Running tests...")
-    then = time.time()
-    test_scores = {}
+    test_scores = dict(test_time=0)
     for s, sn in zip(scores, score_names):
-        score = s(estimator, test.X, test.y)
-        idx_print("{},{},{}".format(scenario_idx, sn, score))
-        test_scores[sn] = score
+        results = {}
+        with handle_ml_exception(results, error_score):
+            results['score'] = s(estimator, test.X, test.y)
 
-    test_time = time.time() - then
-    idx_print("Test time: %s seconds." % test_time)
+        idx_print("{},{},{}".format(scenario_idx, sn, results['score']))
+        test_scores[sn] = results['score']
+        test_scores['test_time'] += results['duration']
 
-    test_scores['fit_time'] = fit_time
-    test_scores['test_time'] = test_time
+    idx_print("Test time: %s seconds." % test_scores['test_time'])
+    test_scores['fit_time'] = fit_results['duration']
 
     saver.add_object(test_scores, 'test_scores', scenario_idx, params=best_params)
 
@@ -354,8 +380,12 @@ def inspect_kind(directory, kind, idx):
 
         for i, (o, k) in objects:
             print("Idx: {}".format(i))
-            print("Object:")
-            pprint.pprint(o)
+            if isinstance(o, str):
+                print("File contents:")
+                print(o)
+            else:
+                print("Object:")
+                pprint.pprint(o)
             print("Associated kwargs:")
             pprint.pprint(k)
     else:
@@ -390,8 +420,7 @@ def sd_parallel(task, input_archive, output_dir, scenario_idx=-1, seed=None,
         raise ValueError("Unknown task {} for sd-parallel.".format(task))
 
 
-def sd_experiment(task, directory, scenario_idx=-1, **kwargs):
-
+def sd_experiment(task, directory, **kwargs):
     logging.basicConfig(level=logging.INFO, format='')
     if task == 'plot':
         parallel_exp_plot(directory, **kwargs)
@@ -406,7 +435,6 @@ def sd_experiment(task, directory, scenario_idx=-1, **kwargs):
             idx = int(kwargs['idx'])
         except KeyError:
             raise KeyError("``idx`` not supplied, nothing to inspect.")
-
         inspect_kind(directory, kind, idx)
     elif task == 'complete':
         directories = sorted(glob.glob(directory))
