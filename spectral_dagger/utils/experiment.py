@@ -22,7 +22,7 @@ except ImportError:
     from sklearn.grid_search import RandomizedSearchCV, GridSearchCV
 
 import spectral_dagger as sd
-from spectral_dagger.utils.misc import make_symlink, make_filename, indent, as_title
+from spectral_dagger.utils.misc import make_symlink, make_filename, indent, as_title, checked_makedirs
 from spectral_dagger.utils.plot import plot_measures
 
 verbosity = 2
@@ -160,7 +160,7 @@ class ExperimentStore(object):
             path = os.path.join(self.path, kind)
 
         latest = os.readlink(os.path.join(path, 'latest'))
-        return ExperimentDirectory(latest)
+        return ExperimentDirectory(latest, store=self)
 
     def get_latest_results(self, filename='results'):
         exp_dir = self.get_latest_exp_dir()
@@ -179,8 +179,9 @@ class ExperimentStore(object):
 
 class ExperimentDirectory(object):
     """ Wraps a directory storing data related to an experiment. """
-    def __init__(self, path, store=None):
+    def __init__(self, path, store=None, force_fresh=False):
         self.path = path
+        checked_makedirs(path, force_fresh)
         self.store = store
 
     def path_for(self, path, is_dir=False):
@@ -354,7 +355,8 @@ class Experiment(object):
         self.name = name
 
         exp_store = ExperimentStore(directory or DEFAULT_EXPDIR)
-        self.exp_dir = exp_store.new_experiment(self.name, use_time=use_time)
+        self.exp_dir = exp_store.new_experiment(
+            self.name, use_time=use_time, force_fresh=True)
 
         self.save_estimators = save_estimators
         self.save_datasets = save_datasets

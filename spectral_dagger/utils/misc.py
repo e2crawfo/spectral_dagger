@@ -1,5 +1,6 @@
 import os
 from os import path
+import errno
 import shutil
 import string
 import datetime
@@ -25,13 +26,27 @@ _title_width = 80
 _title_format = "\n{{0:=<{0}.{0}s}}".format(_title_width)
 
 
+if six.PY2:
+    class FileExistsError(Exception):
+        pass
+
+
+def checked_makedirs(directory, force_fresh):
+    try:
+        os.makedirs(directory)
+    except OSError as e:
+        if e.errno != errno.EEXIST or force_fresh:
+            raise
+    except FileExistsError:
+        if force_fresh:
+            raise
+
+
 class ObjectSaver(object):
-    def __init__(self, dirname, eager=True):
+    def __init__(self, dirname, force_fresh=False, eager=True):
         self._objects = defaultdict(lambda: {})
         self._counts = defaultdict(int)
-        if os.path.isdir(dirname):
-            shutil.rmtree(dirname)
-        os.makedirs(dirname)
+        checked_makedirs(dirname, force_fresh)
         self._dirname = dirname
         self.eager = eager
 
