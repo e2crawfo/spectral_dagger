@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 def plot_measures(
         results, measures, x_var, split_var,
         measure_display=None, x_var_display=None, legend_loc='right',
-        errorbars=True, logx=None, logy=None, kwarg_func=None,
+        errorbars=True, logx=None, logy=None, jitter_x=None, kwarg_func=None,
         kwargs=None, fig=None):
     """ A function for plotting certain pandas DataFrames.
 
@@ -67,6 +67,9 @@ def plot_measures(
         using ``logx`` as base.
     logy: float > 1 or None (optional)
         Similar to logx.
+    jitter_x: float > 0.0 or None (optional)
+        Standard deviation of noise to add to x-values to avoid overlapping points.
+        If 0, then uses deterministic jittering.
     kwarg_func: func (optional)
         A function which accepts one of the values from ``split_var`` and
         returns a dict of key word arguments for the call to plt.errorbar
@@ -108,8 +111,8 @@ def plot_measures(
         ax = fig.add_subplot(n_plots, 1, i+1)
         _plot_measure(
             results, measure, x_var, split_var, measure_display=measure_str,
-            logx=logx, logy=logy, kwarg_func=kwarg_func, kwargs=kwargs, ax=ax,
-            errorbars=errorbars)
+            logx=logx, logy=logy, jitter_x=jitter_x, kwarg_func=kwarg_func,
+            kwargs=kwargs, ax=ax, errorbars=errorbars)
 
         legend_handles.update(
             **{l: h for h, l in zip(*ax.get_legend_handles_labels())})
@@ -137,9 +140,30 @@ def plot_measures(
     return fig, axes
 
 
+def jitter(arr, s):
+    _range = max(arr)-min(arr)
+    _range = _range if _range else 1.0
+    stdev = s * _range
+    return arr + np.random.randn(len(arr)) * stdev
+
+
+def deterministic_jitter(arr, i, n, s=0.15):
+    if n == 1:
+        return arr
+    assert n > 1 and isinstance(n, int)
+    assert s >= 0.0
+
+    if len(arr) == 1:
+        return arr + np.linspace(-s, s)[i]
+
+    spacing = max(arr[1:]-arr[:-1])
+    delta = (s * spacing * np.linspace(-0.5, 0.5, n))[i]
+    return arr + delta
+
+
 def _plot_measure(
         results, measure, x_var, split_vars, measure_display=None,
-        errorbars=True, logx=None, logy=None, kwarg_func=None,
+        errorbars=True, logx=None, logy=None, jitter_x=None, kwarg_func=None,
         kwargs=None, ax=None):
 
     if ax is None:
@@ -199,11 +223,25 @@ def _plot_measure(
 
     lines = []
 
-    for sv in sv_series.unique():
+    X_values = []
+    Y_values = []
+
+    sv_unique = list(sv_series.unique())
+    n = len(sv_unique)
+    for i, sv in enumerate(sv_unique):
         data = mean[sv_series == sv]
 
         X = data[x_var].values
+        if jitter_x is not None:
+            if jitter_x == 0:
+                X = deterministic_jitter(X, i, n)
+            else:
+                X = jitter(X, jitter_x)
+
         Y = data[measure].values
+
+        X_values.extend(X)
+        Y_values.extend(Y)
 
         _kwargs = kwargs.copy()
         if isinstance(kwarg_func, collections.Callable):
@@ -225,17 +263,22 @@ def _plot_measure(
             lines.extend(l)
 
     def _remove_inf(s):
-        return s.replace([np.inf, -np.inf], np.nan)
+        if isinstance(s, pd.Series):
+            return s.replace([np.inf, -np.inf], np.nan)
+        else:
+            s = np.array(s, dtype='f')
+            s[np.isinf(s)] = np.nan
+            return s
 
-    lo_x = _remove_inf(results[x_var]).min()
-    hi_x = _remove_inf(results[x_var]).max()
+    lo_x = _remove_inf(X_values).min()
+    hi_x = _remove_inf(X_values).max()
 
     xlim_lo = lo_x - 0.05 * (hi_x - lo_x)
     xlim_hi = hi_x + 0.05 * (hi_x - lo_x)
     ax.set_xlim(xlim_lo, xlim_hi)
 
-    lo_y = _remove_inf(results[measure]).min()
-    hi_y = _remove_inf(results[measure]).max()
+    lo_y = _remove_inf(Y_values).min()
+    hi_y = _remove_inf(Y_values).max()
 
     ylim_lo = lo_y - 0.05 * (hi_y - lo_y)
     ylim_hi = hi_y + 0.05 * (hi_y - lo_y)

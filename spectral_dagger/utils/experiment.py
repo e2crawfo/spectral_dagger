@@ -625,7 +625,7 @@ class Experiment(object):
 
 def _plot(
         experiment, df, plot_path, legend_loc='right',
-        x_var_display="", score_display=None, title="", labels=None, show=False):
+        x_var_display="", score_display=None, title="", labels=None, show=False, jitter_x=0.0):
     return __plot(
         experiment.score_names, experiment.x_var_name, df, plot_path, legend_loc,
         x_var_display, score_display, title, labels, show)
@@ -633,7 +633,8 @@ def _plot(
 
 def __plot(
         score_names, x_var_name, df, plot_path, legend_loc='right',
-        x_var_display="", score_display=None, title="", labels=None, show=False):
+        x_var_display="", score_display=None, title="", labels=None, show=False,
+        jitter_x=0.0):
 
     if os.path.isfile(plot_path):
         os.rename(plot_path, plot_path + '.bk')
@@ -662,7 +663,8 @@ def __plot(
         legend_loc=legend_loc,
         kwarg_func=plot_kwarg_func,
         measure_display=score_display,
-        x_var_display=x_var_display)
+        x_var_display=x_var_display,
+        jitter_x=float(jitter_x))
     axes[0].set_title(title)
 
     # plt.rc('text', usetex=True)
