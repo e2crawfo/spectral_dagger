@@ -33,17 +33,21 @@ def parse_timedelta(s):
 def submit_job(
         task, input_zip, n_jobs=-1, n_nodes=1, ppn=12, walltime="1:00:00",
         cleanup_time="00:15:00", add_date=False, test=0, scratch=None,
-        exclude="", verbose=0, show_script=0, dry_run=0):
+        exclude="", verbose=0, show_script=0, dry_run=0, queue=None,
+        parallel_exe="parallel", sdbin='$HOME/.virtualenvs/main2.7/bin/'):
 
     idx_file = 'job_indices.txt'
     name = os.path.splitext(os.path.basename(input_zip))[0]
     exclude = "--exclude \*{}\*".format(exclude) if exclude else ""
+    queue = "#PBS -q {}".format(queue) if queue is not None else ""
     # Create directory to run the job from - should be on scratch.
     scratch = os.path.abspath(scratch or os.getenv('SCRATCH'))
     experiments_dir = os.path.join(scratch, "experiments")
     scratch = make_directory_name(
         experiments_dir, '{}_{}'.format(name, task), add_date=add_date)
     dirname = zip_root(input_zip)
+    sd_parallel = os.path.join(sdbin, 'sd-parallel')
+    sd_experiment = os.path.join(sdbin, 'sd-experiment')
 
     job_results = os.path.abspath(os.path.join(experiments_dir, 'job_results'))
 
@@ -67,36 +71,42 @@ def submit_job(
 
 # MOAB/Torque submission script for multiple, dynamically-run serial jobs
 #
+#PBS -V
 #PBS -l nodes={n_nodes}:ppn={ppn},walltime={walltime}
-#PBS -N {name}
+#PBS -N {name}_{task}
 #PBS -M eric.crawford@mail.mcgill.ca
 #PBS -m abe
+#PBS -A jim-594-aa
 #PBS -e stderr.txt
 #PBS -o stdout.txt
-
-module load gcc/5.4.0
-module load GNUParallel/20141022
-module load MPI/Gnu/gcc4.9.2/openmpi/1.10.2
-module load python/2.7.2
+''' + queue + '''
 
 # Turn off implicit threading in Python
 export OMP_NUM_THREADS=1
 
 cd {scratch}
+mkdir results
 echo "Starting job at - "
 date
 
-parallel --sshloginfile $PBS NODEFILE --nonall \\
-         echo Ramdisk on host \\$HOSTNAME is \\$RAMDISK
+echo "Printing RAMDISK..."
+{parallel_exe} --no-notice --sshloginfile $PBS_NODEFILE --nonall \\
+    echo Ramdisk on host \\$HOSTNAME is \\$RAMDISK, working directory is \\$PWD.
 
-parallel --sshloginfile $PBS NODEFILE --nonall \\
-         cp {input_zip} \\$RAMDISK
+echo "Staging input archive..."
+{parallel_exe} --no-notice --sshloginfile $PBS_NODEFILE --nonall \\
+    cp {input_zip} \\$RAMDISK
 
+echo "Listing staging results..."
+{parallel_exe} --no-notice --sshloginfile $PBS_NODEFILE --nonall \\
+    "echo ls on node \\$HOSTNAME && ls"
+
+echo "Running parallel..."
 timeout --signal=TERM {execution_time}s \\
-        parallel --no-notice -j{ppn} --workdir $PWD \\
-                 --joblog {scratch}/joblog.txt --env OMP_NUM_THREADS \\
-                 --sshloginfile $PBS_NODEFILE \\
-                 sd-parallel {task} \\$RAMDISK/{input_zip_bn} \\$RAMDISK/{dirname} {{}} --verbose {verbose} < {idx_file}
+    {parallel_exe} --no-notice -j{ppn} --workdir $PWD \\
+        --joblog {scratch}/joblog.txt --env OMP_NUM_THREADS --env PATH\\
+        --sshloginfile $PBS_NODEFILE \\
+        {sd_parallel} {task} \\$RAMDISK/{input_zip_bn} \\$RAMDISK/{dirname} {{}} --verbose {verbose} < {idx_file}
 
 if [ "$?" -eq 124 ]; then
     echo Timed out after {execution_time} seconds.
@@ -105,31 +115,38 @@ fi
 echo "Cleaning up at - "
 date
 
-parallel --no-notice -j1 --workdir $PWD --return \\$PARALLEL_SEQ.zip \\
-         --joblog {scratch}/cleanup_joblog.txt --env OMP_NUM_THREADS \\
-         --sshloginfile $PBS_NODEFILE \\
-         zip -rq \\$PARALLEL_SEQ \\$RAMDISK/{dirname}
+{parallel_exe} --no-notice --sshloginfile $PBS_NODEFILE --nonall \\
+    "echo Retrieving results from node \\$HOSTNAME && cd \\$RAMDISK && zip -rq \\$HOSTNAME {dirname} && mv \\$HOSTNAME.zip {scratch}/results"
 
 cd {scratch}
 echo In scratch dir: $PWD
 ls
 echo "Unzipping basefile..."
-unzip -q {input_zip}
+unzip -q {input_zip} -d results
+
+echo "In results: "$PWD
+cd results
+ls
 
 echo "Unzipping results from different nodes..."
-for i in `seq 0 $(({n_nodes}-1))`;
+for f in *zip
 do
-    echo "Storing results from node "$i
-    unzip -qu $i.zip
-    rm $i.zip
+    echo "Storing results from node "$f
+    unzip -nuq $f
+    rm $f
 done
 
 echo "Zipping final results..."
 zip -qr {name} {dirname}
-echo "Removing final results directory..."
-rm -rf {dirname}
+mv {name}.zip ..
+cd ..
+echo "Should be in scratch now..."
+ls
 
-sd-experiment complete {name}.zip
+echo "Removing final results directory..."
+rm -rf results
+
+{sd_experiment} complete {name}.zip
 cp {name}.zip {job_results}
 
 '''
