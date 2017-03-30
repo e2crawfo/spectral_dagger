@@ -60,8 +60,10 @@ def plot_measures(
         A string for displaying as the x-axis label.
     legend_loc: one of 'left', 'bottom' (optional)
         Where to place the legend.
-    errorbars: bool (optional)
-        Whether to calculate and display error bars.
+    errorbars: (optional)
+        'fill' -> Will calculate error bars and display them with transparent filling.
+        Any other truthy value -> Will calculate error bars and display them normally.
+        Any falsy value -> No error bars.
     logx: float > 1 or None (optional)
         If None, x-axis scaled as normal. Otherwise, scaled logarithmically
         using ``logx`` as base.
@@ -105,7 +107,7 @@ def plot_measures(
     for i, measure in enumerate(measures):
         try:
             measure_str = measure_display[i]
-        except:
+        except Exception:
             measure_str = measure
 
         ax = fig.add_subplot(n_plots, 1, i+1)
@@ -191,16 +193,13 @@ def _plot_measure(
                 if len(values) > 1:
                     try:
                         ci = bootstrap.ci(values)
-                    except:
+                    except Exception:
                         ci = values[0], values[0]
 
                 elif len(values) == 1:
                     ci = values[0], values[0]
                 else:
                     ci = (np.nan, np.nan)
-                    # raise Exception(
-                    #     "No values for measure %s with "
-                    #     "index %s." % (measure, name))
 
                 ci_lower[name] = ci[0]
                 ci_upper[name] = ci[1]
@@ -221,13 +220,14 @@ def _plot_measure(
     if logy is not None:
         ax.set_yscale("log", nonposy='clip', basey=logy)
 
-    lines = []
+    lines = []  # List of lines that are added, doesn't include errorbars.
 
     X_values = []
     Y_values = []
 
     sv_unique = list(sv_series.unique())
     n = len(sv_unique)
+    legend_handles_labels = []
     for i, sv in enumerate(sv_unique):
         data = mean[sv_series == sv]
 
@@ -251,16 +251,40 @@ def _plot_measure(
         else:
             _kwargs.update(dict(label=sv))
 
-        if errorbars:
+        if errorbars == 'fill':
+            y_lower = data['ci_lower'].values
+            y_upper = data['ci_upper'].values
+            Y_values.extend(data['ci_lower'].values)
+            Y_values.extend(data['ci_upper'].values)
+
+            label = _kwargs.pop('label', '')
+            l = ax.plot(X, Y, **_kwargs)
+            l = l[0]
+
+            fill_kwargs = {'facecolor': l.get_color(), 'edgecolor': l.get_color(), 'alpha': 0.3, 'label': label}
+            ax.fill_between(X, y_lower, y_upper, **fill_kwargs)
+            fill = ax.fill(np.NaN, np.NaN, color=l.get_color(), alpha=0.5)
+            legend_handles_labels.append(((l, fill[0]), label))
+
+        elif errorbars:
             y_lower = data[measure].values - data['ci_lower'].values
             y_upper = data['ci_upper'].values - data[measure].values
+            Y_values.extend(data['ci_lower'].values)
+            Y_values.extend(data['ci_upper'].values)
             yerr = np.vstack((y_lower, y_upper))
+            label = _kwargs.get('label', '')
 
-            l, _, _ = ax.errorbar(X, Y, yerr=yerr, **_kwargs)
-            lines.append(l)
+            l = ax.errorbar(X, Y, yerr=yerr, **_kwargs)
+            legend_handles_labels.append((l[0], label))
+
         else:
+            label = _kwargs.get('label', '')
             l = ax.plot(X, Y, **_kwargs)
-            lines.extend(l)
+            legend_handles_labels.append((l[0], label))
+
+        lines.append(l)
+
+    ax._legend_handles_labels = zip(*legend_handles_labels)
 
     def _remove_inf(s):
         if isinstance(s, pd.Series):
