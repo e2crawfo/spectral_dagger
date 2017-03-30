@@ -454,7 +454,7 @@ def sd_experiment(task, directory, **kwargs):
             cv_score_idx = set(loader.indices_for_kind('cv_score'))
             unfinished = train_scenario_idx.difference(cv_score_idx)
             if unfinished:
-                print("CV not finished. {} scenarios left to do.".format(len(unfinished)))
+                print("CV not finished. {} scenarios left to do out of {} total.".format(len(unfinished), len(train_scenario_idx)))
                 print(str_int_list(unfinished))
             else:
                 print("CV finished, {} scenarios complete.".format(len(train_scenario_idx)))
@@ -463,7 +463,7 @@ def sd_experiment(task, directory, **kwargs):
             test_score_idx = set(loader.indices_for_kind('test_scores'))
             unfinished = test_scenario_idx.difference(test_score_idx)
             if unfinished:
-                print("Testing not finished. {} scenarios left to do.".format(len(unfinished)))
+                print("Testing not finished. {} scenarios left to do out of {} total.".format(len(unfinished), len(test_scenario_idx)))
                 print(str_int_list(unfinished))
             else:
                 print("Testing finished, {} scenarios complete.".format(len(test_scenario_idx)))
