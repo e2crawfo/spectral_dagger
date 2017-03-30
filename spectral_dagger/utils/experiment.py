@@ -142,11 +142,11 @@ class ExperimentStore(object):
         except:
             pass
 
-    def new_experiment(self, name, data=None, use_time=False):
+    def new_experiment(self, name, data=None, use_time=False, force_fresh=True):
         """ Create a new experiment path. """
         filename = make_filename(name, use_time=use_time, config_dict=data)
         make_symlink(filename, os.path.join(self.path, 'latest'))
-        return ExperimentDirectory(os.path.join(self.path, filename), store=self)
+        return ExperimentDirectory(os.path.join(self.path, filename), store=self, force_fresh=force_fresh)
 
     def __str__(self):
         return "ExperimentStore(%s)".format(self.path)
@@ -260,7 +260,7 @@ class Experiment(object):
             argument with name equal to ``x_var_name``. Must return either a
             train and test set, or a train set, test set, and dictionary giving
             context/annotation information on the generated data. If this
-            context dictionary contains the key `true_model`, then the value
+            context dictionary contains any keys ending in '_model', then the value
             at this key will also have the test score functions applied to it.
         score: None or function or list of function
             A function for evaluating a model. Signature: ``score(est, X, y)``.
@@ -427,17 +427,19 @@ class Experiment(object):
 
                     train, test, context = self._draw_dataset(x, r, data_rng)
 
-                    if context is not None and 'true_model' in context:
-                        logger.info("Testing ground-truth model...")
+                    if context:
+                        for attr in context:
+                            if attr.endswith('_model'):
+                                logger.info("Testing model {} accompanying dataset...".format(attr))
 
-                        results.append({
-                            'round': r, self.x_var_name: x,
-                            'method': context['true_model'].name})
+                                results.append({
+                                    'round': r, self.x_var_name: x,
+                                    'method': context[attr].name})
 
-                        for s, sn in zip(self.scores, self.score_names):
-                            score = s(context['true_model'], test.X, test.y)
-                            logger.info("    Test score %s: %f." % (sn, score))
-                            results[-1][sn] = score
+                                for s, sn in zip(self.scores, self.score_names):
+                                    score = s(context[attr], test.X, test.y)
+                                    logger.info("    Test score %s: %f." % (sn, score))
+                                    results[-1][sn] = score
 
                     for base_est in self.base_estimators:
                         _results = self._train_and_test(

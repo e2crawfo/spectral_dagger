@@ -73,11 +73,12 @@ class ParallelExperiment(Experiment):
                 test_idx = self.saver.add_object(test, 'test', context=context)
                 assert train_idx == test_idx
 
-                if context and 'true_model' in context:
-                    logger.info("Testing ground-truth model...")
+                for attr in context:
+                    if attr.endswith('_model'):
+                        logger.info("Building test scenario for model {} accompanying dataset...".format(attr))
 
-                    self._build_test_scenario(
-                        context['true_model'], x, r, test_idx, None, context, name='true_model')
+                        self._build_test_scenario(
+                            context[attr], x, r, test_idx, None, context, name=attr)
 
                 for base_est in self.base_estimators:
                     est = clone(base_est)

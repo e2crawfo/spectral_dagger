@@ -1,4 +1,4 @@
-from .sequence_model import SequenceModel, sample_words
+from .sequence_model import SequenceModel, StaticSequenceModel, sample_words
 
 from .hankel import estimate_hankels, estimate_kernel_hankels, true_hankel_for_pfa
 from .hankel import build_frequencies, hankels_from_callable
