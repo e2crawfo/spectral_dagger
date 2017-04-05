@@ -26,6 +26,23 @@ class GaussianHMM(Estimator, SequenceModel):
             params="stmc", init_params="stmc"):
         self._set_attrs(locals())
 
+    def set_learned_params(self, means=None, covars=None, startprob=None, transmat=None):
+        if means is not None:
+            self.gmm_.means_ = means
+        if covars is not None:
+            self.gmm_.covars_ = covars
+
+        if means is not None or covars is not None:
+            self.obs_dists_ = [
+                multivariate_normal(mean=m, cov=c)
+                for m, c in zip(self.gmm_.means_, self.gmm_._get_covars())]
+
+        if startprob is not None:
+            self.gmm_.startprob_ = startprob
+        if transmat is not None:
+            self.gmm_.transmat_ = transmat
+        self.gmm_._check()
+
     @property
     def record_attrs(self):
         return super(GaussianHMM, self).record_attrs or set(['n_states'])
@@ -36,19 +53,21 @@ class GaussianHMM(Estimator, SequenceModel):
             pd.update(n_states=list(range(2, context['max_states'])))
         return pd
 
-    def fit(self, data):
+    @property
+    def gmm_(self):
+        if not hasattr(self, '_gmm_'):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                kwargs = self.get_params()
+                kwargs['n_components'] = kwargs['n_states']
+                del kwargs['n_states']  # hmm.GaussianHMM refers to states  as components
+                self._gmm_ = hmm.GaussianHMM(**kwargs)
+        return self._gmm_
 
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            X = np.vstack(data)
-            lengths = [len(d) for d in data]
-            kwargs = self.get_params()
-            if len(X) < self.n_states:
-                kwargs['n_states'] = len(X)
-            kwargs['n_components'] = kwargs['n_states']
-            del kwargs['n_states']  # hmm.GaussianHMM calls states components
-            self.gmm_ = hmm.GaussianHMM(**kwargs)
-            self.gmm_.fit(X, lengths)
+    def fit(self, data):
+        X = np.vstack(data)
+        lengths = [len(d) for d in data]
+        self.gmm_.fit(X, lengths)
 
         self.obs_dists_ = [
             multivariate_normal(mean=m, cov=c)
