@@ -53,13 +53,14 @@ setup(
         "dill",
         "seaborn",
         "scikits.bootstrap",
-        "rdp",
-        "gensim",
         "pytest",
-        "hmmlearn",
         "future",
         "six",
     ],
+    # optional
+    #    "rdp",
+    #    "gensim",
+    #    "hmmlearn",
     entry_points={
         'console_scripts': [
             'sdagger = spectral_dagger.main:main',
