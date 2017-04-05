@@ -135,8 +135,12 @@ class Dataset(object):
 
 class ExperimentStore(object):
     """ Stores a collection of experiments. Each new experiment is assigned a fresh sub-path. """
-    def __init__(self, path):
+    def __init__(self, path, prefix='exp', max_experiments=None, delete_old=False):
         self.path = os.path.abspath(path)
+        assert prefix, "prefix cannot be empty"
+        self.prefix = prefix
+        self.max_experiments = max_experiments
+        self.delete_old = delete_old
         try:
             os.makedirs(self.path)
         except:
@@ -144,12 +148,32 @@ class ExperimentStore(object):
 
     def new_experiment(self, name, data=None, use_time=False, force_fresh=True):
         """ Create a new experiment path. """
-        filename = make_filename(name, use_time=use_time, config_dict=data)
+        if self.max_experiments is not None:
+            experiments = os.listdir(self.path)
+            n_experiments = len(experiments)
+
+            if n_experiments >= self.max_experiments:
+                if self.delete_old:
+                    paths = [
+                        os.path.join(self.path, p) for p in experiments
+                        if p.startswith(self.prefix)]
+                    sorted_by_modtime = sorted(
+                        paths, key=lambda x: os.stat(x).st_mtime, reverse=True)
+                    for p in sorted_by_modtime[self.max_experiments-1:]:
+                        print("Deleting old experiment directory {}.".format(p))
+                        shutil.rmtree(p)
+                else:
+                    raise Exception(
+                        "Too many experiments (greater than {}) in "
+                        "directory {}.".format(self.max_experiments, self.path))
+
+        filename = make_filename(self.prefix + '_' + name, use_time=use_time, config_dict=data)
         make_symlink(filename, os.path.join(self.path, 'latest'))
-        return ExperimentDirectory(os.path.join(self.path, filename), store=self, force_fresh=force_fresh)
+        return ExperimentDirectory(
+            os.path.join(self.path, filename), store=self, force_fresh=force_fresh)
 
     def __str__(self):
-        return "ExperimentStore(%s)".format(self.path)
+        return "ExperimentStore({})".format(self.path)
 
     def __repr__(self):
         return str(self)
