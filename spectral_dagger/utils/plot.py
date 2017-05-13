@@ -71,7 +71,7 @@ def plot_measures(
         Similar to logx.
     jitter_x: float > 0.0 or None (optional)
         Standard deviation of noise to add to x-values to avoid overlapping points.
-        If 0, then uses deterministic jittering.
+        If < 0, then uses deterministic jittering with ``-jitter_x`` as width.
     kwarg_func: func (optional)
         A function which accepts one of the values from ``split_var`` and
         returns a dict of key word arguments for the call to plt.errorbar
@@ -124,7 +124,7 @@ def plot_measures(
     ordered_labels = sorted(legend_handles.keys())
     ordered_handles = [legend_handles[l] for l in ordered_labels]
 
-    if legend_loc == 'right':
+    if legend_loc == 'right_side':
         # ax.legend(
         #     loc='center left', bbox_to_anchor=(1, 0.5),
         #     prop={'size': 10}, handlelength=3.0, handletextpad=.5,
@@ -132,10 +132,12 @@ def plot_measures(
         fig.legend(
             ordered_handles, ordered_labels, loc='center left',
             bbox_to_anchor=(0.0, 0.5), ncol=1)
-    else:
+    elif legend_loc == 'bottom':
         fig.legend(
             ordered_handles, ordered_labels, loc='lower center',
             bbox_to_anchor=(0.5, 0.0), ncol=4)
+    elif legend_loc is not None:
+        fig.legend(ordered_handles, ordered_labels, loc=legend_loc)
 
     ax.set_xlabel(x_var if x_var_display is None else x_var_display)
 
@@ -149,7 +151,7 @@ def jitter(arr, s):
     return arr + np.random.randn(len(arr)) * stdev
 
 
-def deterministic_jitter(arr, i, n, s=0.15):
+def deterministic_jitter(arr, i, n, s=0.25):
     if n == 1:
         return arr
     assert n > 1 and isinstance(n, int)
@@ -233,8 +235,8 @@ def _plot_measure(
 
         X = data[x_var].values
         if jitter_x is not None:
-            if jitter_x == 0:
-                X = deterministic_jitter(X, i, n)
+            if jitter_x < 0:
+                X = deterministic_jitter(X, i, n, -jitter_x)
             else:
                 X = jitter(X, jitter_x)
 

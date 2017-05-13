@@ -358,11 +358,17 @@ def parallel_exp_plot(directory, **plot_kwargs):
             for sn, s in list(ts.items()):
                 results['results'][test_scenario_idx][sn] = s
 
-    score_names = results['score_names']
-    x_var_name = results['x_var_name']
+    if 'score_names' not in plot_kwargs:
+        plot_kwargs['score_names'] = results['score_names']
+    if 'x_var_name' not in plot_kwargs:
+        plot_kwargs['x_var_name'] = results['x_var_name']
+    if 'plot_path' not in plot_kwargs:
+        plot_kwargs['plot_path'] = 'plot.pdf'
 
     df = pd.DataFrame.from_records(list(results['results'].values()))
-    __plot(score_names, x_var_name, df, 'plot.pdf', **plot_kwargs)
+    plot_kwargs['df'] = df
+
+    __plot(**plot_kwargs)
 
 
 def process_joblog(directory):

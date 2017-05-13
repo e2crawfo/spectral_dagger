@@ -136,7 +136,7 @@ class Dataset(object):
 class ExperimentStore(object):
     """ Stores a collection of experiments. Each new experiment is assigned a fresh sub-path. """
     def __init__(self, path, prefix='exp', max_experiments=None, delete_old=False):
-        self.path = os.path.abspath(path)
+        self.path = os.path.abspath(str(path))
         assert prefix, "prefix cannot be empty"
         self.prefix = prefix
         self.max_experiments = max_experiments
@@ -653,7 +653,7 @@ class Experiment(object):
 
 def _plot(
         experiment, df, plot_path, legend_loc='right',
-        x_var_display="", score_display=None, title="", labels=None, show=False, jitter_x=0.0):
+        x_var_display="", score_display=None, title="", labels=None, show=False, jitter_x=0.0, time=False):
     return __plot(
         experiment.score_names, experiment.x_var_name, df, plot_path, legend_loc,
         x_var_display, score_display, title, labels, show)
@@ -662,7 +662,12 @@ def _plot(
 def __plot(
         score_names, x_var_name, df, plot_path, legend_loc='right',
         x_var_display="", score_display=None, title="", labels=None, show=False,
-        jitter_x=0.0):
+        jitter_x=0.0, time=False):
+
+    if isinstance(score_names, str):
+        score_names = [score_names]
+    if isinstance(score_display, str):
+        score_display = [score_display]
 
     if os.path.isfile(plot_path):
         os.rename(plot_path, plot_path + '.bk')
