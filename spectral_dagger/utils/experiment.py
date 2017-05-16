@@ -146,7 +146,7 @@ class ExperimentStore(object):
         except:
             pass
 
-    def new_experiment(self, name, data=None, use_time=False, force_fresh=True):
+    def new_experiment(self, name, data=None, use_time=False, force_fresh=True, update_latest=True):
         """ Create a new experiment path. """
         if self.max_experiments is not None:
             experiments = os.listdir(self.path)
@@ -168,7 +168,8 @@ class ExperimentStore(object):
                         "directory {}.".format(self.max_experiments, self.path))
 
         filename = make_filename(self.prefix + '_' + name, use_time=use_time, config_dict=data)
-        make_symlink(filename, os.path.join(self.path, 'latest'))
+        if update_latest:
+            make_symlink(filename, os.path.join(self.path, 'latest'))
         return ExperimentDirectory(
             os.path.join(self.path, filename), store=self, force_fresh=force_fresh)
 
