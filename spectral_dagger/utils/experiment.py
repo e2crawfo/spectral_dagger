@@ -161,7 +161,10 @@ class ExperimentStore(object):
                         paths, key=lambda x: os.stat(x).st_mtime, reverse=True)
                     for p in sorted_by_modtime[self.max_experiments-1:]:
                         print("Deleting old experiment directory {}.".format(p))
-                        shutil.rmtree(p)
+                        try:
+                            shutil.rmtree(p)
+                        except NotADirectoryError:
+                            os.remove(p)
                 else:
                     raise Exception(
                         "Too many experiments (greater than {}) in "
