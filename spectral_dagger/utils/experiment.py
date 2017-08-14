@@ -142,7 +142,7 @@ class ExperimentStore(object):
         self.max_experiments = max_experiments
         self.delete_old = delete_old
         try:
-            os.makedirs(self.path)
+            os.makedirs(os.path.realpath(self.path))
         except:
             pass
 
