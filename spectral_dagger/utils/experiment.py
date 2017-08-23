@@ -11,7 +11,7 @@ import copy
 import dill as pickle
 import matplotlib.pyplot as plt
 from matplotlib.markers import MarkerStyle
-import seaborn.apionly as sns
+import seaborn as sns
 
 from sklearn.base import clone
 from sklearn.utils import check_random_state
